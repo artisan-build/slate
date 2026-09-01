@@ -1,0 +1,8 @@
+Encoders:
+ V..... = Video
+ A..... = Audio
+ V....D libopenh264          OpenH264 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10
+ V..... libkvazaar           libkvazaar H.265 / HEVC
+ V..... libsvtav1            SVT-AV1 encoder
+ V....D libvpx-vp9           libvpx VP9
+ V....D h264_nvenc           NVIDIA NVENC H.264 encoder

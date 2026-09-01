@@ -1,0 +1,1 @@
+[Parsed_metadata_1 @ 0xffff80001000] lavfi.signalstats.YAVG=16
