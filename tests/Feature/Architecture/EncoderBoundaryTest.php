@@ -1,63 +1,25 @@
 <?php
 
 /**
- * Finds literal encoder names in PHP source text. This cannot detect a name assembled at runtime from fragments.
- *
- * @return list<string>
+ * FfmpegDiagnostics legitimately names alternate encoders because the doctor inspects `ffmpeg -encoders`
+ * output. The primary H.264 and AAC output contract belongs only to the binary driver.
  */
-function filesContainingEncoderNames(string $root): array
-{
-    $paths = [];
+test('keeps documented encoder literals at their approved source locations', function (): void {
+    $locations = encoderNameLocations(base_path('app'));
 
-    if (is_file($root)) {
-        $paths[] = $root;
-    } else {
-        $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
-            $root,
-            FilesystemIterator::SKIP_DOTS,
-        ));
-
-        foreach ($iterator as $file) {
-            if ($file->isFile() && $file->getExtension() === 'php') {
-                $paths[] = $file->getPathname();
-            }
-        }
-    }
-
-    $matches = [];
-
-    foreach ($paths as $path) {
-        $contents = file_get_contents($path);
-
-        if (! is_string($contents)) {
-            throw new RuntimeException("Unable to scan source file: {$path}");
-        }
-
-        if (preg_match('/\\b(?:libopenh264|libkvazaar|libsvtav1|libvpx-vp9|libx264|libx265)\\b/', $contents) !== 1) {
-            continue;
-        }
-
-        $matches[] = is_file($root)
-            ? basename($path)
-            : str_replace(DIRECTORY_SEPARATOR, '/', substr($path, strlen($root) + 1));
-    }
-
-    sort($matches);
-
-    return $matches;
-}
-
-test('allows encoder names only at explicit binary boundaries', function (): void {
-    $matches = filesContainingEncoderNames(base_path('app'));
-
-    expect($matches)->toBe([
-        'Services/FfmpegDiagnostics.php',
-        'Slate/Driver/Binary/H264RateControl.php',
+    expect($locations)->toBe([
+        'aac' => ['Slate/Driver/Binary/H264RateControl.php'],
+        'libkvazaar' => ['Services/FfmpegDiagnostics.php'],
+        'libopenh264' => ['Slate/Driver/Binary/H264RateControl.php'],
+        'libsvtav1' => ['Services/FfmpegDiagnostics.php'],
+        'libvpx-vp9' => ['Services/FfmpegDiagnostics.php'],
     ]);
 });
 
-test('source scan catches a rogue encoder name', function (): void {
-    $fixture = base_path('tests/Fixtures/rogue-encoder.php');
+test('recursive source scan catches a nested rogue encoder name', function (): void {
+    $fixtureDirectory = base_path('tests/Fixtures/EncoderBoundary');
 
-    expect(filesContainingEncoderNames($fixture))->toBe(['rogue-encoder.php']);
+    expect(encoderNameLocations($fixtureDirectory))->toBe([
+        'libopenh264' => ['Deeply/Nested/RogueEncoder.php'],
+    ]);
 });

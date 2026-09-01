@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Slate\Recipe;
 
-enum QualityTier
+enum QualityTier: string
 {
-    case Intermediate;
-    case Delivery;
+    case Intermediate = 'intermediate';
+    case Delivery = 'delivery';
 }

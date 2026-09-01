@@ -13,17 +13,27 @@ final class H264RateControl
      */
     public static function argumentsFor(QualityTier $tier, int $width, int $height, int $framesPerSecond): array
     {
-        $targetBitrate = (int) round($width * $height * $framesPerSecond * self::bitsPerPixel($tier));
+        return self::argumentsForBitsPerPixel(self::bitsPerPixel($tier), $width, $height, $framesPerSecond);
+    }
+
+    /**
+     * Generates candidate arguments for the external calibration harness.
+     *
+     * @return list<string>
+     */
+    public static function argumentsForBitsPerPixel(
+        float $bitsPerPixel,
+        int $width,
+        int $height,
+        int $framesPerSecond,
+    ): array {
+        $requestedBitrate = (int) round($width * $height * $framesPerSecond * $bitsPerPixel);
 
         return [
             '-c:v',
             self::encoder(),
             '-b:v',
-            (string) $targetBitrate,
-            '-maxrate',
-            (string) intdiv($targetBitrate * 3, 2),
-            '-bufsize',
-            (string) ($targetBitrate * 2),
+            (string) $requestedBitrate,
             '-profile:v',
             'high',
             '-coder',
@@ -32,8 +42,16 @@ final class H264RateControl
             (string) ($framesPerSecond * 2),
             '-rc_mode',
             'bitrate',
-            '-allow_skip_frames',
-            '1',
+            '-vf',
+            'scale=in_range=auto:out_range=tv,format=yuv420p',
+            '-pix_fmt',
+            'yuv420p',
+            '-r',
+            (string) $framesPerSecond,
+            '-c:a',
+            'aac',
+            '-b:a',
+            '192k',
         ];
     }
 
@@ -45,7 +63,7 @@ final class H264RateControl
     private static function bitsPerPixel(QualityTier $tier): float
     {
         return match ($tier) {
-            QualityTier::Intermediate => 0.08,
+            QualityTier::Intermediate => 0.16,
             QualityTier::Delivery => 0.04,
         };
     }
