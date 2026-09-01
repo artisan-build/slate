@@ -15,4 +15,11 @@ return [
             resource_path('fonts/NotoSans[wdth,wght].ttf'),
         ),
     ],
+    'benchmark' => [
+        'duration_seconds' => 60,
+        'chunk_seconds' => 10,
+        'visibility_timeout_seconds' => 180,
+        'job_timeout_seconds' => 170,
+        'scratch_path' => storage_path('app/slate-benchmarks'),
+    ],
 ];
