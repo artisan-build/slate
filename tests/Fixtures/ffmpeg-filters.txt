@@ -1,0 +1,6 @@
+Filters:
+  T.. = Timeline support
+  .S. = Slice threading
+  ..C = Command support
+ ... colorbalance      V->V       Adjust the color balance.
+ T.C drawtext          V->V       Draw text on top of video frames using libfreetype library.

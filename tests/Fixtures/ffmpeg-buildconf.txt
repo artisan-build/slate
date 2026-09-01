@@ -1,0 +1,7 @@
+ffmpeg version n9.0.1-11-ge47273f4d9
+configuration:
+    --enable-libfreetype
+    --enable-fontconfig
+    --enable-libharfbuzz
+    --enable-libfribidi
+    --disable-debug
