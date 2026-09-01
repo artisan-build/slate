@@ -1,7 +1,13 @@
 includes:
-    - vendor/larastan/larastan/extension.neon
+    - ./vendor/larastan/larastan/extension.neon
+    - ./phpstan-baseline.neon
 
 parameters:
     paths:
-        - app
+        - app/
+    excludePaths:
+        - **/*Test.php
+    scanFiles:
+        - _ide_helper_models.php
     level: 6
+    treatPhpDocTypesAsCertain: false
