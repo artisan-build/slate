@@ -4,18 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Slate\Driver\Binary\H264RateControl;
+
 final class FfmpegDiagnostics
 {
-    /**
-     * @var list<string>
-     */
-    public const TARGET_ENCODERS = [
-        'libopenh264',
-        'libkvazaar',
-        'libsvtav1',
-        'libvpx-vp9',
-    ];
-
     public function hasDrawtextFilter(string $filters): bool
     {
         return preg_match('/^\s*[A-Z.]{2,3}\s+drawtext\s/m', $filters) === 1;
@@ -38,12 +30,25 @@ final class FfmpegDiagnostics
     public function registeredTargetEncoders(string $encoders): array
     {
         return array_values(array_filter(
-            self::TARGET_ENCODERS,
+            $this->targetEncoders(),
             static fn (string $encoder): bool => preg_match(
                 '/^\s*[A-Z.]{6}\s+'.preg_quote($encoder, '/').'\s/m',
                 $encoders,
             ) === 1,
         ));
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function targetEncoders(): array
+    {
+        return [
+            H264RateControl::encoder(),
+            'libkvazaar',
+            'libsvtav1',
+            'libvpx-vp9',
+        ];
     }
 
     public function averageLuma(string $output): ?float

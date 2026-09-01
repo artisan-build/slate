@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Services\FfmpegBenchmark;
+use App\Slate\Driver\Binary\H264RateControl;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -34,7 +35,7 @@ final class ProcessFfmpegBenchmarkChunk implements ShouldQueue
 
         Log::info('slate.ffmpeg_benchmark.chunk', [
             'run_id' => $this->runId,
-            'encoder' => 'libopenh264',
+            'encoder' => H264RateControl::encoder(),
             ...$measurement,
         ]);
     }
