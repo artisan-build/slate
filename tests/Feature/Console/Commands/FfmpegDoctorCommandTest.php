@@ -4,7 +4,7 @@ use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 
-beforeEach(function () {
+beforeEach(function (): void {
     $this->runtimePath = storage_path('framework/testing/ffmpeg-doctor-'.uniqid());
     $this->fontPath = $this->runtimePath.'/font.ttf';
     $binPath = $this->runtimePath.'/ffmpeg/bin';
@@ -17,13 +17,13 @@ beforeEach(function () {
     config()->set('slate.ffmpeg.font_path', $this->fontPath);
 });
 
-afterEach(function () {
+afterEach(function (): void {
     if (is_dir($this->runtimePath)) {
         File::deleteDirectory($this->runtimePath);
     }
 });
 
-test('proves drawtext changed pixels and reports registered encoders', function () {
+test('proves drawtext changed pixels and reports registered encoders', function (): void {
     Process::preventStrayProcesses();
     Process::fake(function (PendingProcess $process) {
         $command = is_array($process->command) ? $process->command : [];
@@ -53,7 +53,7 @@ test('proves drawtext changed pixels and reports registered encoders', function 
         ->assertSuccessful();
 });
 
-test('fails the pixel check when drawtext renders no visible pixels', function () {
+test('fails the pixel check when drawtext renders no visible pixels', function (): void {
     Process::preventStrayProcesses();
     Process::fake(function (PendingProcess $process) {
         $command = is_array($process->command) ? $process->command : [];

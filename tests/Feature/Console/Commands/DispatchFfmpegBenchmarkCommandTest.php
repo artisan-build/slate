@@ -3,7 +3,7 @@
 use App\Jobs\PrepareFfmpegBenchmark;
 use Illuminate\Support\Facades\Queue;
 
-test('dispatches the coordinator to the default queue connection', function () {
+test('dispatches the coordinator to the default queue connection', function (): void {
     Queue::fake();
 
     $this->artisan('slate:benchmark-queue', [
@@ -11,14 +11,12 @@ test('dispatches the coordinator to the default queue connection', function () {
         '--chunk' => 5,
     ])->assertSuccessful();
 
-    Queue::assertPushed(PrepareFfmpegBenchmark::class, function (PrepareFfmpegBenchmark $job): bool {
-        return $job->durationSeconds === 30
-            && $job->chunkSeconds === 5
-            && $job->connection === null;
-    });
+    Queue::assertPushed(PrepareFfmpegBenchmark::class, fn (PrepareFfmpegBenchmark $job): bool => $job->durationSeconds === 30
+        && $job->chunkSeconds === 5
+        && $job->connection === null);
 });
 
-test('rejects an invalid chunk length without dispatching', function () {
+test('rejects an invalid chunk length without dispatching', function (): void {
     Queue::fake();
 
     $this->artisan('slate:benchmark-queue', [

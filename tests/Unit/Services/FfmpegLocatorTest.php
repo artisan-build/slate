@@ -5,7 +5,7 @@ use Tests\TestCase;
 
 uses(TestCase::class);
 
-test('resolves the pinned LGPL asset for Linux arm64', function (string $machine) {
+test('resolves the pinned LGPL asset for Linux arm64', function (string $machine): void {
     config()->set('slate.ffmpeg.asset', 'ffmpeg-linuxarm64-lgpl.tar.xz');
 
     $asset = (new FfmpegLocator('Linux', $machine))->assetName();
@@ -13,7 +13,7 @@ test('resolves the pinned LGPL asset for Linux arm64', function (string $machine
     expect($asset)->toBe('ffmpeg-linuxarm64-lgpl.tar.xz');
 })->with(['arm64', 'aarch64']);
 
-test('rejects an unsupported platform', function (string $osFamily, string $machine) {
+test('rejects an unsupported platform', function (string $osFamily, string $machine): void {
     $resolve = fn (): string => (new FfmpegLocator($osFamily, $machine))->assetName();
 
     expect($resolve)->toThrow(
@@ -26,7 +26,7 @@ test('rejects an unsupported platform', function (string $osFamily, string $mach
     ['Windows', 'AMD64'],
 ]);
 
-test('keeps binaries inside the configured app runtime path', function () {
+test('keeps binaries inside the configured app runtime path', function (): void {
     config()->set('slate.ffmpeg.runtime_path', '/var/www/html/runtime');
 
     $locator = new FfmpegLocator('Linux', 'aarch64');
