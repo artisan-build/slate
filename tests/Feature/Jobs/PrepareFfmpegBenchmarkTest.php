@@ -7,7 +7,7 @@ use App\Services\FfmpegBenchmark;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 
-test('dispatches one chained job per prepared chunk followed by finalization', function () {
+test('dispatches one chained job per prepared chunk followed by finalization', function (): void {
     Bus::fake();
     Log::spy();
 

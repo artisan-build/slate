@@ -2,7 +2,7 @@
 
 use App\Services\FfmpegBenchmark;
 
-test('summarizes chunk throughput against the configured visibility timeout', function () {
+test('summarizes chunk throughput against the configured visibility timeout', function (): void {
     $worker = [
         'hostname' => 'worker-a',
         'memory_max' => '2147483648',
