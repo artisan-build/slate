@@ -8,9 +8,9 @@ test('keeps documented encoder literals at their approved source locations', fun
     $locations = encoderNameLocations(base_path('app'));
 
     expect($locations)->toBe([
-        'aac' => ['Slate/Driver/Binary/H264RateControl.php'],
+        'aac' => ['Slate/Driver/Binary/H264OutputContract.php'],
         'libkvazaar' => ['Services/FfmpegDiagnostics.php'],
-        'libopenh264' => ['Slate/Driver/Binary/H264RateControl.php'],
+        'libopenh264' => ['Slate/Driver/Binary/H264OutputContract.php'],
         'libsvtav1' => ['Services/FfmpegDiagnostics.php'],
         'libvpx-vp9' => ['Services/FfmpegDiagnostics.php'],
     ]);

@@ -1,6 +1,6 @@
 <?php
 
-use App\Slate\Driver\Binary\H264RateControl;
+use App\Slate\Driver\Binary\H264OutputContract;
 use App\Slate\Recipe\QualityTier;
 
 test('computes measured rate control from tier resolution and frame rate', function (
@@ -10,11 +10,11 @@ test('computes measured rate control from tier resolution and frame rate', funct
     int $framesPerSecond,
     int $requestedBitrate,
 ): void {
-    $arguments = H264RateControl::argumentsFor($tier, $width, $height, $framesPerSecond);
+    $arguments = H264OutputContract::argumentsFor($tier, $width, $height, $framesPerSecond);
 
     expect($arguments)->toBe([
         '-c:v',
-        H264RateControl::encoder(),
+        H264OutputContract::encoder(),
         '-b:v',
         (string) $requestedBitrate,
         '-profile:v',
@@ -25,8 +25,6 @@ test('computes measured rate control from tier resolution and frame rate', funct
         (string) ($framesPerSecond * 2),
         '-rc_mode',
         'bitrate',
-        '-vf',
-        'scale=in_range=auto:out_range=tv,format=yuv420p',
         '-pix_fmt',
         'yuv420p',
         '-r',
@@ -49,7 +47,7 @@ test('keeps quality tiers distinct and excludes unsupported controls', function 
     $outputs = [];
 
     foreach (QualityTier::cases() as $tier) {
-        $arguments = H264RateControl::argumentsFor($tier, 1536, 1024, 24);
+        $arguments = H264OutputContract::argumentsFor($tier, 1536, 1024, 24);
         $serializedArguments = implode(' ', $arguments);
 
         expect($serializedArguments)
@@ -59,10 +57,21 @@ test('keeps quality tiers distinct and excludes unsupported controls', function 
             ->not->toContain('libx265')
             ->not->toContain('-maxrate')
             ->not->toContain('-bufsize')
-            ->not->toContain('-allow_skip_frames');
+            ->not->toContain('-allow_skip_frames')
+            ->not->toContain('-vf');
 
         $outputs[] = $arguments;
     }
 
     expect(array_unique(array_map(serialize(...), $outputs)))->toHaveCount(count(QualityTier::cases()));
+});
+
+test('provides normalization as an append-only filter fragment', function (): void {
+    $operationFilter = 'crop=640:480:0:0';
+
+    $composedFilter = $operationFilter.','.H264OutputContract::videoNormalizationFilter();
+
+    expect($composedFilter)->toBe(
+        'crop=640:480:0:0,scale=in_range=auto:out_range=tv,format=yuv420p',
+    );
 });

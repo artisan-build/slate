@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Slate\Driver\Binary\H264RateControl;
+use App\Slate\Driver\Binary\H264OutputContract;
 
 final class FfmpegDiagnostics
 {
@@ -44,7 +44,7 @@ final class FfmpegDiagnostics
     private function targetEncoders(): array
     {
         return [
-            H264RateControl::encoder(),
+            H264OutputContract::encoder(),
             'libkvazaar',
             'libsvtav1',
             'libvpx-vp9',

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Services\FfmpegBenchmark;
-use App\Slate\Driver\Binary\H264RateControl;
+use App\Slate\Driver\Binary\H264OutputContract;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -47,7 +47,7 @@ final class FinalizeFfmpegBenchmark implements ShouldQueue
                 'run_id' => $this->runId,
                 'source_type' => 'synthetic_testsrc2',
                 'synthetic_input_does_not_verify_bucket_io' => true,
-                'encoder' => H264RateControl::encoder(),
+                'encoder' => H264OutputContract::encoder(),
                 'chunk_count' => $this->chunkCount,
                 'target_chunk_seconds' => $this->chunkSeconds,
                 'requested_duration_seconds' => $this->durationSeconds,

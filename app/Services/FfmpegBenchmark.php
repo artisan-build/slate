@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Slate\Driver\Binary\H264RateControl;
+use App\Slate\Driver\Binary\H264OutputContract;
 use Illuminate\Support\Facades\Process;
 use JsonException;
 use RuntimeException;
@@ -29,7 +29,7 @@ class FfmpegBenchmark
 
         $this->ensureDirectory($scratchPath);
         $this->assertRuntimeAvailable();
-        $this->assertEncoderAvailable(H264RateControl::encoder());
+        $this->assertEncoderAvailable(H264OutputContract::encoder());
 
         $generationStartedAt = $this->milliseconds();
         $this->generateSyntheticSource($sourcePath, $durationSeconds, $chunkSeconds);
@@ -72,7 +72,7 @@ class FfmpegBenchmark
             "testsrc2=size=1280x720:rate={$frameRate}:duration={$durationSeconds}",
             '-an',
             '-c:v',
-            H264RateControl::encoder(),
+            H264OutputContract::encoder(),
             '-b:v',
             '2M',
             '-g',
@@ -135,7 +135,7 @@ class FfmpegBenchmark
             $this->drawtextFilter($fontPath, $chunkIndex),
             '-an',
             '-c:v',
-            H264RateControl::encoder(),
+            H264OutputContract::encoder(),
             '-b:v',
             '2M',
             '-pix_fmt',

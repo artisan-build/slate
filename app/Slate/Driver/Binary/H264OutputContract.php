@@ -6,9 +6,16 @@ namespace App\Slate\Driver\Binary;
 
 use App\Slate\Recipe\QualityTier;
 
-final class H264RateControl
+/**
+ * Builds the complete H.264 and AAC output contract for video re-encode operations.
+ *
+ * Audio-copy operations must not use this contract because it intentionally emits AAC settings.
+ */
+final class H264OutputContract
 {
     /**
+     * Returns output arguments without an operation filtergraph.
+     *
      * @return list<string>
      */
     public static function argumentsFor(QualityTier $tier, int $width, int $height, int $framesPerSecond): array
@@ -42,8 +49,6 @@ final class H264RateControl
             (string) ($framesPerSecond * 2),
             '-rc_mode',
             'bitrate',
-            '-vf',
-            'scale=in_range=auto:out_range=tv,format=yuv420p',
             '-pix_fmt',
             'yuv420p',
             '-r',
@@ -53,6 +58,17 @@ final class H264RateControl
             '-b:a',
             '192k',
         ];
+    }
+
+    /**
+     * Returns the final video filter fragment that must be appended to the operation's filter chain.
+     *
+     * Appending this fragment converts full-range JPEG frames that would otherwise remain yuvj420p
+     * into limited-range yuv420p without competing with the operation's `-vf` or `-filter_complex`.
+     */
+    public static function videoNormalizationFilter(): string
+    {
+        return 'scale=in_range=auto:out_range=tv,format=yuv420p';
     }
 
     public static function encoder(): string

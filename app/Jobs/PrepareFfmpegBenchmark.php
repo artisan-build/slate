@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Services\FfmpegBenchmark;
-use App\Slate\Driver\Binary\H264RateControl;
+use App\Slate\Driver\Binary\H264OutputContract;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Bus;
@@ -58,7 +58,7 @@ final class PrepareFfmpegBenchmark implements ShouldQueue
             'source_size_bytes' => $prepared['source_size_bytes'],
             'generation_duration_ms' => $prepared['generation_duration_ms'],
             'split_duration_ms' => $prepared['split_duration_ms'],
-            'encoder' => H264RateControl::encoder(),
+            'encoder' => H264OutputContract::encoder(),
             'worker' => $prepared['worker'],
         ]);
 

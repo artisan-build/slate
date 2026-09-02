@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-use App\Slate\Driver\Binary\H264RateControl;
+use App\Slate\Driver\Binary\H264OutputContract;
 use App\Slate\Recipe\QualityTier;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 
-#[Signature('slate:h264-arguments {width} {height} {fps} {--tier=} {--bits-per-pixel=}')]
-#[Description('Print the shipped H.264 output arguments, one argument per line.')]
+#[Signature('slate:h264-arguments {width} {height} {fps} {--tier=} {--bits-per-pixel=} {--normalization-filter}')]
+#[Description('Print the shipped H.264 output arguments or video normalization fragment.')]
 final class H264ArgumentsCommand extends Command
 {
     public function handle(): int
@@ -26,6 +26,12 @@ final class H264ArgumentsCommand extends Command
             $this->components->error('Width, height, and fps must be positive integers.');
 
             return self::FAILURE;
+        }
+
+        if ((bool) $this->option('normalization-filter')) {
+            $this->line(H264OutputContract::videoNormalizationFilter());
+
+            return self::SUCCESS;
         }
 
         if (is_string($tierName) === is_string($bitsPerPixelOption)) {
@@ -43,7 +49,7 @@ final class H264ArgumentsCommand extends Command
                 return self::FAILURE;
             }
 
-            $arguments = H264RateControl::argumentsFor($tier, $width, $height, $framesPerSecond);
+            $arguments = H264OutputContract::argumentsFor($tier, $width, $height, $framesPerSecond);
         } else {
             if (! is_string($bitsPerPixelOption) || ! is_numeric($bitsPerPixelOption) || (float) $bitsPerPixelOption <= 0) {
                 $this->components->error('Bits per pixel must be a positive number.');
@@ -51,7 +57,7 @@ final class H264ArgumentsCommand extends Command
                 return self::FAILURE;
             }
 
-            $arguments = H264RateControl::argumentsForBitsPerPixel(
+            $arguments = H264OutputContract::argumentsForBitsPerPixel(
                 (float) $bitsPerPixelOption,
                 $width,
                 $height,
