@@ -149,9 +149,15 @@ test('recursive compiler emission scan catches a second drawtext text emitter', 
     ]);
 });
 
-test('keeps direct storage access at its approved infrastructure location', function (): void {
+/**
+ * The deployed verifier alone may resolve the default disk so it can test the real application wiring.
+ * The allowance is revoked if it stops being that regression probe, and it grants no other storage primitive.
+ */
+test('permits only default disk resolution in the deployed storage verifier', function (): void {
     expect(storageBoundaryLocations(base_path('app')))->toBe([
-        'Console/Commands/VerifyObjectStorageCommand.php',
+        'storage disk' => [
+            'Console/Commands/VerifyObjectStorageCommand.php',
+        ],
     ]);
 });
 
@@ -159,15 +165,15 @@ test('recursive storage scan catches a nested rogue disk construction', function
     $fixtureDirectory = base_path('tests/Fixtures/Boundary/Storage');
 
     expect(storageBoundaryLocations($fixtureDirectory))->toBe([
-        'Deeply/Nested/RogueStorage.php',
-        'Deeply/Nested/RogueStorageBuild.php',
-        'Deeply/Nested/RogueStorageClient.php',
-        'Deeply/Nested/RogueStorageCloud.php',
-        'Deeply/Nested/RogueStorageConfiguredFactory.php',
-        'Deeply/Nested/RogueStorageDirect.php',
-        'Deeply/Nested/RogueStorageDrive.php',
-        'Deeply/Nested/RogueStorageFullyQualifiedClient.php',
-        'Deeply/Nested/RogueStorageTemporaryUrl.php',
-        'Deeply/Nested/RogueStorageUrl.php',
+        'configured object storage construction' => ['Deeply/Nested/RogueStorageConfiguredFactory.php'],
+        'fully qualified S3 client construction' => ['Deeply/Nested/RogueStorageFullyQualifiedClient.php'],
+        'imported S3 client construction' => ['Deeply/Nested/RogueStorageClient.php'],
+        'object storage construction' => ['Deeply/Nested/RogueStorageDirect.php'],
+        'storage build' => ['Deeply/Nested/RogueStorageBuild.php'],
+        'storage cloud' => ['Deeply/Nested/RogueStorageCloud.php'],
+        'storage disk' => ['Deeply/Nested/RogueStorage.php'],
+        'storage drive' => ['Deeply/Nested/RogueStorageDrive.php'],
+        'storage temporary url' => ['Deeply/Nested/RogueStorageTemporaryUrl.php'],
+        'storage url' => ['Deeply/Nested/RogueStorageUrl.php'],
     ]);
 });

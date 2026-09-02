@@ -28,6 +28,8 @@ use Throwable;
 #[Description('Round-trip an object through the resolved storage seam and report memory usage as JSON.')]
 final class VerifyObjectStorageCommand extends Command
 {
+    private const MaxRssGrowthRatio = 0.10;
+
     public function handle(ObjectStorage $objectStorage, JobScratch $jobScratch): int
     {
         $objectKey = ObjectKey::withinPrefix(
@@ -35,9 +37,11 @@ final class VerifyObjectStorageCommand extends Command
             'live-verification/object-storage-'.Str::uuid()->toString().'.bin',
         );
         $disk = null;
+        $cleanupRequired = false;
         $result = [
             'default_disk' => config('filesystems.default'),
             'configured_driver' => null,
+            'resolved_driver' => null,
             'resolved_stream_reads' => null,
             'object_key' => $objectKey->value(),
             'object_size_bytes' => null,
@@ -47,6 +51,9 @@ final class VerifyObjectStorageCommand extends Command
             'peak_rss_during_read_bytes' => null,
             'rss_growth_during_read_bytes' => null,
             'peak_rss_to_object_ratio' => null,
+            'rss_growth_to_object_ratio' => null,
+            'max_rss_growth_ratio' => self::MaxRssGrowthRatio,
+            'memory_within_limit' => false,
             'deleted' => false,
             'exists_after_delete' => null,
             'error' => null,
@@ -57,6 +64,12 @@ final class VerifyObjectStorageCommand extends Command
             $disk = Storage::disk();
             $result['object_size_bytes'] = $objectSize;
             $result = $this->withResolvedDiskDetails($result, $disk);
+
+            if ($result['resolved_driver'] === 's3' && $result['resolved_stream_reads'] !== true) {
+                throw new RuntimeException('Resolved S3 disk does not have streamed reads enabled.');
+            }
+
+            $cleanupRequired = true;
             $result = array_replace(
                 $result,
                 $jobScratch->run(fn (ScratchDirectory $scratch): array => $this->roundTrip(
@@ -67,10 +80,17 @@ final class VerifyObjectStorageCommand extends Command
                     $objectSize,
                 )),
             );
+
+            if ($result['memory_within_limit'] !== true) {
+                $result = $this->withError(
+                    $result,
+                    'RSS growth exceeded '.self::MaxRssGrowthRatio.' of object size.',
+                );
+            }
         } catch (Throwable $exception) {
             $result['error'] = $exception::class.': '.$exception->getMessage();
         } finally {
-            if ($disk instanceof Filesystem) {
+            if ($disk instanceof Filesystem && $cleanupRequired) {
                 try {
                     $disk->delete($objectKey->value());
                     $result['exists_after_delete'] = $disk->exists($objectKey->value());
@@ -82,6 +102,9 @@ final class VerifyObjectStorageCommand extends Command
                 } catch (Throwable $exception) {
                     $result = $this->withError($result, 'Cleanup failed: '.$exception->getMessage());
                 }
+            } elseif (! $cleanupRequired) {
+                $result['exists_after_delete'] = false;
+                $result['deleted'] = true;
             }
         }
 
@@ -116,6 +139,7 @@ final class VerifyObjectStorageCommand extends Command
         $result['configured_driver'] = is_string($config['driver'] ?? null) ? $config['driver'] : null;
 
         if ($adapter instanceof AwsS3V3Adapter) {
+            $result['resolved_driver'] = 's3';
             $result['resolved_stream_reads'] = (new ReflectionProperty(AwsS3V3Adapter::class, 'streamReads'))
                 ->getValue($adapter);
         }
@@ -155,13 +179,18 @@ final class VerifyObjectStorageCommand extends Command
             throw new RuntimeException('Round-trip content comparison failed.');
         }
 
+        $rssGrowth = max(0, $peakRss - $rssBeforeRead);
+        $rssGrowthRatio = $rssGrowth / $objectSize;
+
         return [
             'exists_after_stage_out' => true,
             'content_identical' => true,
             'rss_before_read_bytes' => $rssBeforeRead,
             'peak_rss_during_read_bytes' => $peakRss,
-            'rss_growth_during_read_bytes' => max(0, $peakRss - $rssBeforeRead),
+            'rss_growth_during_read_bytes' => $rssGrowth,
             'peak_rss_to_object_ratio' => round($peakRss / $objectSize, 4),
+            'rss_growth_to_object_ratio' => round($rssGrowthRatio, 4),
+            'memory_within_limit' => $rssGrowthRatio <= self::MaxRssGrowthRatio,
         ];
     }
 
