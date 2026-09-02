@@ -4,6 +4,7 @@ use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledFilterGraph;
 use App\Slate\Driver\Binary\FfmpegLocator;
+use App\Slate\Driver\Binary\H264OutputContract;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ScratchDirectory;
@@ -101,3 +102,51 @@ test('accepts legitimate compiled filtergraphs near the bare protocol syntax', f
     'xfade' => 'xfade=transition=fade:duration=1:offset=4',
     'local movie input' => 'movie=/tmp/input.mp4',
 ]);
+
+test('rejects multiple simple video filters in one compiled recipe', function (): void {
+    $first = CompiledFilterGraph::fromCompiler('scale=1536:1024');
+    $second = CompiledFilterGraph::fromCompiler('format=yuv420p');
+
+    expect(fn (): CompiledRecipe => new CompiledRecipe(
+        new FfmpegLocator('Linux', 'arm64', '/runtime'),
+        BinaryExecutable::Ffmpeg,
+        [
+            CompiledArgument::option('-vf'),
+            CompiledArgument::filterGraph($first),
+            CompiledArgument::option('-vf'),
+            CompiledArgument::filterGraph($second),
+        ],
+    ))->toThrow(LogicException::class, 'more than one -vf');
+});
+
+test('rejects simple and complex video filters in one compiled recipe', function (): void {
+    $simple = CompiledFilterGraph::fromCompiler('scale=1536:1024');
+    $complex = CompiledFilterGraph::fromCompiler('[0:v][1:v]overlay[video]');
+
+    expect(fn (): CompiledRecipe => new CompiledRecipe(
+        new FfmpegLocator('Linux', 'arm64', '/runtime'),
+        BinaryExecutable::Ffmpeg,
+        [
+            CompiledArgument::option('-vf'),
+            CompiledArgument::filterGraph($simple),
+            CompiledArgument::option('-filter_complex'),
+            CompiledArgument::filterGraph($complex),
+        ],
+    ))->toThrow(LogicException::class, 'cannot combine -vf with -filter_complex');
+});
+
+test('rejects H264 output whose filtergraph omits normalization', function (): void {
+    $encoder = CompiledFilterGraph::fromCompiler(H264OutputContract::encoder());
+    $operationFilter = CompiledFilterGraph::fromCompiler('scale=1536:1024');
+
+    expect(fn (): CompiledRecipe => new CompiledRecipe(
+        new FfmpegLocator('Linux', 'arm64', '/runtime'),
+        BinaryExecutable::Ffmpeg,
+        [
+            CompiledArgument::option('-c:v'),
+            CompiledArgument::filterGraph($encoder),
+            CompiledArgument::option('-vf'),
+            CompiledArgument::filterGraph($operationFilter),
+        ],
+    ))->toThrow(LogicException::class, 'must contain video normalization');
+});

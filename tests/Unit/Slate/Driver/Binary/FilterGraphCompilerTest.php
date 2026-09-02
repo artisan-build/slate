@@ -1,6 +1,9 @@
 <?php
 
+use App\Slate\Driver\Binary\CompiledArgument;
+use App\Slate\Driver\Binary\CompiledFilterGraph;
 use App\Slate\Driver\Binary\FilterGraphCompiler;
+use App\Slate\Recipe\QualityTier;
 
 test('appends normalization to the operation filter chain', function (): void {
     $filter = (new FilterGraphCompiler)->compileH264Video([
@@ -8,9 +11,35 @@ test('appends normalization to the operation filter chain', function (): void {
         'fade=t=out:st=4:d=1',
     ]);
 
-    expect($filter->value())->toBe(
+    expect($filter->filterGraph()->value())->toBe(
         'crop=640:480:0:0,fade=t=out:st=4:d=1,scale=in_range=auto:out_range=tv,format=yuv420p',
     );
+});
+
+test('attaches normalization to the labelled output of a complex video graph', function (): void {
+    $filter = (new FilterGraphCompiler)->compileH264ComplexVideo(
+        ['[1:v]fade=type=in:st=1:d=0.5:alpha=1[badge]'],
+        '[0:v][badge]overlay=x=20:y=40',
+    );
+
+    expect($filter->complex)->toBeTrue()
+        ->and($filter->filterGraph()->value())->toBe(
+            '[1:v]fade=type=in:st=1:d=0.5:alpha=1[badge];'
+            .'[0:v][badge]overlay=x=20:y=40[operation_video];'
+            .'[operation_video]scale=in_range=auto:out_range=tv,format=yuv420p[video]',
+        );
+});
+
+test('requires a normalized graph before H264 output arguments can be constructed', function (): void {
+    $unnormalized = CompiledFilterGraph::fromCompiler('scale=1536:1024');
+
+    expect(fn (): array => CompiledArgument::h264VideoOutput(
+        $unnormalized,
+        QualityTier::Delivery,
+        1536,
+        1024,
+        24,
+    ))->toThrow(TypeError::class);
 });
 
 test('escapes drawtext option values for both ffmpeg parser levels', function (): void {

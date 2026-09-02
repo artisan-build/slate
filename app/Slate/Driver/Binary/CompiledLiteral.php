@@ -7,6 +7,8 @@ namespace App\Slate\Driver\Binary;
 enum CompiledLiteral: string
 {
     case AudioOutputLabel = '[audio]';
+    case AudioInputZero = '0:a:0';
+    case AudioInputOne = '1:a:0';
     case Concat = 'concat';
     case Copy = 'copy';
     case Error = 'error';
@@ -21,5 +23,7 @@ enum CompiledLiteral: string
     case NullMuxer = 'null';
     case StandardStream = '-';
     case StereoChannelCount = '2';
+    case VideoInputZero = '0:v:0';
+    case VideoOutputLabel = '[video]';
     case Zero = '0';
 }
