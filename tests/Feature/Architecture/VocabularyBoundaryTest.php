@@ -82,6 +82,7 @@ test('keeps process execution primitives at approved infrastructure and legacy l
     expect(processPrimitiveLocations(base_path('app')))->toBe([
         'process class reference' => [
             'Console/Commands/ProvisionFfmpegCommand.php',
+            'Console/Commands/VerifyObjectStorageCommand.php',
             'Services/FfmpegBenchmark.php',
         ],
     ]);
@@ -148,8 +149,10 @@ test('recursive compiler emission scan catches a second drawtext text emitter', 
     ]);
 });
 
-test('keeps direct S3 disk client and object URL construction inside storage', function (): void {
-    expect(storageBoundaryLocations(base_path('app')))->toBe([]);
+test('keeps direct storage access at its approved infrastructure location', function (): void {
+    expect(storageBoundaryLocations(base_path('app')))->toBe([
+        'Console/Commands/VerifyObjectStorageCommand.php',
+    ]);
 });
 
 test('recursive storage scan catches a nested rogue disk construction', function (): void {

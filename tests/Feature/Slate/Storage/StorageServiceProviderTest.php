@@ -7,6 +7,10 @@ use Illuminate\Support\Facades\Storage;
 use League\Flysystem\AwsS3V3\AwsS3V3Adapter;
 use League\Flysystem\Local\LocalFilesystemAdapter;
 
+test('the application registers the object storage provider', function (): void {
+    expect(resolve(ObjectStorage::class))->toBeInstanceOf(S3ObjectStorage::class);
+});
+
 test('the object storage seam streams from the resolved default S3 disk', function (): void {
     config()->set('filesystems.default', 'cloud-injected');
     config()->set('filesystems.disks.cloud-injected', [
@@ -33,6 +37,29 @@ test('the object storage seam streams from the resolved default S3 disk', functi
         ->and($streamReads)->toBeTrue();
 });
 
+test('a cached default S3 disk is rebuilt after streamed reads are enabled', function (): void {
+    config()->set('filesystems.default', 'cloud-injected');
+    config()->set('filesystems.disks.cloud-injected', [
+        'driver' => 's3',
+        'key' => 'test-key',
+        'secret' => 'test-secret',
+        'region' => 'auto',
+        'bucket' => 'test-bucket',
+        'endpoint' => 'https://example.test',
+    ]);
+    Storage::forgetDisk('cloud-injected');
+    $cachedDisk = Storage::disk();
+
+    (new StorageServiceProvider(app()))->register();
+
+    $resolvedDisk = Storage::disk();
+    $streamReads = (new ReflectionProperty(AwsS3V3Adapter::class, 'streamReads'))
+        ->getValue($resolvedDisk->getAdapter());
+
+    expect($resolvedDisk)->not->toBe($cachedDisk)
+        ->and($streamReads)->toBeTrue();
+});
+
 test('an explicit false keeps streamed reads disabled on the default S3 disk', function (): void {
     config()->set('filesystems.default', 'cloud-injected');
     config()->set('filesystems.disks.cloud-injected', [
@@ -56,12 +83,18 @@ test('an explicit false keeps streamed reads disabled on the default S3 disk', f
         ->and($streamReads)->toBeFalse();
 });
 
-test('a scoped default disk streams reads from its inner S3 disk', function (): void {
+test('a nested scoped default disk streams reads through its object storage seam', function (): void {
+    Storage::extend('scoped', fn ($app, array $config) => Storage::disk($config['disk']));
     config()->set('filesystems.default', 'customer-scope');
     config()->set('filesystems.disks.customer-scope', [
         'driver' => 'scoped',
-        'disk' => 'cloud-injected',
+        'disk' => 'project-scope',
         'prefix' => 'customers/customer-123',
+    ]);
+    config()->set('filesystems.disks.project-scope', [
+        'driver' => 'scoped',
+        'disk' => 'cloud-injected',
+        'prefix' => 'projects/project-456',
     ]);
     config()->set('filesystems.disks.cloud-injected', [
         'driver' => 's3',
@@ -71,16 +104,38 @@ test('a scoped default disk streams reads from its inner S3 disk', function (): 
         'bucket' => 'test-bucket',
         'endpoint' => 'https://example.test',
     ]);
-    Storage::forgetDisk('cloud-injected');
+    Storage::forgetDisk(['customer-scope', 'project-scope', 'cloud-injected']);
 
     (new StorageServiceProvider(app()))->register();
 
-    $adapter = Storage::disk('cloud-injected')->getAdapter();
+    $objectStorageFilesystem = (new ReflectionProperty(S3ObjectStorage::class, 'filesystem'))
+        ->getValue(resolve(ObjectStorage::class));
+    $adapter = $objectStorageFilesystem->getAdapter();
     $streamReads = (new ReflectionProperty(AwsS3V3Adapter::class, 'streamReads'))
         ->getValue($adapter);
 
-    expect($adapter)->toBeInstanceOf(AwsS3V3Adapter::class)
+    expect($objectStorageFilesystem)->toBe(Storage::disk())
+        ->and($adapter)->toBeInstanceOf(AwsS3V3Adapter::class)
         ->and($streamReads)->toBeTrue();
+});
+
+test('a cycle in scoped default disks terminates without changing either disk', function (): void {
+    config()->set('filesystems.default', 'first-scope');
+    config()->set('filesystems.disks.first-scope', [
+        'driver' => 'scoped',
+        'disk' => 'second-scope',
+        'prefix' => 'first',
+    ]);
+    config()->set('filesystems.disks.second-scope', [
+        'driver' => 'scoped',
+        'disk' => 'first-scope',
+        'prefix' => 'second',
+    ]);
+
+    (new StorageServiceProvider(app()))->register();
+
+    expect(config('filesystems.disks.first-scope'))->not->toHaveKey('stream_reads')
+        ->and(config('filesystems.disks.second-scope'))->not->toHaveKey('stream_reads');
 });
 
 test('a non-S3 default disk is left unchanged', function (): void {
