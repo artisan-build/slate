@@ -15,48 +15,67 @@ final readonly class DiagnosticRecipeCompiler
 
     public function version(): CompiledRecipe
     {
-        return new CompiledRecipe([$this->locator->ffmpegPath(), '-hide_banner', '-version']);
+        return $this->ffmpegRecipe([
+            CompiledArgument::option('-hide_banner'),
+            CompiledArgument::option('-version'),
+        ]);
     }
 
     public function filters(): CompiledRecipe
     {
-        return new CompiledRecipe([$this->locator->ffmpegPath(), '-hide_banner', '-filters']);
+        return $this->ffmpegRecipe([
+            CompiledArgument::option('-hide_banner'),
+            CompiledArgument::option('-filters'),
+        ]);
     }
 
     public function buildConfiguration(): CompiledRecipe
     {
-        return new CompiledRecipe([$this->locator->ffmpegPath(), '-hide_banner', '-buildconf']);
+        return $this->ffmpegRecipe([
+            CompiledArgument::option('-hide_banner'),
+            CompiledArgument::option('-buildconf'),
+        ]);
     }
 
     public function encoders(): CompiledRecipe
     {
-        return new CompiledRecipe([$this->locator->ffmpegPath(), '-hide_banner', '-encoders']);
+        return $this->ffmpegRecipe([
+            CompiledArgument::option('-hide_banner'),
+            CompiledArgument::option('-encoders'),
+        ]);
     }
 
     public function luma(?string $fontPath): CompiledRecipe
     {
         $filters = array_filter([
-            $fontPath === null ? null : $this->filters->compileDiagnosticDrawtext($fontPath),
+            $fontPath === null ? null : $this->filters->compileDiagnosticDrawtext($fontPath)->value(),
             'signalstats',
             'metadata=print:key=lavfi.signalstats.YAVG',
         ]);
 
-        return new CompiledRecipe([
-            $this->locator->ffmpegPath(),
-            '-hide_banner',
-            '-loglevel',
-            'info',
-            '-f',
-            'lavfi',
-            '-i',
-            'color=c=black:s=640x200:d=1',
-            '-vf',
-            implode(',', $filters),
-            '-frames:v',
-            '1',
-            '-f',
-            'null',
-            '-',
+        return $this->ffmpegRecipe([
+            CompiledArgument::option('-hide_banner'),
+            CompiledArgument::option('-loglevel'),
+            CompiledArgument::literal(CompiledLiteral::Info),
+            CompiledArgument::option('-f'),
+            CompiledArgument::literal(CompiledLiteral::Lavfi),
+            CompiledArgument::option('-i'),
+            CompiledArgument::lavfiInput(LavfiInput::BlackDiagnosticFrame),
+            CompiledArgument::option('-vf'),
+            CompiledArgument::filterGraph(CompiledFilterGraph::fromCompiler(implode(',', $filters))),
+            CompiledArgument::option('-frames:v'),
+            CompiledArgument::literal(CompiledLiteral::One),
+            CompiledArgument::option('-f'),
+            CompiledArgument::literal(CompiledLiteral::NullMuxer),
+            CompiledArgument::literal(CompiledLiteral::StandardStream),
         ]);
+    }
+
+    /**
+     * @param  list<CompiledArgument>  $arguments
+     */
+    private function ffmpegRecipe(array $arguments): CompiledRecipe
+    {
+        return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, $arguments);
     }
 }

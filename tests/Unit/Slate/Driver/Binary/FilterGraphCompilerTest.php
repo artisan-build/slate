@@ -8,7 +8,7 @@ test('appends normalization to the operation filter chain', function (): void {
         'fade=t=out:st=4:d=1',
     ]);
 
-    expect($filter)->toBe(
+    expect($filter->value())->toBe(
         'crop=640:480:0:0,fade=t=out:st=4:d=1,scale=in_range=auto:out_range=tv,format=yuv420p',
     );
 });
@@ -24,7 +24,7 @@ ESCAPED);
 test('compiles drawtext with expression expansion disabled', function (): void {
     $filter = (new FilterGraphCompiler)->compileDrawtext('/fonts/story.ttf', '%{pts}');
 
-    expect($filter)->toBe(
+    expect($filter->value())->toBe(
         'drawtext=fontfile=/fonts/story.ttf:text=%{pts}:expansion=none:fontcolor=white:fontsize=48:x=20:y=60',
     );
 });

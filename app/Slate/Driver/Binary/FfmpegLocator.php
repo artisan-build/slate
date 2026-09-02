@@ -11,6 +11,7 @@ final readonly class FfmpegLocator
     public function __construct(
         private string $osFamily,
         private string $machine,
+        private ?string $runtimePathOverride = null,
     ) {}
 
     public static function fromSystem(): self
@@ -28,7 +29,7 @@ final readonly class FfmpegLocator
 
     public function runtimePath(): string
     {
-        return (string) config('slate.ffmpeg.runtime_path');
+        return $this->runtimePathOverride ?? (string) config('slate.ffmpeg.runtime_path');
     }
 
     public function installationPath(): string

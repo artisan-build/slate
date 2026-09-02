@@ -40,7 +40,7 @@ test('renders an apostrophe identically to a known-good textfile reference', fun
     file_put_contents($textPath, "it's");
     file_put_contents(
         $generatedFilterPath,
-        (new FilterGraphCompiler)->compileDrawtext($fontPath, "it's"),
+        (new FilterGraphCompiler)->compileDrawtext($fontPath, "it's")->value(),
     );
     file_put_contents(
         $referenceFilterPath,
@@ -53,7 +53,7 @@ test('renders an apostrophe identically to a known-good textfile reference', fun
     file_put_contents($expressionTextPath, '%{pts}');
     file_put_contents(
         $generatedExpressionFilterPath,
-        (new FilterGraphCompiler)->compileDrawtext($fontPath, '%{pts}'),
+        (new FilterGraphCompiler)->compileDrawtext($fontPath, '%{pts}')->value(),
     );
     file_put_contents(
         $referenceExpressionFilterPath,

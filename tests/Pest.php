@@ -74,17 +74,14 @@ function encoderNameLocations(string $root): array
 /**
  * The benchmark harness predates the sealed vocabulary and PR 7 supersedes it.
  *
- * These exact files may retain hand-built ffmpeg commands, a drawtext fragment, and queued local paths.
- * No directory or wildcard is exempted, so a copied service or job is still scanned.
+ * FfmpegBenchmark retains one hand-built drawtext fragment pending PR 7. No job, directory, or wildcard
+ * is exempted, so every exception must still match the filter pattern and the list self-prunes.
  *
  * @return list<string>
  */
 function legacyFfmpegBoundaryExceptions(): array
 {
     return [
-        'Jobs/FinalizeFfmpegBenchmark.php',
-        'Jobs/PrepareFfmpegBenchmark.php',
-        'Jobs/ProcessFfmpegBenchmarkChunk.php',
         'Services/FfmpegBenchmark.php',
     ];
 }
@@ -166,21 +163,21 @@ function binaryAuthorityLocations(string $root): array
 }
 
 /**
- * Finds the closed set of process-execution primitives above the driver boundary.
+ * Finds the enumerated process-execution primitives above the driver boundary.
  *
- * This token scan detects proc_open, exec, shell_exec, passthru, popen, system, Symfony Process, and
- * Laravel's Process facade without depending on command construction shape. Dynamically assembled
- * function or class names remain undetectable. These scans are defence in depth against careless code
- * and copied patterns. The real containment is architectural: Driver::run accepts only a CompiledRecipe
- * produced inside the compiler boundary, so a rogue primitive is a separate invocation rather than argv
- * slipping through the driver.
+ * This token scan detects proc_open, exec, shell_exec, passthru, popen, system, pcntl_exec, pcntl_fork,
+ * backticks, Symfony Process, Laravel's Process facade, and literal process callables passed to
+ * call_user_func. Dynamically assembled function, class, or callable names remain undetectable. These
+ * scans are defence in depth against careless code and copied patterns. The primary containment combines
+ * Driver::run's CompiledRecipe type with source enforcement that confines recipe creation to compilers;
+ * a rogue primitive is a separate invocation rather than argv slipping through the driver.
  *
  * @return array<string, list<string>>
  */
 function processPrimitiveLocations(string $root): array
 {
     $locations = [];
-    $processFunctions = ['exec', 'passthru', 'popen', 'proc_open', 'shell_exec', 'system'];
+    $processFunctions = ['exec', 'passthru', 'pcntl_exec', 'pcntl_fork', 'popen', 'proc_open', 'shell_exec', 'system'];
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
         $root,
         FilesystemIterator::SKIP_DOTS,
@@ -208,23 +205,39 @@ function processPrimitiveLocations(string $root): array
         }
 
         foreach (token_get_all($contents) as $token) {
+            if ($token === '`') {
+                $locations['backtick operator'][] = $relativePath;
+
+                continue;
+            }
+
             if (! is_array($token)) {
                 continue;
             }
 
             [$tokenType, $text] = $token;
 
-            if (! in_array($tokenType, [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED], true)) {
+            if (! in_array($tokenType, [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED, T_NAME_RELATIVE], true)) {
                 continue;
             }
+
+            $namespaceSeparator = strrpos($text, '\\');
+            $unqualifiedName = strtolower($namespaceSeparator === false ? $text : substr($text, $namespaceSeparator + 1));
 
             if ($text === 'Process' || str_ends_with($text, '\\Process')) {
                 $locations['process class reference'][] = $relativePath;
             }
 
-            if (in_array(strtolower($text), $processFunctions, true)) {
+            if (in_array($unqualifiedName, $processFunctions, true)) {
                 $locations['process function'][] = $relativePath;
             }
+        }
+
+        if (preg_match(
+            '/\bcall_user_func\s*\(\s*[\'\"](?:exec|passthru|pcntl_exec|pcntl_fork|popen|proc_open|shell_exec|system)[\'\"]\s*,/i',
+            $contents,
+        ) === 1) {
+            $locations['literal process callable'][] = $relativePath;
         }
     }
 
@@ -255,7 +268,7 @@ function ffmpegFilterFragmentLocations(string $root, array $exceptions = []): ar
 {
     return sourcePatternLocations(
         $root,
-        '/(?<=[\'",])(?:acrossfade|adelay|anullsrc|apad|concat|drawtext|fade|format|metadata|movie|overlay|scale|xfade|zoompan)\s*=/',
+        '/(?<=[\'",\n])(?:acrossfade|adelay|amovie|anullsrc|apad|ass|concat|drawtext|fade|format|metadata|movie|overlay|scale|sendcmd|subtitles|xfade|zoompan)\s*=/',
         $exceptions,
         ['Slate/Driver/'],
     );
@@ -268,11 +281,44 @@ function ffmpegFilterFragmentLocations(string $root, array $exceptions = []): ar
  * a second compiler emitter cannot omit the escaping and `expansion=none` contract unnoticed. It is a
  * source-text scan and cannot detect an emitter assembled from split strings at runtime.
  *
- * @return list<string>
+ * @return array<string, int>
  */
 function drawtextEmitterLocations(string $root): array
 {
-    return sourcePatternLocations($root, '/[\'"].*?text\s*=/');
+    $locations = [];
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
+        $root,
+        FilesystemIterator::SKIP_DOTS,
+    ));
+
+    foreach ($iterator as $file) {
+        if (! $file->isFile() || $file->getExtension() !== 'php') {
+            continue;
+        }
+
+        $contents = file_get_contents($file->getPathname());
+
+        if (! is_string($contents)) {
+            throw new RuntimeException("Unable to scan source file: {$file->getPathname()}");
+        }
+
+        $count = preg_match_all('/(?<=[\'",\n])[^\r\n]*?\btext\s*=/', $contents);
+
+        if ($count < 1) {
+            continue;
+        }
+
+        $relativePath = str_replace(
+            DIRECTORY_SEPARATOR,
+            '/',
+            substr($file->getPathname(), strlen($root) + 1),
+        );
+        $locations[$relativePath] = $count;
+    }
+
+    ksort($locations);
+
+    return $locations;
 }
 
 /**

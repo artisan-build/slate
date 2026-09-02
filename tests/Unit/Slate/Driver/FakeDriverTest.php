@@ -1,12 +1,24 @@
 <?php
 
+use App\Slate\Driver\Binary\BinaryExecutable;
+use App\Slate\Driver\Binary\CompiledArgument;
+use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Driver\DriverResult;
 use App\Slate\Driver\FakeDriver;
 
 test('records compiled recipes and returns queued pipeline results', function (): void {
-    $firstRecipe = new CompiledRecipe(['/runtime/ffmpeg', '-version']);
-    $secondRecipe = new CompiledRecipe(['/runtime/ffprobe', '-version']);
+    $locator = new FfmpegLocator('Linux', 'arm64', '/runtime');
+    $firstRecipe = new CompiledRecipe(
+        $locator,
+        BinaryExecutable::Ffmpeg,
+        [CompiledArgument::option('-version')],
+    );
+    $secondRecipe = new CompiledRecipe(
+        $locator,
+        BinaryExecutable::Ffprobe,
+        [CompiledArgument::option('-version')],
+    );
     $driver = new FakeDriver(
         new DriverResult(output: 'first'),
         new DriverResult(errorOutput: 'second failed', exitCode: 1),

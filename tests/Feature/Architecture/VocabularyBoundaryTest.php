@@ -26,11 +26,16 @@ test('recursive source scan catches a nested rogue encoder name', function (): v
 
 test('keeps the pre-vocabulary benchmark residue in an exact PR 7 exception list', function (): void {
     expect(legacyFfmpegBoundaryExceptions())->toBe([
-        'Jobs/FinalizeFfmpegBenchmark.php',
-        'Jobs/PrepareFfmpegBenchmark.php',
-        'Jobs/ProcessFfmpegBenchmarkChunk.php',
         'Services/FfmpegBenchmark.php',
     ]);
+});
+
+test('keeps every legacy exception attached to a current filter violation', function (): void {
+    $violations = ffmpegFilterFragmentLocations(base_path('app'));
+
+    foreach (legacyFfmpegBoundaryExceptions() as $exception) {
+        expect($violations)->toContain($exception);
+    }
 });
 
 /**
@@ -78,17 +83,26 @@ test('keeps process execution primitives at approved infrastructure and legacy l
     ]);
 });
 
-test('recursive process scan catches every supported execution primitive', function (): void {
+test('recursive process scan catches every enumerated execution primitive', function (): void {
     $fixtureDirectory = base_path('tests/Fixtures/Boundary/Processes');
 
     expect(processPrimitiveLocations($fixtureDirectory))->toBe([
+        'backtick operator' => [
+            'Deeply/Nested/Backtick.php',
+        ],
+        'literal process callable' => [
+            'Deeply/Nested/LiteralCallable.php',
+        ],
         'process class reference' => [
             'Deeply/Nested/LaravelProcess.php',
             'Deeply/Nested/SymfonyProcess.php',
         ],
         'process function' => [
             'Deeply/Nested/Exec.php',
+            'Deeply/Nested/FullyQualifiedExec.php',
             'Deeply/Nested/Passthru.php',
+            'Deeply/Nested/PcntlExec.php',
+            'Deeply/Nested/PcntlFork.php',
             'Deeply/Nested/Popen.php',
             'Deeply/Nested/ProcOpen.php',
             'Deeply/Nested/ShellExec.php',
@@ -113,7 +127,7 @@ test('recursive filter scan catches a nested rogue fragment', function (): void 
 
 test('keeps drawtext text emission in the one compiler that owns expansion and escaping', function (): void {
     expect(drawtextEmitterLocations(base_path('app/Slate/Driver')))->toBe([
-        'Binary/FilterGraphCompiler.php',
+        'Binary/FilterGraphCompiler.php' => 1,
     ]);
 });
 
@@ -121,7 +135,7 @@ test('recursive compiler emission scan catches a second drawtext text emitter', 
     $fixtureDirectory = base_path('tests/Fixtures/Boundary/CompilerFilters');
 
     expect(drawtextEmitterLocations($fixtureDirectory))->toBe([
-        'Deeply/Nested/RogueTextEmitter.php',
+        'Deeply/Nested/RogueTextEmitter.php' => 2,
     ]);
 });
 

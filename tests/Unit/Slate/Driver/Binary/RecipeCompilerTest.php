@@ -1,6 +1,9 @@
 <?php
 
+use App\Slate\Driver\Binary\BinaryExecutable;
+use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompilesOperation;
+use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Recipe\Caption\TimedWord;
@@ -35,14 +38,18 @@ test('dispatches a typed timed-word operation to its one registered compiler', f
 
         public function compile(Operation $operation): CompiledRecipe
         {
-            return new CompiledRecipe(['/runtime/ffmpeg', '-version']);
+            return new CompiledRecipe(
+                new FfmpegLocator('Linux', 'arm64', '/runtime'),
+                BinaryExecutable::Ffmpeg,
+                [CompiledArgument::option('-version')],
+            );
         }
     };
 
     $recipe = (new RecipeCompiler($operationCompiler))->compile($operation);
 
     expect($operation->words)->toBe($words)
-        ->and($recipe->command())->toBe(['/runtime/ffmpeg', '-version']);
+        ->and($recipe->command())->toBe(['/runtime/ffmpeg/bin/ffmpeg', '-version']);
 });
 
 test('rejects an operation without an explicitly registered compiler', function (): void {
@@ -75,7 +82,11 @@ test('rejects ambiguous compiler ownership for an operation', function (): void 
 
         public function compile(Operation $operation): CompiledRecipe
         {
-            return new CompiledRecipe(['/runtime/ffprobe', '-version']);
+            return new CompiledRecipe(
+                new FfmpegLocator('Linux', 'arm64', '/runtime'),
+                BinaryExecutable::Ffprobe,
+                [CompiledArgument::option('-version')],
+            );
         }
     };
 

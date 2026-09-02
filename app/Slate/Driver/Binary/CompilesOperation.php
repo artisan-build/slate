@@ -9,6 +9,7 @@ use App\Slate\Recipe\Operation;
 
 interface CompilesOperation
 {
+    /** Implementations must match the concrete operation with instanceof, never by operation name. */
     public function supports(Operation $operation): bool;
 
     public function compile(Operation $operation): CompiledRecipe;
