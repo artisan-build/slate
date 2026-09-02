@@ -51,6 +51,8 @@ final class H264OutputContract
             'bitrate',
             '-pix_fmt',
             'yuv420p',
+            CompiledOption::ColorRange->value,
+            'tv',
             '-r',
             (string) $framesPerSecond,
             '-c:a',

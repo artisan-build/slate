@@ -9,6 +9,7 @@ enum CompiledOption: string
     case AudioBitrate = '-b:a';
     case AudioChannels = '-ac';
     case BuildConfiguration = '-buildconf';
+    case ColorRange = '-color_range';
     case Encoders = '-encoders';
     case EntropyCoder = '-coder';
     case Format = '-f';
