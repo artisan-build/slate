@@ -7,9 +7,10 @@ skeleton for now.
 
 ## Phase & mode
 - phase: **MVP assembler** (`~/Herd/brain/projects/slate/PRD-mvp.md`). Stage A's 7.77× 720p `testsrc2`
-  result is superseded for capacity planning: the realistic 1536×1024 segment measured 0.385–0.404×
-  and the 550.25s concat took 180.200–212.188s in local 2GB/1vCPU arm64 containers. Real-footage and
-  managed-queue throughput remain UNVERIFIED. Cold provision remains proven at 8s.
+  result is superseded for capacity planning: the realistic 1536×1024 segment measured 0.386–0.391×
+  and the 550.25s concat took 198.766–211.172s in local 2GB/1vCPU arm64 containers. Production's 170s
+  driver timeout cannot complete it. Real-footage and managed-queue throughput remain UNVERIFIED.
+  Cold provision remains proven at 8s.
 - default mode: A-autonomous (set by Ed 2026-09-01)
 - merge_policy: **merge when CI is green; no human PR code review**
 - merge method: `gh pr merge --squash`

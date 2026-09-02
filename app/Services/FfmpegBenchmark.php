@@ -325,6 +325,12 @@ class FfmpegBenchmark
         ];
     }
 
+    public static function matchesPublishedOutputShape(int $durationMs, int $frameCount): bool
+    {
+        return $durationMs === self::PublishedOutputDurationMs
+            && $frameCount === self::PublishedOutputFrameCount;
+    }
+
     /**
      * @return array{hostname: string, memory_max: string, memory_bytes: int|null, cpu_max: string, cpu_cores: float|null}
      */
@@ -485,8 +491,7 @@ class FfmpegBenchmark
             && $segmentDurationSeconds === self::PublishedSegmentDurationSeconds;
 
         if ($publishedWorkload
-            && ($durationMs !== self::PublishedOutputDurationMs
-                || $frameCount !== self::PublishedOutputFrameCount)) {
+            && ! self::matchesPublishedOutputShape($durationMs, $frameCount)) {
             throw new RuntimeException(sprintf(
                 'Benchmark default output must be exactly %dms and %d frames; probed %dms and %d frames.',
                 self::PublishedOutputDurationMs,

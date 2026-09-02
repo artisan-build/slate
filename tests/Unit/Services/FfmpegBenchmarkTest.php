@@ -50,3 +50,9 @@ test('summarizes operation throughput against the configured visibility timeout'
         'visibility_headroom_ms' => -32188,
     ]);
 });
+
+test('pins the published default output duration and frame count', function (): void {
+    expect(FfmpegBenchmark::matchesPublishedOutputShape(550250, 13206))->toBeTrue()
+        ->and(FfmpegBenchmark::matchesPublishedOutputShape(546750, 13122))->toBeFalse()
+        ->and(FfmpegBenchmark::matchesPublishedOutputShape(550250, 13205))->toBeFalse();
+});
