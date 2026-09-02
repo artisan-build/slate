@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace App\Slate\Driver\Binary;
 
+use App\Slate\Driver\Binary\Operation\AudioConcatCompiler;
+use App\Slate\Driver\Binary\Operation\AudioPadCompiler;
+use App\Slate\Driver\Binary\Operation\AudioSilenceCompiler;
+use App\Slate\Driver\Binary\Operation\ProbeCompiler;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Recipe\Operation;
 use InvalidArgumentException;
@@ -19,6 +23,18 @@ final readonly class RecipeCompiler
     public function __construct(CompilesOperation ...$compilers)
     {
         $this->compilers = $compilers;
+    }
+
+    public static function fromSystem(): self
+    {
+        $locator = FfmpegLocator::fromSystem();
+
+        return new self(
+            new ProbeCompiler($locator),
+            new AudioSilenceCompiler($locator),
+            new AudioConcatCompiler($locator),
+            new AudioPadCompiler($locator),
+        );
     }
 
     public function compile(Operation $operation): CompiledRecipe

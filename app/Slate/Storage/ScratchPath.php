@@ -9,23 +9,25 @@ use RuntimeException;
 
 final readonly class ScratchPath
 {
-    private string $scratchDirectory;
-
     private string $path;
 
-    public function __construct(ScratchDirectory $scratchDirectory, string $filename)
+    public function __construct(private ScratchDirectory $scratchDirectory, string $filename)
     {
         if ($filename === '' || basename($filename) !== $filename || preg_match('/[\x00-\x1F\x7F]/', $filename) === 1) {
             throw new InvalidArgumentException('Scratch filename must be one plain local filename.');
         }
 
-        $this->scratchDirectory = $scratchDirectory->path();
-        $this->path = $this->scratchDirectory.DIRECTORY_SEPARATOR.$filename;
+        $this->path = $scratchDirectory->path().DIRECTORY_SEPARATOR.$filename;
+    }
+
+    public function sibling(string $filename): self
+    {
+        return $this->scratchDirectory->file($filename);
     }
 
     public function readablePath(): string
     {
-        $resolvedDirectory = realpath($this->scratchDirectory);
+        $resolvedDirectory = realpath($this->scratchDirectory->path());
         $resolvedPath = realpath($this->path);
 
         if (
@@ -43,7 +45,7 @@ final readonly class ScratchPath
 
     public function writablePath(): string
     {
-        $resolvedDirectory = realpath($this->scratchDirectory);
+        $resolvedDirectory = realpath($this->scratchDirectory->path());
 
         if (! is_string($resolvedDirectory) || dirname($this->path) !== $resolvedDirectory || is_link($this->path)) {
             throw new RuntimeException('Stage-in destination must be a regular path in the current job scratch directory.');

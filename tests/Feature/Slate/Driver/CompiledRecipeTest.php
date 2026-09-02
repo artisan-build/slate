@@ -5,18 +5,24 @@ use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledFilterGraph;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\CompiledRecipe;
+use App\Slate\Storage\JobScratch;
+use App\Slate\Storage\ScratchDirectory;
 
-test('accepts compiler-owned local binary arguments', function (): void {
-    $recipe = new CompiledRecipe(
-        new FfmpegLocator('Linux', 'arm64', '/runtime'),
-        BinaryExecutable::Ffmpeg,
-        [
-            CompiledArgument::option('-i'),
-            CompiledArgument::localPath('/tmp/input.mp4'),
-        ],
-    );
+test('accepts compiler-owned scratch paths as local binary arguments', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $input = $scratch->file('input.mp4');
+        file_put_contents($input->writablePath(), 'video');
+        $recipe = new CompiledRecipe(
+            new FfmpegLocator('Linux', 'arm64', '/runtime'),
+            BinaryExecutable::Ffmpeg,
+            [
+                CompiledArgument::option('-i'),
+                CompiledArgument::existingLocalPath($input),
+            ],
+        );
 
-    expect($recipe->command())->toBe(['/runtime/ffmpeg/bin/ffmpeg', '-i', '/tmp/input.mp4']);
+        expect($recipe->command())->toBe(['/runtime/ffmpeg/bin/ffmpeg', '-i', $input->readablePath()]);
+    });
 });
 
 test('rejects executable values not enum-selected from the supplied locator', function (string $executable): void {
@@ -31,16 +37,32 @@ test('rejects executable values not enum-selected from the supplied locator', fu
     'different absolute executable' => '/tmp/evil/ffmpeg',
 ]);
 
-test('rejects protocol inputs as local paths', function (string $input): void {
+test('rejects every caller-authored string as a local path', function (string $input): void {
     expect(fn (): CompiledArgument => CompiledArgument::localPath($input))
-        ->toThrow(InvalidArgumentException::class);
+        ->toThrow(TypeError::class);
 })->with([
+    'absolute file' => '/etc/passwd',
+    'root directory' => '/',
+    'network-path reference' => '//evil.com/x',
     'FTP URL' => 'ftp://example.com/input.mp4',
     'RTMP URL' => 'rtmp://example.com/live',
     'TCP URL' => 'tcp://example.com:80',
     'SRT URL' => 'srt://example.com:9000',
     'HTTP control' => 'http://example.com/input.mp4',
 ]);
+
+test('rejects positive durations outside compiler precision and range', function (float $seconds): void {
+    expect(fn (): CompiledArgument => CompiledArgument::seconds($seconds))
+        ->toThrow(InvalidArgumentException::class);
+})->with([
+    'below microsecond precision' => 0.0000001,
+    'half-microsecond boundary' => 0.0000005,
+    'largest finite float' => PHP_FLOAT_MAX,
+]);
+
+test('accepts caller arithmetic within microsecond precision', function (): void {
+    expect(CompiledArgument::seconds(0.1 + 0.2)->value())->toBe('0.3');
+});
 
 test('rejects URLs embedded in filtergraphs', function (string $filterGraph): void {
     expect(fn (): CompiledFilterGraph => CompiledFilterGraph::fromCompiler($filterGraph))

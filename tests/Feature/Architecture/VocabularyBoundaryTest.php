@@ -10,6 +10,7 @@ test('keeps documented encoder literals at their approved source locations', fun
     expect($locations)->toBe([
         'aac' => ['Slate/Driver/Binary/H264OutputContract.php'],
         'libkvazaar' => ['Services/FfmpegDiagnostics.php'],
+        'libmp3lame' => ['Slate/Driver/Binary/CompiledLiteral.php'],
         'libopenh264' => ['Slate/Driver/Binary/H264OutputContract.php'],
         'libsvtav1' => ['Services/FfmpegDiagnostics.php'],
         'libvpx-vp9' => ['Services/FfmpegDiagnostics.php'],
