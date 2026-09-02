@@ -7,16 +7,25 @@ use App\Slate\Storage\ScratchDirectory;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Process;
 
+/**
+ * Moves a 96 MiB object under a 64 MiB process limit and requires a peak no higher than 40 MiB.
+ * The threshold leaves 16 MiB over the observed 24 MiB streaming peak while remaining far below the
+ * memory needed to materialize the whole object.
+ */
 test('moves an object larger than its process memory headroom without buffering it', function (): void {
     $probe = Process::timeout(120)->run([
         PHP_BINARY,
         '-d',
-        'memory_limit=128M',
+        'memory_limit=64M',
         base_path('tests/Fixtures/Storage/memory-probe.php'),
     ]);
 
+    $peakMatched = preg_match('/peak_memory_bytes=(\d+)/', $probe->output(), $peakMatches);
+
     expect($probe->successful())->toBeTrue($probe->errorOutput())
-        ->and($probe->output())->toContain('round_trip_bytes=100663296');
+        ->and($probe->output())->toContain('round_trip_bytes=100663296')
+        ->and($peakMatched)->toBe(1)
+        ->and((int) ($peakMatches[1] ?? 0))->toBeLessThanOrEqual(40 * 1024 * 1024);
 });
 
 /**
