@@ -19,8 +19,8 @@ final readonly class JobScratch
      *
      * The callback receives paths confined to this invocation. Cleanup is guaranteed when PHP can
      * unwind normal return or an exception; process termination can still leave orphaned scratch.
-     * Nothing in this class enforces bucket transfer between queued jobs, and FfmpegBenchmark still
-     * passes local chunk paths between jobs pending PR 3.
+     * Nothing in this class enforces bucket transfer between queued jobs. Work that needs multiple
+     * hosts must explicitly stage data through ObjectStorage.
      *
      * @template TResult
      *

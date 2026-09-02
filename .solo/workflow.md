@@ -6,9 +6,10 @@ artifact by a build command, exactly the way `matte` vendors `bg-remover`. Larav
 skeleton for now.
 
 ## Phase & mode
-- phase: **MVP assembler** (`~/Herd/brain/projects/slate/PRD-mvp.md`). Stage A is DONE and proven:
-  ffmpeg + drawtext runs at 7.77× realtime on a real managed-queue worker, with a 180s visibility
-  window and 8s cold provision.
+- phase: **MVP assembler** (`~/Herd/brain/projects/slate/PRD-mvp.md`). Stage A's 7.77× 720p `testsrc2`
+  result is superseded for capacity planning: the realistic 1536×1024 segment measured 0.385–0.404×
+  and the 550.25s concat took 180.200–212.188s in local 2GB/1vCPU arm64 containers. Real-footage and
+  managed-queue throughput remain UNVERIFIED. Cold provision remains proven at 8s.
 - default mode: A-autonomous (set by Ed 2026-09-01)
 - merge_policy: **merge when CI is green; no human PR code review**
 - merge method: `gh pr merge --squash`
@@ -57,6 +58,15 @@ These are verified facts, not guesses. Re-deriving them costs a Cloud deploy eac
 11. **The pinned LGPL build's `libopenh264` does not write H.264 range metadata when given
     `-color_range tv`.** It renders limited-range pixels, but ffprobe still reports `color_range` as
     `null`; pixel conversion and bitstream signalling are separate obligations.
+12. **Run the local pinned `ffmpeg-render` lane with fonts and `--force`, matching CI.** A fontless or
+    ambient-state-dependent local lane creates false confidence. Use:
+    `docker run --rm --platform linux/arm64 --user root -e SLATE_REQUIRE_FFMPEG=1 -v "$PWD:/app" -w /app serversideup/php:8.4-cli sh -c 'apt-get update -qq && apt-get install -y -qq fontconfig fonts-dejavu-core; php artisan slate:provision-ffmpeg --force; vendor/bin/pest --group=ffmpeg-render'`.
+13. **Always provision with `--force` in a macOS bind-mounted container.** PHP's `is_file()` and
+    `is_executable()` can remain stale-true for host-deleted files through the mount, causing the
+    provisioner to skip installation before the lane fails with `exec: not found`.
+14. **Do not remove `BinaryDriver`'s `FONTCONFIG_FILE` / `FONTCONFIG_PATH` isolation.** When fontconfig
+    can see any system font, drawtext silently substitutes it for an unloadable `fontfile=` instead of
+    failing closed.
 
 ## Toolchain conformance — the ride-along rule (STANDING, all projects)
 

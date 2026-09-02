@@ -29,39 +29,23 @@ test('recursive source scan catches a nested rogue encoder name', function (): v
     ]);
 });
 
-test('keeps the pre-vocabulary benchmark residue in an exact PR 7 exception list', function (): void {
-    expect(legacyFfmpegBoundaryExceptions())->toBe([
-        'Services/FfmpegBenchmark.php',
-    ]);
-});
-
-test('keeps every legacy exception attached to a current filter violation', function (): void {
-    $violations = ffmpegFilterFragmentLocations(base_path('app'));
-
-    foreach (legacyFfmpegBoundaryExceptions() as $exception) {
-        expect($violations)->toContain($exception);
-    }
+test('keeps the legacy filter exception list empty', function (): void {
+    expect(legacyFfmpegBoundaryExceptions())->toBe([]);
 });
 
 /**
- * Provisioning and diagnostics still name the binary, while FfmpegBenchmark remains the sole exact PR 7
- * filter exception. New binary authority above Slate/Driver changes this map and fails the test.
+ * Provisioning and diagnostics still name the binary. New binary authority above Slate/Driver changes
+ * this map and fails the test.
  */
 test('keeps detectable binary references at approved class locations', function (): void {
     expect(binaryAuthorityLocations(base_path('app')))->toBe([
         'binary string literal' => [
-            'Console/Commands/DispatchFfmpegBenchmarkCommand.php',
             'Console/Commands/FfmpegDoctorCommand.php',
             'Console/Commands/ProvisionFfmpegCommand.php',
-            'Jobs/FinalizeFfmpegBenchmark.php',
-            'Jobs/PrepareFfmpegBenchmark.php',
-            'Jobs/ProcessFfmpegBenchmarkChunk.php',
-            'Services/FfmpegBenchmark.php',
         ],
         'locator or path accessor' => [
             'Console/Commands/FfmpegDoctorCommand.php',
             'Console/Commands/ProvisionFfmpegCommand.php',
-            'Services/FfmpegBenchmark.php',
         ],
     ]);
 });
@@ -89,7 +73,6 @@ test('keeps process execution primitives at approved infrastructure and legacy l
         'process class reference' => [
             'Console/Commands/ProvisionFfmpegCommand.php',
             'Console/Commands/VerifyObjectStorageCommand.php',
-            'Services/FfmpegBenchmark.php',
         ],
     ]);
 });

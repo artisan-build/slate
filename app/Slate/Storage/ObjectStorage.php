@@ -8,7 +8,7 @@ namespace App\Slate\Storage;
  * Stages objects between durable bucket storage and one job's local scratch directory.
  *
  * This seam provides bucket transfer for jobs that may run on different hosts. It does not enforce
- * that every queued job uses it; the legacy FfmpegBenchmark still passes local chunk paths pending PR 7.
+ * that every queued job uses it.
  */
 interface ObjectStorage
 {

@@ -19,8 +19,6 @@ return RectorConfig::configure()
     ->withSkip([
         __DIR__.'/app/Console/Commands/ProvisionFfmpegCommand.php',
         __DIR__.'/app/Console/Commands/FfmpegDoctorCommand.php',
-        __DIR__.'/app/Console/Commands/DispatchFfmpegBenchmarkCommand.php',
-        __DIR__.'/app/Jobs',
         __DIR__.'/app/Slate/Driver/Binary/FfmpegLocator.php',
         __DIR__.'/app/Services/FfmpegDiagnostics.php',
         __DIR__.'/app/Services/FfmpegBenchmark.php',
