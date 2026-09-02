@@ -3,6 +3,7 @@
 use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\S3ObjectStorage;
 use App\Slate\Storage\StorageServiceProvider;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Storage;
 use League\Flysystem\AwsS3V3\AwsS3V3Adapter;
 use League\Flysystem\Local\LocalFilesystemAdapter;
@@ -84,7 +85,11 @@ test('an explicit false keeps streamed reads disabled on the default S3 disk', f
 });
 
 test('a nested scoped default disk streams reads through its object storage seam', function (): void {
-    Storage::extend('scoped', fn ($app, array $config) => Storage::disk($config['disk']));
+    Storage::extend('scoped', function ($app, array $config): FilesystemAdapter {
+        $innerDisk = Storage::disk($config['disk']);
+
+        return new FilesystemAdapter($innerDisk->getDriver(), $innerDisk->getAdapter(), $config);
+    });
     config()->set('filesystems.default', 'customer-scope');
     config()->set('filesystems.disks.customer-scope', [
         'driver' => 'scoped',
