@@ -51,6 +51,9 @@ These are verified facts, not guesses. Re-deriving them costs a Cloud deploy eac
 8. **Cardinal Cloud rule:** never set an env var for a Cloud-provisioned resource. Cloud injects all
    resource config (credentials AND selectors like `QUEUE_CONNECTION`/`DB_CONNECTION`) itself.
 9. **`.cloud/config.json` is COMMITTED.** Never gitignore it.
+10. **The LGPL build's H.264 encoder cannot reach x264 CRF 12 quality on flat-gradient content at any
+    bitrate.** SSIM saturates at 0.996677 versus CRF 12's 0.998485, so quality tiers are operational
+    choices, not parity targets.
 
 ## Toolchain conformance — the ride-along rule (STANDING, all projects)
 

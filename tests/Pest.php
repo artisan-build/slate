@@ -62,5 +62,10 @@ function encoderNameLocations(string $root): array
 
     ksort($locations);
 
+    foreach ($locations as $encoder => $paths) {
+        sort($paths);
+        $locations[$encoder] = $paths;
+    }
+
     return $locations;
 }
