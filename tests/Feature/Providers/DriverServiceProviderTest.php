@@ -59,7 +59,7 @@ test('registers production compilers for every shipped operation', function (): 
         $video = fakeRenderedSlateVideo($stillClip);
         $secondVideo = fakeRenderedSlateVideo($secondStillClip);
         $font = $scratch->file('font.ttf');
-        file_put_contents($font->writablePath(), 'font');
+        file_put_contents($font->writablePath(), "\x00\x01\x00\x00");
         $compiler = resolve(RecipeCompiler::class);
         $operations = [
             new Probe($input),

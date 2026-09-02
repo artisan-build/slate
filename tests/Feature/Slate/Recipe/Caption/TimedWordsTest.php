@@ -16,31 +16,45 @@ use App\Slate\Recipe\Video\VideoFit;
 use App\Slate\Recipe\Video\VideoStillClip;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ScratchDirectory;
+use App\Slate\Storage\ScratchPath;
 
-test('accepts typed timed words and a staged custom TrueType font', function (): void {
+test('accepts typed timed words and every supported staged sfnt font signature', function (): void {
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
         $source = new VideoStillClip(
             $scratch->file('image.png'), $scratch->file('audio.mp3'), $scratch->file('source.mp4'),
             1536, 1024, 24, 2.0, VideoFit::ContainPad, VideoColor::Black, new StillMotion, 1,
             QualityTier::Delivery, AudioBitrate::Kbps192,
         );
-        $operation = new TimedWords(
-            fakeRenderedSlateVideo($source),
-            $scratch->file('customer-font.ttf'),
-            $scratch->file('captioned.mp4'),
-            64,
-            CaptionColor::WarmCream,
-            new CaptionShadow(CaptionShadowColor::Black70, 2, 2),
-            [TimedWord::fromValues("Mia's story", 128, 720, 0.1, 0.2, 0.5, 0.8, 0.2)],
-            CaptionEntryEase::OutBack,
-            CaptionExitEase::InOutQuad,
-            new CaptionDim(0.6, 0.1),
-        );
+        $sourceVideo = fakeRenderedSlateVideo($source);
+        $operations = [];
 
-        $video = fakeRenderedSlateVideo($operation);
+        foreach ([
+            'truetype.ttf' => "\x00\x01\x00\x00",
+            'apple-truetype.ttf' => 'true',
+            'collection.ttc' => 'ttcf',
+            'opentype.otf' => 'OTTO',
+        ] as $filename => $signature) {
+            $font = $scratch->file($filename);
+            file_put_contents($font->writablePath(), $signature);
+            $operations[] = new TimedWords(
+                $sourceVideo,
+                $font,
+                $scratch->file($filename.'.mp4'),
+                64,
+                CaptionColor::WarmCream,
+                new CaptionShadow(CaptionShadowColor::Black70, 2, 2),
+                [TimedWord::fromValues("Mia's story", 128, 720, 0.1, 0.2, 0.5, 0.8, 0.2)],
+                CaptionEntryEase::OutBack,
+                CaptionExitEase::InOutQuad,
+                new CaptionDim(0.6, 0.1),
+            );
+        }
 
-        expect($operation->name()->value)->toBe('captions.timed_words')
-            ->and($video->path)->toBe($operation->output)
+        $video = fakeRenderedSlateVideo($operations[0]);
+
+        expect($operations)->toHaveCount(4)
+            ->and($operations[0]->name()->value)->toBe('captions.timed_words')
+            ->and($video->path)->toBe($operations[0]->output)
             ->and($video->durationSeconds)->toBe(2.0);
     });
 });
@@ -54,11 +68,16 @@ test('rejects caption values outside the audited rendering contract', function (
         );
         $video = fakeRenderedSlateVideo($source);
         $font = $scratch->file('customer-font.ttf');
+        file_put_contents($font->writablePath(), "\x00\x01\x00\x00");
+        $invalidExtension = $scratch->file('font.woff');
+        file_put_contents($invalidExtension->writablePath(), "\x00\x01\x00\x00");
+        $invalidSignature = $scratch->file('invalid.ttf');
+        file_put_contents($invalidSignature->writablePath(), 'invalid font');
         $output = $scratch->file('captioned.mp4');
         $shadow = new CaptionShadow(CaptionShadowColor::Black70, 2, 2);
         $dim = new CaptionDim(0.6, 0.1);
         $word = TimedWord::fromValues('story', 128, 720, 0.1, 0.2, 0.5, 0.8, 0.2);
-        $make = static fn (array $words, int $fontSize = 64, ?object $fontOverride = null): TimedWords => new TimedWords(
+        $make = static fn (array $words, int $fontSize = 64, ?ScratchPath $fontOverride = null): TimedWords => new TimedWords(
             $video,
             $fontOverride ?? $font,
             $output,
@@ -72,8 +91,10 @@ test('rejects caption values outside the audited rendering contract', function (
         );
 
         expect(fn (): TimedWords => $make([$word], 0))->toThrow(InvalidArgumentException::class, 'font size')
-            ->and(fn (): TimedWords => $make([$word], fontOverride: $scratch->file('font.otf')))
-            ->toThrow(InvalidArgumentException::class, 'TrueType')
+            ->and(fn (): TimedWords => $make([$word], fontOverride: $invalidExtension))
+            ->toThrow(InvalidArgumentException::class, 'TrueType or OpenType')
+            ->and(fn (): TimedWords => $make([$word], fontOverride: $invalidSignature))
+            ->toThrow(InvalidArgumentException::class, 'sfnt signature')
             ->and(fn (): TimedWords => $make([]))->toThrow(InvalidArgumentException::class, 'non-empty ordered list')
             ->and(fn (): TimedWords => $make(['word' => $word]))->toThrow(InvalidArgumentException::class, 'ordered list')
             ->and(fn (): TimedWords => $make([new stdClass]))->toThrow(InvalidArgumentException::class, 'TimedWord')

@@ -26,7 +26,7 @@ use Illuminate\Support\Facades\Storage;
 test('compiles staged font text and typed keyframes into one normalized H264 graph', function (): void {
     Storage::fake();
     $fontKey = ObjectKey::withinPrefix('customers/customer-123', 'customers/customer-123/fonts/story.ttf');
-    Storage::disk()->put($fontKey->value(), 'customer font bytes');
+    Storage::disk()->put($fontKey->value(), "\x00\x01\x00\x00");
 
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch) use ($fontKey): void {
         $source = new VideoStillClip(

@@ -147,7 +147,7 @@ test('renders escaped timed words through every keyed animation phase with a sta
     });
 })->group('ffmpeg-render');
 
-test('fails rendering instead of substituting a different font for the staged asset', function (): void {
+test('fails rendering instead of substituting a system font for an unloadable sfnt asset', function (): void {
     requirePinnedCaptionRuntime();
 
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
@@ -155,7 +155,7 @@ test('fails rendering instead of substituting a different font for the staged as
         $driver = resolve(Driver::class);
         $source = renderCaptionSource($scratch, $compiler, $driver, 'invalid-font-source');
         $font = $scratch->file('invalid.ttf');
-        file_put_contents($font->writablePath(), 'not a TrueType font');
+        file_put_contents($font->writablePath(), 'OTTO'.str_repeat("\0", 12));
         $operation = new TimedWords(
             $source,
             $font,

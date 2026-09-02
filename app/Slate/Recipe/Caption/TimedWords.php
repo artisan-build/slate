@@ -12,6 +12,8 @@ use InvalidArgumentException;
 
 final readonly class TimedWords implements Operation
 {
+    private const array FontSignatures = ["\x00\x01\x00\x00", 'true', 'ttcf', 'OTTO'];
+
     private const int MaxWords = 64;
 
     /**
@@ -33,8 +35,14 @@ final readonly class TimedWords implements Operation
             throw new InvalidArgumentException('Caption font size must be between 1 and 256 pixels.');
         }
 
-        if (preg_match('/\.ttf$/i', $font->writablePath()) !== 1) {
-            throw new InvalidArgumentException('Caption fonts must be staged TrueType font files.');
+        if (preg_match('/\.(?:ttf|ttc|otf)$/i', $font->writablePath()) !== 1) {
+            throw new InvalidArgumentException('Caption fonts must be staged TrueType or OpenType font files.');
+        }
+
+        $signature = file_get_contents($font->readablePath(), false, null, 0, 4);
+
+        if (! is_string($signature) || ! in_array($signature, self::FontSignatures, true)) {
+            throw new InvalidArgumentException('Caption font must have a recognized TrueType or OpenType sfnt signature.');
         }
 
         if ($words === [] || ! array_is_list($words) || count($words) > self::MaxWords) {

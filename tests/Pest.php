@@ -55,7 +55,6 @@ function fakeRenderedSlateVideo(
         $framesPerSecond = $operation->input->framesPerSecond;
         $durationSeconds ??= $operation->input->durationSeconds;
     } else {
-        file_put_contents($operation->font->writablePath(), 'font');
         $width = $operation->input->width;
         $height = $operation->input->height;
         $framesPerSecond = $operation->input->framesPerSecond;
