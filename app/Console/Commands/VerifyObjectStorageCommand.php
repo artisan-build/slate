@@ -17,6 +17,7 @@ use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Sleep;
 use Illuminate\Support\Str;
 use League\Flysystem\AwsS3V3\AwsS3V3Adapter;
 use ReflectionProperty;
@@ -205,7 +206,7 @@ final class VerifyObjectStorageCommand extends Command
             $stopPath,
             (string) getmypid(),
         ]);
-        usleep(50000);
+        Sleep::usleep(50000);
 
         try {
             $read();
