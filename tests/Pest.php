@@ -381,7 +381,7 @@ function storageBoundaryLocations(string $root): array
 {
     $patterns = [
         'configured object storage construction' => '/S3ObjectStorage::fromConfiguredDisk\s*\(/',
-        'fully qualified S3 client construction' => '/new\s+\\\\Aws\\\\S3\\\\S3Client\s*\(/',
+        'fully qualified S3 client construction' => '/new\s+\\\\?Aws\\\\S3\\\\S3Client\s*\(/',
         'imported S3 client construction' => '/new\s+S3Client\s*\(/',
         'object storage construction' => '/new\s+S3ObjectStorage\s*\(/',
         'storage build' => '/Storage::build\s*\(/',

@@ -30,6 +30,8 @@ final class VerifyObjectStorageCommand extends Command
 {
     private const float MaxRssGrowthRatio = 0.10;
 
+    private const int MinimumObjectSizeBytes = 8 * 1024 * 1024;
+
     public function handle(ObjectStorage $objectStorage, JobScratch $jobScratch): int
     {
         $objectKey = ObjectKey::withinPrefix(
@@ -121,7 +123,13 @@ final class VerifyObjectStorageCommand extends Command
             throw new RuntimeException('The --bytes option must be a positive integer.');
         }
 
-        return (int) $bytes;
+        $objectSize = (int) $bytes;
+
+        if ($objectSize < self::MinimumObjectSizeBytes) {
+            throw new RuntimeException('The --bytes option must be at least '.self::MinimumObjectSizeBytes.'.');
+        }
+
+        return $objectSize;
     }
 
     /**

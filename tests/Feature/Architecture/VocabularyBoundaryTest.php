@@ -166,7 +166,10 @@ test('recursive storage scan catches a nested rogue disk construction', function
 
     expect(storageBoundaryLocations($fixtureDirectory))->toBe([
         'configured object storage construction' => ['Deeply/Nested/RogueStorageConfiguredFactory.php'],
-        'fully qualified S3 client construction' => ['Deeply/Nested/RogueStorageFullyQualifiedClient.php'],
+        'fully qualified S3 client construction' => [
+            'Deeply/Nested/RogueStorageFullyQualifiedClient.php',
+            'Deeply/Nested/RogueStoragePartiallyQualifiedClient.php',
+        ],
         'imported S3 client construction' => ['Deeply/Nested/RogueStorageClient.php'],
         'object storage construction' => ['Deeply/Nested/RogueStorageDirect.php'],
         'storage build' => ['Deeply/Nested/RogueStorageBuild.php'],

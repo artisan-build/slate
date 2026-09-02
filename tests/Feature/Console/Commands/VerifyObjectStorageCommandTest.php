@@ -44,7 +44,7 @@ test('round-trips the requested object size and emits machine-readable measureme
     Storage::fake(config: ['driver' => 'local']);
     fakeRssSamples(100, 100);
 
-    $exitCode = Artisan::call('slate:verify-object-storage', ['--bytes' => '2097152']);
+    $exitCode = Artisan::call('slate:verify-object-storage', ['--bytes' => '8388608']);
     $result = json_decode(trim(Artisan::output()), true, flags: JSON_THROW_ON_ERROR);
 
     expect($exitCode)->toBe(0)
@@ -52,7 +52,7 @@ test('round-trips the requested object size and emits machine-readable measureme
             'configured_driver' => 'local',
             'resolved_driver' => null,
             'resolved_stream_reads' => null,
-            'object_size_bytes' => 2097152,
+            'object_size_bytes' => 8388608,
             'exists_after_stage_out' => true,
             'content_identical' => true,
             'rss_growth_to_object_ratio' => 0.0,
@@ -68,7 +68,7 @@ test('round-trips the requested object size and emits machine-readable measureme
 test('fails when the resolved S3 adapter has streamed reads disabled', function (): void {
     $disk = fakeResolvedS3Disk(false);
 
-    $exitCode = Artisan::call('slate:verify-object-storage', ['--bytes' => '1048576']);
+    $exitCode = Artisan::call('slate:verify-object-storage', ['--bytes' => '8388608']);
     $result = json_decode(trim(Artisan::output()), true, flags: JSON_THROW_ON_ERROR);
 
     expect($exitCode)->toBe(1)
@@ -80,16 +80,30 @@ test('fails when the resolved S3 adapter has streamed reads disabled', function 
 
 test('fails when RSS growth exceeds ten percent of the object size', function (): void {
     Storage::fake(config: ['driver' => 'local']);
-    fakeRssSamples(100, 300);
+    fakeRssSamples(100, 1000);
 
-    $exitCode = Artisan::call('slate:verify-object-storage', ['--bytes' => '1048576']);
+    $exitCode = Artisan::call('slate:verify-object-storage', ['--bytes' => '8388608']);
     $result = json_decode(trim(Artisan::output()), true, flags: JSON_THROW_ON_ERROR);
 
     expect($exitCode)->toBe(1)
-        ->and($result['rss_growth_to_object_ratio'])->toBe(0.1953)
+        ->and($result['rss_growth_to_object_ratio'])->toBe(0.1099)
         ->and($result['max_rss_growth_ratio'])->toBe(0.1)
         ->and($result['memory_within_limit'])->toBeFalse()
         ->and($result['error'])->toContain('RSS growth exceeded 0.1 of object size.')
+        ->and($result['deleted'])->toBeTrue();
+    Storage::disk()->assertMissing($result['object_key']);
+});
+
+test('rejects object sizes below eight mebibytes before verification', function (): void {
+    Storage::fake(config: ['driver' => 'local']);
+    fakeRssSamples(100, 100);
+
+    $exitCode = Artisan::call('slate:verify-object-storage', ['--bytes' => '8388607']);
+    $result = json_decode(trim(Artisan::output()), true, flags: JSON_THROW_ON_ERROR);
+
+    expect($exitCode)->toBe(1)
+        ->and($result['error'])->toContain('The --bytes option must be at least 8388608.')
+        ->and($result['object_size_bytes'])->toBeNull()
         ->and($result['deleted'])->toBeTrue();
     Storage::disk()->assertMissing($result['object_key']);
 });
@@ -120,7 +134,7 @@ test('reports a content mismatch and still deletes the verification object', fun
         }
     });
 
-    $exitCode = Artisan::call('slate:verify-object-storage', ['--bytes' => '1048576']);
+    $exitCode = Artisan::call('slate:verify-object-storage', ['--bytes' => '8388608']);
     $result = json_decode(trim(Artisan::output()), true, flags: JSON_THROW_ON_ERROR);
 
     expect($exitCode)->toBe(1)
