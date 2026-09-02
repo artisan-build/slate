@@ -51,10 +51,14 @@ final class H264OutputContract
             'bitrate',
             '-pix_fmt',
             'yuv420p',
+            CompiledOption::ColorRange->value,
+            'tv',
+            CompiledOption::VideoBitstreamFilter->value,
+            'h264_metadata=video_full_range_flag=0',
             '-r',
             (string) $framesPerSecond,
             '-c:a',
-            'aac',
+            self::audioEncoder(),
             '-b:a',
             '192k',
         ];
@@ -74,6 +78,11 @@ final class H264OutputContract
     public static function encoder(): string
     {
         return 'libopenh264';
+    }
+
+    public static function audioEncoder(): string
+    {
+        return 'aac';
     }
 
     private static function bitsPerPixel(QualityTier $tier): float

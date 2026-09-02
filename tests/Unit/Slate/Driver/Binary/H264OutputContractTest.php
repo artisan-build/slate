@@ -1,5 +1,6 @@
 <?php
 
+use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\H264OutputContract;
 use App\Slate\Recipe\QualityTier;
 
@@ -27,6 +28,10 @@ test('computes measured rate control from tier resolution and frame rate', funct
         'bitrate',
         '-pix_fmt',
         'yuv420p',
+        CompiledOption::ColorRange->value,
+        'tv',
+        CompiledOption::VideoBitstreamFilter->value,
+        'h264_metadata=video_full_range_flag=0',
         '-r',
         (string) $framesPerSecond,
         '-c:a',

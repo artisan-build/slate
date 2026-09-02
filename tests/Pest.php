@@ -1,5 +1,14 @@
 <?php
 
+use App\Slate\Driver\Binary\RecipeCompiler;
+use App\Slate\Driver\CompiledRecipe;
+use App\Slate\Driver\Driver;
+use App\Slate\Driver\DriverResult;
+use App\Slate\Recipe\Video\OverlayImage;
+use App\Slate\Recipe\Video\SlateVideo;
+use App\Slate\Recipe\Video\VideoConcat;
+use App\Slate\Recipe\Video\VideoStillClip;
+use App\Slate\Storage\ScratchPath;
 use Tests\TestCase;
 
 pest()->extend(TestCase::class)
@@ -16,6 +25,93 @@ function ffmpegFixture(string $name): string
     return $contents;
 }
 
+/** @param  array<string, mixed>  $videoStreamOverrides */
+function fakeRenderedSlateVideo(
+    VideoStillClip|VideoConcat|OverlayImage $operation,
+    ?float $durationSeconds = null,
+    array $videoStreamOverrides = [],
+    bool $includeVideo = true,
+    bool $includeAudio = true,
+    string $audioCodec = 'aac',
+): SlateVideo {
+    if ($operation instanceof VideoStillClip) {
+        file_put_contents($operation->image->writablePath(), 'image');
+        file_put_contents($operation->audio->writablePath(), 'audio');
+        $width = $operation->width;
+        $height = $operation->height;
+        $framesPerSecond = $operation->framesPerSecond;
+        $durationSeconds ??= $operation->durationSeconds;
+    } elseif ($operation instanceof VideoConcat) {
+        $width = $operation->width();
+        $height = $operation->height();
+        $framesPerSecond = $operation->framesPerSecond;
+        $durationSeconds ??= $operation->outputDurationSeconds();
+    } else {
+        file_put_contents($operation->image->writablePath(), 'image');
+        $width = $operation->input->width;
+        $height = $operation->input->height;
+        $framesPerSecond = $operation->input->framesPerSecond;
+        $durationSeconds ??= $operation->input->durationSeconds;
+    }
+
+    $streams = [];
+
+    if ($includeVideo) {
+        $streams[] = array_replace([
+            'codec_type' => 'video',
+            'codec_name' => 'h264',
+            'width' => $width,
+            'height' => $height,
+            'avg_frame_rate' => $framesPerSecond.'/1',
+            'pix_fmt' => 'yuv420p',
+            'color_range' => 'tv',
+        ], $videoStreamOverrides);
+    }
+
+    if ($includeAudio) {
+        $streams[] = [
+            'codec_type' => 'audio',
+            'codec_name' => $audioCodec,
+        ];
+    }
+
+    $properties = [
+        'streams' => $streams,
+        'format' => ['duration' => number_format($durationSeconds, 6, '.', '')],
+    ];
+    $driver = new class($operation->output, $properties) implements Driver
+    {
+        private int $calls = 0;
+
+        /** @param  array<string, mixed>  $properties */
+        public function __construct(
+            private readonly ScratchPath $output,
+            private readonly array $properties,
+        ) {}
+
+        public function run(CompiledRecipe $recipe): DriverResult
+        {
+            if ($this->calls++ === 0) {
+                if (is_file($this->output->writablePath())) {
+                    throw new RuntimeException('Slate render did not clear the stale output before execution.');
+                }
+
+                file_put_contents($this->output->writablePath(), 'rendered by fake driver');
+
+                return new DriverResult;
+            }
+
+            return new DriverResult(json_encode($this->properties, JSON_THROW_ON_ERROR));
+        }
+    };
+
+    return SlateVideo::render(
+        $operation,
+        RecipeCompiler::fromSystem(),
+        $driver,
+    );
+}
+
 /**
  * Finds documented encoder literals in PHP files beneath a directory.
  *
@@ -28,7 +124,7 @@ function ffmpegFixture(string $name): string
  */
 function encoderNameLocations(string $root): array
 {
-    $encoderPattern = '/\\b(?:aac|libaom-av1|libkvazaar|libmp3lame|libopenh264|libopus|libsvtav1|libvorbis|libvpx-vp9|libx264|libx265|pcm_s16le|prores_ks|h264_(?:amf|nvenc|v4l2m2m|vulkan))\\b/';
+    $encoderPattern = '/\\b(?:aac|libaom-av1|libkvazaar|libmp3lame|libopenh264|libopus|libsvtav1|libvorbis|libvpx-vp9|libx264|libx265|mjpeg|pcm_s16le|prores_ks|h264_(?:amf|nvenc|v4l2m2m|vulkan))\\b/';
     $locations = [];
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
         $root,
@@ -143,9 +239,12 @@ function binaryAuthorityLocations(string $root): array
                     $locations['compiled recipe reference'][] = $relativePath;
                 }
 
-                if (in_array($text, ['CompiledArgument', 'CompiledFilterGraph'], true)
+                if (in_array($text, ['CompiledArgument', 'CompiledFilterGraph', 'CompiledH264OutputOptions', 'CompiledInput', 'CompiledOutput'], true)
                     || str_ends_with($text, '\\CompiledArgument')
-                    || str_ends_with($text, '\\CompiledFilterGraph')) {
+                    || str_ends_with($text, '\\CompiledFilterGraph')
+                    || str_ends_with($text, '\\CompiledH264OutputOptions')
+                    || str_ends_with($text, '\\CompiledInput')
+                    || str_ends_with($text, '\\CompiledOutput')) {
                     $locations['compiled output reference'][] = $relativePath;
                 }
             }

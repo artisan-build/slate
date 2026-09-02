@@ -7,7 +7,11 @@ namespace App\Slate\Driver\Binary;
 use App\Slate\Driver\Binary\Operation\AudioConcatCompiler;
 use App\Slate\Driver\Binary\Operation\AudioPadCompiler;
 use App\Slate\Driver\Binary\Operation\AudioSilenceCompiler;
+use App\Slate\Driver\Binary\Operation\OverlayImageCompiler;
 use App\Slate\Driver\Binary\Operation\ProbeCompiler;
+use App\Slate\Driver\Binary\Operation\VideoConcatCompiler;
+use App\Slate\Driver\Binary\Operation\VideoStillClipCompiler;
+use App\Slate\Driver\Binary\Operation\VideoThumbnailCompiler;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Recipe\Operation;
 use InvalidArgumentException;
@@ -28,12 +32,17 @@ final readonly class RecipeCompiler
     public static function fromSystem(): self
     {
         $locator = FfmpegLocator::fromSystem();
+        $filterGraphCompiler = new FilterGraphCompiler;
 
         return new self(
             new ProbeCompiler($locator),
             new AudioSilenceCompiler($locator),
             new AudioConcatCompiler($locator),
             new AudioPadCompiler($locator),
+            new VideoStillClipCompiler($locator, $filterGraphCompiler),
+            new VideoConcatCompiler($locator, $filterGraphCompiler),
+            new OverlayImageCompiler($locator, $filterGraphCompiler),
+            new VideoThumbnailCompiler($locator),
         );
     }
 

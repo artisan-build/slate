@@ -6,12 +6,14 @@ namespace App\Slate\Driver\Binary\Operation;
 
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
+use App\Slate\Driver\Binary\CompiledInput;
 use App\Slate\Driver\Binary\CompiledLiteral;
+use App\Slate\Driver\Binary\CompiledOption;
+use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\Binary\LavfiInput;
 use App\Slate\Driver\CompiledRecipe;
-use App\Slate\Recipe\Audio\AudioBitrate;
 use App\Slate\Recipe\Audio\AudioChannelLayout;
 use App\Slate\Recipe\Audio\AudioFormat;
 use App\Slate\Recipe\Audio\AudioSampleRate;
@@ -42,35 +44,22 @@ final readonly class AudioSilenceCompiler implements CompilesOperation
             AudioChannelLayout::Mono => CompiledLiteral::One,
             AudioChannelLayout::Stereo => CompiledLiteral::StereoChannelCount,
         };
-        $format = match ($operation->format) {
-            AudioFormat::Mp3 => CompiledLiteral::Mp3,
+        $output = match ($operation->format) {
+            AudioFormat::Mp3 => CompiledOutput::mp3(
+                $operation->bitrate,
+                $operation->output,
+                $operation->channels,
+            ),
         };
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, [
-            CompiledArgument::option('-y'),
-            CompiledArgument::option('-f'),
+            CompiledArgument::option(CompiledOption::Overwrite),
+            CompiledArgument::option(CompiledOption::Format),
             CompiledArgument::literal(CompiledLiteral::Lavfi),
-            CompiledArgument::option('-i'),
-            CompiledArgument::lavfiInput($silenceInput),
-            CompiledArgument::option('-t'),
+            CompiledInput::lavfi($silenceInput),
+            CompiledArgument::option(CompiledOption::Duration),
             CompiledArgument::seconds($operation->durationSeconds),
-            CompiledArgument::option('-c:a'),
-            CompiledArgument::literal(CompiledLiteral::Libmp3lame),
-            CompiledArgument::option('-ac'),
-            CompiledArgument::literal($channelCount),
-            CompiledArgument::option('-b:a'),
-            CompiledArgument::literal($this->bitrate($operation->bitrate)),
-            CompiledArgument::option('-f'),
-            CompiledArgument::literal($format),
-            CompiledArgument::localPath($operation->output),
+            $output,
         ]);
-    }
-
-    private function bitrate(AudioBitrate $bitrate): CompiledLiteral
-    {
-        return match ($bitrate) {
-            AudioBitrate::Kbps128 => CompiledLiteral::Kbps128,
-            AudioBitrate::Kbps192 => CompiledLiteral::Kbps192,
-        };
     }
 }

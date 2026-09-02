@@ -54,6 +54,9 @@ These are verified facts, not guesses. Re-deriving them costs a Cloud deploy eac
 10. **The LGPL build's H.264 encoder cannot reach x264 CRF 12 quality on flat-gradient content at any
     bitrate.** SSIM saturates at 0.996677 versus CRF 12's 0.998485, so quality tiers are operational
     choices, not parity targets.
+11. **The pinned LGPL build's `libopenh264` does not write H.264 range metadata when given
+    `-color_range tv`.** It renders limited-range pixels, but ffprobe still reports `color_range` as
+    `null`; pixel conversion and bitstream signalling are separate obligations.
 
 ## Toolchain conformance — the ride-along rule (STANDING, all projects)
 

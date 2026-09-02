@@ -14,13 +14,42 @@ use App\Slate\Recipe\Audio\AudioSampleRate;
 use App\Slate\Recipe\Audio\AudioSilence;
 use App\Slate\Recipe\Operation;
 use App\Slate\Recipe\Probe;
+use App\Slate\Recipe\QualityTier;
+use App\Slate\Recipe\Video\OverlayFadeIn;
+use App\Slate\Recipe\Video\OverlayImage;
+use App\Slate\Recipe\Video\StillMotion;
+use App\Slate\Recipe\Video\VideoColor;
+use App\Slate\Recipe\Video\VideoConcat;
+use App\Slate\Recipe\Video\VideoConcatMode;
+use App\Slate\Recipe\Video\VideoFit;
+use App\Slate\Recipe\Video\VideoStillClip;
+use App\Slate\Recipe\Video\VideoThumbnail;
+use App\Slate\Recipe\Video\VideoTransition;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ScratchDirectory;
 
-test('registers production compilers for every shipped audio operation', function (): void {
+test('registers production compilers for every shipped operation', function (): void {
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
         $input = $scratch->file('input.mp3');
         file_put_contents($input->writablePath(), 'audio');
+        $image = $scratch->file('image.png');
+        file_put_contents($image->writablePath(), 'image');
+        $videoOutput = $scratch->file('video.mp4');
+        file_put_contents($videoOutput->writablePath(), 'video');
+        $secondVideoOutput = $scratch->file('video-two.mp4');
+        file_put_contents($secondVideoOutput->writablePath(), 'video');
+        $stillClip = new VideoStillClip(
+            $image, $input, $videoOutput, 1536, 1024, 24, 2.0,
+            VideoFit::ContainPad, VideoColor::Black, new StillMotion, 1,
+            QualityTier::Delivery, AudioBitrate::Kbps192,
+        );
+        $secondStillClip = new VideoStillClip(
+            $image, $input, $secondVideoOutput, 1536, 1024, 24, 2.0,
+            VideoFit::ContainPad, VideoColor::Black, new StillMotion, 1,
+            QualityTier::Delivery, AudioBitrate::Kbps192,
+        );
+        $video = fakeRenderedSlateVideo($stillClip);
+        $secondVideo = fakeRenderedSlateVideo($secondStillClip);
         $compiler = resolve(RecipeCompiler::class);
         $operations = [
             new Probe($input),
@@ -39,6 +68,17 @@ test('registers production compilers for every shipped audio operation', functio
                 $scratch->file('concat.mp3'),
             ),
             new AudioPad($input, $scratch->file('padded.mp3'), 0.25, 0.5, AudioBitrate::Kbps128),
+            $stillClip,
+            new VideoConcat(
+                [$video, $secondVideo], VideoConcatMode::Xfade,
+                VideoTransition::Fade, 0.5, true, QualityTier::Delivery, 24,
+                $scratch->file('joined.mp4'),
+            ),
+            new OverlayImage(
+                $video, $image, $scratch->file('overlay.mp4'), 0, 0,
+                new OverlayFadeIn(0.5, 0.5), 0.5,
+            ),
+            new VideoThumbnail($video, $scratch->file('poster.jpg')),
         ];
 
         $executables = array_map(
@@ -48,6 +88,6 @@ test('registers production compilers for every shipped audio operation', functio
 
         expect(app()->getProviders(DriverServiceProvider::class))->toHaveCount(1)
             ->and($compiler)->toBeInstanceOf(RecipeCompiler::class)
-            ->and($executables)->toBe(['ffprobe', 'ffmpeg', 'ffmpeg', 'ffmpeg']);
+            ->and($executables)->toBe(['ffprobe', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg']);
     });
 });

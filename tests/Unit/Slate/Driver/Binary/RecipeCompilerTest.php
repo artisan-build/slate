@@ -2,6 +2,7 @@
 
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
+use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\Binary\RecipeCompiler;
@@ -41,7 +42,7 @@ test('dispatches a typed timed-word operation to its one registered compiler', f
             return new CompiledRecipe(
                 new FfmpegLocator('Linux', 'arm64', '/runtime'),
                 BinaryExecutable::Ffmpeg,
-                [CompiledArgument::option('-version')],
+                [CompiledArgument::option(CompiledOption::Version)],
             );
         }
     };
@@ -85,7 +86,7 @@ test('rejects ambiguous compiler ownership for an operation', function (): void 
             return new CompiledRecipe(
                 new FfmpegLocator('Linux', 'arm64', '/runtime'),
                 BinaryExecutable::Ffprobe,
-                [CompiledArgument::option('-version')],
+                [CompiledArgument::option(CompiledOption::Version)],
             );
         }
     };

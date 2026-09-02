@@ -3,8 +3,16 @@
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledFilterGraph;
+use App\Slate\Driver\Binary\CompiledFilterType;
+use App\Slate\Driver\Binary\CompiledInput;
+use App\Slate\Driver\Binary\CompiledLiteral;
+use App\Slate\Driver\Binary\CompiledOption;
+use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\FfmpegLocator;
+use App\Slate\Driver\Binary\FilterGraphCompiler;
 use App\Slate\Driver\CompiledRecipe;
+use App\Slate\Recipe\Audio\AudioBitrate;
+use App\Slate\Recipe\QualityTier;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ScratchDirectory;
 
@@ -15,10 +23,7 @@ test('accepts compiler-owned scratch paths as local binary arguments', function 
         $recipe = new CompiledRecipe(
             new FfmpegLocator('Linux', 'arm64', '/runtime'),
             BinaryExecutable::Ffmpeg,
-            [
-                CompiledArgument::option('-i'),
-                CompiledArgument::existingLocalPath($input),
-            ],
+            [CompiledInput::ffmpeg($input)],
         );
 
         expect($recipe->command())->toBe(['/runtime/ffmpeg/bin/ffmpeg', '-i', $input->readablePath()]);
@@ -37,19 +42,39 @@ test('rejects executable values not enum-selected from the supplied locator', fu
     'different absolute executable' => '/tmp/evil/ffmpeg',
 ]);
 
-test('rejects every caller-authored string as a local path', function (string $input): void {
-    expect(fn (): CompiledArgument => CompiledArgument::localPath($input))
-        ->toThrow(TypeError::class);
-})->with([
-    'absolute file' => '/etc/passwd',
-    'root directory' => '/',
-    'network-path reference' => '//evil.com/x',
-    'FTP URL' => 'ftp://example.com/input.mp4',
-    'RTMP URL' => 'rtmp://example.com/live',
-    'TCP URL' => 'tcp://example.com:80',
-    'SRT URL' => 'srt://example.com:9000',
-    'HTTP control' => 'http://example.com/input.mp4',
-]);
+test('exposes no standalone output path or codec option construction', function (): void {
+    expect(method_exists(CompiledArgument::class, 'localPath'))->toBeFalse()
+        ->and(method_exists(CompiledArgument::class, 'existingLocalPath'))->toBeFalse()
+        ->and(method_exists(CompiledArgument::class, 'input'))->toBeFalse()
+        ->and(CompiledOption::tryFrom('-c'))->toBeNull()
+        ->and(CompiledOption::tryFrom('-c:a'))->toBeNull()
+        ->and(CompiledOption::tryFrom('-c:v'))->toBeNull();
+});
+
+test('rejects a detached local input source in terminal output position', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $input = $scratch->file('input.mp4');
+        $victim = $scratch->file('victim.mp4');
+        file_put_contents($input->writablePath(), 'input');
+        file_put_contents($victim->writablePath(), 'victim');
+        $inputUnit = CompiledInput::ffmpeg($input);
+        $victimUnit = CompiledInput::ffprobe($victim);
+
+        expect(fn (): CompiledRecipe => new CompiledRecipe(
+            new FfmpegLocator('Linux', 'arm64', '/runtime'),
+            BinaryExecutable::Ffmpeg,
+            [$inputUnit, $victimUnit],
+        ))->toThrow(LogicException::class, 'different executable');
+    });
+});
+
+test('rejects a free literal in positional output scope', function (): void {
+    expect(fn (): CompiledRecipe => new CompiledRecipe(
+        new FfmpegLocator('Linux', 'arm64', '/runtime'),
+        BinaryExecutable::Ffmpeg,
+        [CompiledArgument::literal(CompiledLiteral::Mp3)],
+    ))->toThrow(LogicException::class, 'value cannot exist outside its typed option pair');
+});
 
 test('rejects positive durations outside compiler precision and range', function (float $seconds): void {
     expect(fn (): CompiledArgument => CompiledArgument::seconds($seconds))
@@ -101,3 +126,137 @@ test('accepts legitimate compiled filtergraphs near the bare protocol syntax', f
     'xfade' => 'xfade=transition=fade:duration=1:offset=4',
     'local movie input' => 'movie=/tmp/input.mp4',
 ]);
+
+test('rejects multiple simple video filters in one compiled recipe', function (): void {
+    $first = CompiledFilterGraph::fromCompiler('scale=1536:1024');
+    $second = CompiledFilterGraph::fromCompiler('format=yuv420p');
+
+    expect(fn (): CompiledRecipe => new CompiledRecipe(
+        new FfmpegLocator('Linux', 'arm64', '/runtime'),
+        BinaryExecutable::Ffmpeg,
+        [
+            ...CompiledArgument::filter(CompiledFilterType::Video, $first),
+            ...CompiledArgument::filter(CompiledFilterType::Video, $second),
+        ],
+    ))->toThrow(LogicException::class, 'more than one -vf');
+});
+
+test('rejects simple and complex video filters in one compiled recipe', function (): void {
+    $simple = CompiledFilterGraph::fromCompiler('scale=1536:1024');
+    $complex = CompiledFilterGraph::fromCompiler('[0:v][1:v]overlay[video]');
+
+    expect(fn (): CompiledRecipe => new CompiledRecipe(
+        new FfmpegLocator('Linux', 'arm64', '/runtime'),
+        BinaryExecutable::Ffmpeg,
+        [
+            ...CompiledArgument::filter(CompiledFilterType::Video, $simple),
+            ...CompiledArgument::filter(CompiledFilterType::Complex, $complex),
+        ],
+    ))->toThrow(LogicException::class, 'cannot combine -vf with -filter_complex');
+});
+
+test('rejects a filtergraph separated from its typed option', function (): void {
+    $filter = CompiledArgument::filter(
+        CompiledFilterType::Video,
+        CompiledFilterGraph::fromCompiler('null'),
+    );
+
+    expect(fn (): CompiledRecipe => new CompiledRecipe(
+        new FfmpegLocator('Linux', 'arm64', '/runtime'),
+        BinaryExecutable::Ffmpeg,
+        [$filter[1]],
+    ))->toThrow(LogicException::class, 'cannot exist outside its typed option pair');
+});
+
+test('rejects every string option so unlisted ffmpeg aliases cannot enter argv', function (string $option): void {
+    expect(method_exists(CompiledArgument::class, 'filterGraph'))->toBeFalse()
+        ->and(fn (): CompiledArgument => CompiledArgument::option($option))
+        ->toThrow(TypeError::class);
+})->with([
+    '-i',
+    '-vf',
+    '-filter:v',
+    '-filter_complex',
+    '-lavfi',
+    '-lavfi:v',
+    '-LAVFI',
+    '-future-option',
+]);
+
+test('keeps codec selection inside the same ordered output unit as its path', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $output = $scratch->file('poster.jpg');
+
+        $recipe = new CompiledRecipe(
+            new FfmpegLocator('Linux', 'arm64', '/runtime'),
+            BinaryExecutable::Ffmpeg,
+            [CompiledOutput::jpeg($output)],
+        );
+
+        expect($recipe->command())->toBe([
+            '/runtime/ffmpeg/bin/ffmpeg',
+            '-c:v',
+            'mjpeg',
+            '-f',
+            'image2',
+            $output->writablePath(),
+        ]);
+    });
+});
+
+test('supports multiple independently scoped outputs with different media codecs', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $audio = $scratch->file('audio.mp3');
+        $image = $scratch->file('poster.jpg');
+
+        $recipe = new CompiledRecipe(
+            new FfmpegLocator('Linux', 'arm64', '/runtime'),
+            BinaryExecutable::Ffmpeg,
+            [
+                CompiledOutput::copiedMp3($audio),
+                CompiledOutput::jpeg($image),
+            ],
+        );
+
+        expect($recipe->command())->toBe([
+            '/runtime/ffmpeg/bin/ffmpeg',
+            '-c:a', 'copy', '-f', 'mp3', $audio->writablePath(),
+            '-c:v', 'mjpeg', '-f', 'image2', $image->writablePath(),
+        ]);
+    });
+});
+
+test('rejects diagnostic early-exit options in a file-output recipe', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        expect(fn (): CompiledRecipe => new CompiledRecipe(
+            new FfmpegLocator('Linux', 'arm64', '/runtime'),
+            BinaryExecutable::Ffmpeg,
+            [
+                CompiledArgument::option(CompiledOption::Filters),
+                CompiledOutput::jpeg($scratch->file('poster.jpg')),
+            ],
+        ))->toThrow(LogicException::class, 'Diagnostic early-exit');
+    });
+});
+
+test('rejects extra output injection through closed H264 and MP3 option types', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $extraOutput = CompiledArgument::literal(CompiledLiteral::Mp3);
+        $filter = (new FilterGraphCompiler)->compileH264Video(['null']);
+
+        expect(fn (): CompiledOutput => CompiledOutput::h264(
+            $filter,
+            QualityTier::Delivery,
+            1536,
+            1024,
+            24,
+            [$extraOutput],
+            $scratch->file('intended.mp4'),
+        ))->toThrow(TypeError::class)
+            ->and(fn (): CompiledOutput => CompiledOutput::mp3(
+                AudioBitrate::Kbps192,
+                $scratch->file('intended.mp3'),
+                [$extraOutput],
+            ))->toThrow(TypeError::class);
+    });
+});

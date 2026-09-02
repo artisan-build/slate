@@ -3,6 +3,7 @@
 use App\Slate\Driver\Binary\BinaryDriver;
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
+use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Driver\Driver;
@@ -18,7 +19,7 @@ test('executes only a compiled recipe and returns its complete result', function
     $recipe = new CompiledRecipe(
         new FfmpegLocator('Linux', 'arm64', '/runtime'),
         BinaryExecutable::Ffprobe,
-        [CompiledArgument::option('-version')],
+        [CompiledArgument::option(CompiledOption::Version)],
         '/tmp/slate-job',
     );
 

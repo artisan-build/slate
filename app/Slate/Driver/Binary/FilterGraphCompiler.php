@@ -11,12 +11,17 @@ final class FilterGraphCompiler
     /**
      * @param  list<string>  $operationFilters
      */
-    public function compileH264Video(array $operationFilters): CompiledFilterGraph
+    public function compileH264Video(array $operationFilters): CompiledH264FilterGraph
     {
-        return CompiledFilterGraph::fromCompiler(implode(',', [
-            ...$operationFilters,
-            H264OutputContract::videoNormalizationFilter(),
-        ]));
+        return CompiledH264FilterGraph::simple($operationFilters);
+    }
+
+    /**
+     * @param  list<string>  $prefixChains
+     */
+    public function compileH264ComplexVideo(array $prefixChains, string $terminalVideoChain): CompiledH264FilterGraph
+    {
+        return CompiledH264FilterGraph::complex($prefixChains, $terminalVideoChain);
     }
 
     public function compileDiagnosticDrawtext(string $fontPath): CompiledFilterGraph

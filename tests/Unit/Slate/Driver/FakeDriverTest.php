@@ -2,6 +2,7 @@
 
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
+use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Driver\DriverResult;
@@ -12,12 +13,12 @@ test('records compiled recipes and returns queued pipeline results', function ()
     $firstRecipe = new CompiledRecipe(
         $locator,
         BinaryExecutable::Ffmpeg,
-        [CompiledArgument::option('-version')],
+        [CompiledArgument::option(CompiledOption::Version)],
     );
     $secondRecipe = new CompiledRecipe(
         $locator,
         BinaryExecutable::Ffprobe,
-        [CompiledArgument::option('-version')],
+        [CompiledArgument::option(CompiledOption::Version)],
     );
     $driver = new FakeDriver(
         new DriverResult(output: 'first'),

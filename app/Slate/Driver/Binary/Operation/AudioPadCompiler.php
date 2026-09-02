@@ -7,11 +7,13 @@ namespace App\Slate\Driver\Binary\Operation;
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledFilterGraph;
-use App\Slate\Driver\Binary\CompiledLiteral;
+use App\Slate\Driver\Binary\CompiledFilterType;
+use App\Slate\Driver\Binary\CompiledInput;
+use App\Slate\Driver\Binary\CompiledOption;
+use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\CompiledRecipe;
-use App\Slate\Recipe\Audio\AudioBitrate;
 use App\Slate\Recipe\Audio\AudioPad;
 use App\Slate\Recipe\Operation;
 use InvalidArgumentException;
@@ -38,27 +40,11 @@ final readonly class AudioPadCompiler implements CompilesOperation
         );
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, [
-            CompiledArgument::option('-y'),
-            CompiledArgument::option('-i'),
-            CompiledArgument::existingLocalPath($operation->input),
-            CompiledArgument::option('-af'),
-            CompiledArgument::filterGraph($filter),
-            CompiledArgument::option('-c:a'),
-            CompiledArgument::literal(CompiledLiteral::Libmp3lame),
-            CompiledArgument::option('-b:a'),
-            CompiledArgument::literal($this->bitrate($operation->bitrate)),
-            CompiledArgument::option('-f'),
-            CompiledArgument::literal(CompiledLiteral::Mp3),
-            CompiledArgument::localPath($operation->output),
+            CompiledArgument::option(CompiledOption::Overwrite),
+            CompiledInput::ffmpeg($operation->input),
+            ...CompiledArgument::filter(CompiledFilterType::Audio, $filter),
+            CompiledOutput::mp3($operation->bitrate, $operation->output),
         ]);
-    }
-
-    private function bitrate(AudioBitrate $bitrate): CompiledLiteral
-    {
-        return match ($bitrate) {
-            AudioBitrate::Kbps128 => CompiledLiteral::Kbps128,
-            AudioBitrate::Kbps192 => CompiledLiteral::Kbps192,
-        };
     }
 
     private function formatSeconds(float $seconds): string

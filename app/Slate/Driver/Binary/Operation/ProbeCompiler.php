@@ -6,7 +6,9 @@ namespace App\Slate\Driver\Binary\Operation;
 
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
+use App\Slate\Driver\Binary\CompiledInput;
 use App\Slate\Driver\Binary\CompiledLiteral;
+use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\CompiledRecipe;
@@ -30,13 +32,13 @@ final readonly class ProbeCompiler implements CompilesOperation
         }
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffprobe, [
-            CompiledArgument::option('-v'),
+            CompiledArgument::option(CompiledOption::Verbosity),
             CompiledArgument::literal(CompiledLiteral::Error),
-            CompiledArgument::option('-show_format'),
-            CompiledArgument::option('-show_streams'),
-            CompiledArgument::option('-of'),
+            CompiledArgument::option(CompiledOption::ShowFormat),
+            CompiledArgument::option(CompiledOption::ShowStreams),
+            CompiledArgument::option(CompiledOption::OutputFormat),
             CompiledArgument::literal(CompiledLiteral::Json),
-            CompiledArgument::existingLocalPath($operation->input),
+            CompiledInput::ffprobe($operation->input),
         ]);
     }
 }

@@ -1,6 +1,10 @@
 <?php
 
+use App\Slate\Driver\Binary\CompiledFilterGraph;
+use App\Slate\Driver\Binary\CompiledH264OutputOptions;
+use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\FilterGraphCompiler;
+use App\Slate\Recipe\QualityTier;
 
 test('appends normalization to the operation filter chain', function (): void {
     $filter = (new FilterGraphCompiler)->compileH264Video([
@@ -8,9 +12,47 @@ test('appends normalization to the operation filter chain', function (): void {
         'fade=t=out:st=4:d=1',
     ]);
 
-    expect($filter->value())->toBe(
+    expect($filter->filterGraph()->value())->toBe(
         'crop=640:480:0:0,fade=t=out:st=4:d=1,scale=in_range=auto:out_range=tv,format=yuv420p',
     );
+});
+
+test('attaches normalization to the labelled output of a complex video graph', function (): void {
+    $filter = (new FilterGraphCompiler)->compileH264ComplexVideo(
+        ['[1:v]fade=type=in:st=1:d=0.5:alpha=1[badge]'],
+        '[0:v][badge]overlay=x=20:y=40',
+    );
+
+    expect($filter->complex)->toBeTrue()
+        ->and($filter->filterGraph()->value())->toBe(
+            '[1:v]fade=type=in:st=1:d=0.5:alpha=1[badge];'
+            .'[0:v][badge]overlay=x=20:y=40[operation_video];'
+            .'[operation_video]scale=in_range=auto:out_range=tv,format=yuv420p[video]',
+        );
+});
+
+test('reserves normalized output labels from operation-authored complex chains', function (array $prefix, string $terminal): void {
+    expect(fn () => (new FilterGraphCompiler)->compileH264ComplexVideo($prefix, $terminal))
+        ->toThrow(InvalidArgumentException::class);
+})->with([
+    'video label in prefix' => [['[0:v]null[video]'], '[1:v]null'],
+    'operation label in prefix' => [['[0:v]null[operation_video]'], '[1:v]null'],
+    'video label in terminal' => [[], '[0:v]null[video]'],
+    'custom terminal output label' => [[], '[0:v]null[custom]'],
+]);
+
+test('requires a normalized graph before H264 output arguments can be constructed', function (): void {
+    $unnormalized = CompiledFilterGraph::fromCompiler('scale=1536:1024');
+
+    expect(fn (): CompiledOutput => CompiledOutput::h264(
+        $unnormalized,
+        QualityTier::Delivery,
+        1536,
+        1024,
+        24,
+        CompiledH264OutputOptions::concat(),
+        new stdClass,
+    ))->toThrow(TypeError::class);
 });
 
 test('escapes drawtext option values for both ffmpeg parser levels', function (): void {
