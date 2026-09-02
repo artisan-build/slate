@@ -32,6 +32,7 @@ enum CompiledOption: string
     case Verbosity = '-v';
     case Version = '-version';
     case VideoBitrate = '-b:v';
+    case VideoBitstreamFilter = '-bsf:v';
     case VideoFrames = '-frames:v';
     case VideoProfile = '-profile:v';
     case Filters = '-filters';

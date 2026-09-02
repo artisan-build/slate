@@ -53,6 +53,8 @@ final class H264OutputContract
             'yuv420p',
             CompiledOption::ColorRange->value,
             'tv',
+            CompiledOption::VideoBitstreamFilter->value,
+            'h264_metadata=video_full_range_flag=0',
             '-r',
             (string) $framesPerSecond,
             '-c:a',
