@@ -16,32 +16,32 @@ final readonly class DiagnosticRecipeCompiler
     public function version(): CompiledRecipe
     {
         return $this->ffmpegRecipe([
-            CompiledArgument::option('-hide_banner'),
-            CompiledArgument::option('-version'),
+            CompiledArgument::option(CompiledOption::HideBanner),
+            CompiledArgument::option(CompiledOption::Version),
         ]);
     }
 
     public function filters(): CompiledRecipe
     {
         return $this->ffmpegRecipe([
-            CompiledArgument::option('-hide_banner'),
-            CompiledArgument::option('-filters'),
+            CompiledArgument::option(CompiledOption::HideBanner),
+            CompiledArgument::option(CompiledOption::Filters),
         ]);
     }
 
     public function buildConfiguration(): CompiledRecipe
     {
         return $this->ffmpegRecipe([
-            CompiledArgument::option('-hide_banner'),
-            CompiledArgument::option('-buildconf'),
+            CompiledArgument::option(CompiledOption::HideBanner),
+            CompiledArgument::option(CompiledOption::BuildConfiguration),
         ]);
     }
 
     public function encoders(): CompiledRecipe
     {
         return $this->ffmpegRecipe([
-            CompiledArgument::option('-hide_banner'),
-            CompiledArgument::option('-encoders'),
+            CompiledArgument::option(CompiledOption::HideBanner),
+            CompiledArgument::option(CompiledOption::Encoders),
         ]);
     }
 
@@ -54,20 +54,20 @@ final readonly class DiagnosticRecipeCompiler
         ]);
 
         return $this->ffmpegRecipe([
-            CompiledArgument::option('-hide_banner'),
-            CompiledArgument::option('-loglevel'),
+            CompiledArgument::option(CompiledOption::HideBanner),
+            CompiledArgument::option(CompiledOption::LogLevel),
             CompiledArgument::literal(CompiledLiteral::Info),
-            CompiledArgument::option('-f'),
+            CompiledArgument::option(CompiledOption::Format),
             CompiledArgument::literal(CompiledLiteral::Lavfi),
-            CompiledArgument::option('-i'),
+            CompiledArgument::option(CompiledOption::Input),
             CompiledArgument::lavfiInput(LavfiInput::BlackDiagnosticFrame),
             ...CompiledArgument::filter(
                 CompiledFilterType::Video,
                 CompiledFilterGraph::fromCompiler(implode(',', $filters)),
             ),
-            CompiledArgument::option('-frames:v'),
+            CompiledArgument::option(CompiledOption::VideoFrames),
             CompiledArgument::literal(CompiledLiteral::One),
-            CompiledArgument::option('-f'),
+            CompiledArgument::option(CompiledOption::Format),
             CompiledArgument::literal(CompiledLiteral::NullMuxer),
             CompiledArgument::literal(CompiledLiteral::StandardStream),
         ]);

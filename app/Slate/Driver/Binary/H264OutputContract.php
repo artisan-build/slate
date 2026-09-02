@@ -54,7 +54,7 @@ final class H264OutputContract
             '-r',
             (string) $framesPerSecond,
             '-c:a',
-            'aac',
+            self::audioEncoder(),
             '-b:a',
             '192k',
         ];
@@ -74,6 +74,11 @@ final class H264OutputContract
     public static function encoder(): string
     {
         return 'libopenh264';
+    }
+
+    public static function audioEncoder(): string
+    {
+        return 'aac';
     }
 
     private static function bitsPerPixel(QualityTier $tier): float

@@ -7,6 +7,8 @@ namespace App\Slate\Driver\Binary\Operation;
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledLiteral;
+use App\Slate\Driver\Binary\CompiledOption;
+use App\Slate\Driver\Binary\CompiledOutputType;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\Binary\FilterGraphCompiler;
@@ -41,16 +43,16 @@ final readonly class OverlayImageCompiler implements CompilesOperation
             "[0:v][badge]overlay=x={$operation->x}:y={$operation->y}:format=auto:enable=gte(t\\,{$enableFrom})",
         );
         $arguments = [
-            CompiledArgument::option('-y'),
-            CompiledArgument::option('-i'),
+            CompiledArgument::option(CompiledOption::Overwrite),
+            CompiledArgument::option(CompiledOption::Input),
             CompiledArgument::existingLocalPath($operation->input->path),
-            CompiledArgument::option('-framerate'),
+            CompiledArgument::option(CompiledOption::InputFrameRate),
             CompiledArgument::unsignedInteger($operation->input->framesPerSecond),
-            CompiledArgument::option('-loop'),
+            CompiledArgument::option(CompiledOption::Loop),
             CompiledArgument::literal(CompiledLiteral::One),
-            CompiledArgument::option('-t'),
+            CompiledArgument::option(CompiledOption::Duration),
             CompiledArgument::seconds($operation->input->durationSeconds),
-            CompiledArgument::option('-i'),
+            CompiledArgument::option(CompiledOption::Input),
             CompiledArgument::existingLocalPath($operation->image),
             ...CompiledArgument::h264VideoOutput(
                 $filterGraph,
@@ -59,11 +61,11 @@ final readonly class OverlayImageCompiler implements CompilesOperation
                 $operation->input->height,
                 $operation->input->framesPerSecond,
             ),
-            CompiledArgument::option('-map'),
+            CompiledArgument::option(CompiledOption::Map),
             CompiledArgument::literal(CompiledLiteral::AudioInputZero),
-            CompiledArgument::option('-t'),
+            CompiledArgument::option(CompiledOption::Duration),
             CompiledArgument::seconds($operation->input->durationSeconds),
-            CompiledArgument::localPath($operation->output),
+            CompiledArgument::localPath($operation->output, CompiledOutputType::Video),
         ];
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, $arguments);

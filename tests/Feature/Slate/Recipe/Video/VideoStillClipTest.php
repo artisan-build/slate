@@ -36,11 +36,11 @@ test('accepts the audited still clip vocabulary and exposes a trusted Slate outp
             new VideoFadeOut(11.345678, 1.0, VideoColor::Black),
         );
 
-        $video = fakeRenderedSlateVideo($operation, 10.123456);
+        $video = fakeRenderedSlateVideo($operation, 12.245678);
 
         expect($operation->name()->value)->toBe('video.still_clip')
             ->and($video->path)->toBe($operation->output)
-            ->and($video->durationSeconds)->toBe(10.123456);
+            ->and($video->durationSeconds)->toBe(12.245678);
     });
 });
 
@@ -63,6 +63,47 @@ test('does not mint a Slate video when rendering fails', function (): void {
         ))->toThrow(RuntimeException::class, 'render failed');
     });
 });
+
+test('rejects incomplete or contradictory probed media', function (
+    array $videoStreamOverrides,
+    bool $includeVideo,
+    bool $includeAudio,
+    string $audioCodec,
+    float $probedDuration,
+): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch) use (
+        $videoStreamOverrides,
+        $includeVideo,
+        $includeAudio,
+        $audioCodec,
+        $probedDuration,
+    ): void {
+        $operation = new VideoStillClip(
+            $scratch->file('image.png'), $scratch->file('audio.mp3'), $scratch->file('clip.mp4'),
+            1536, 1024, 24, 12.0, VideoFit::ContainPad, VideoColor::Black, new StillMotion, 1,
+            QualityTier::Delivery, AudioBitrate::Kbps192,
+        );
+
+        expect(fn (): SlateVideo => fakeRenderedSlateVideo(
+            $operation,
+            $probedDuration,
+            $videoStreamOverrides,
+            $includeVideo,
+            $includeAudio,
+            $audioCodec,
+        ))->toThrow(RuntimeException::class);
+    });
+})->with([
+    'wrong video codec' => [['codec_name' => 'vp9'], true, true, 'aac', 12.0],
+    'wrong pixel format' => [['pix_fmt' => 'yuv444p'], true, true, 'aac', 12.0],
+    'full color range' => [['color_range' => 'pc'], true, true, 'aac', 12.0],
+    'wrong width' => [['width' => 640], true, true, 'aac', 12.0],
+    'invalid frame rate' => [['avg_frame_rate' => '25/1'], true, true, 'aac', 12.0],
+    'missing video stream' => [[], false, true, 'aac', 12.0],
+    'missing audio stream' => [[], true, false, 'aac', 12.0],
+    'wrong audio codec' => [[], true, true, 'mp3', 12.0],
+    'truncated duration' => [[], true, true, 'aac', 10.0],
+]);
 
 test('rejects still clip values outside the audited video contract', function (): void {
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {

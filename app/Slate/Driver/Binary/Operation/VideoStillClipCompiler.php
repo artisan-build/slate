@@ -7,6 +7,8 @@ namespace App\Slate\Driver\Binary\Operation;
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledLiteral;
+use App\Slate\Driver\Binary\CompiledOption;
+use App\Slate\Driver\Binary\CompiledOutputType;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\Binary\FilterGraphCompiler;
@@ -63,14 +65,14 @@ final readonly class VideoStillClipCompiler implements CompilesOperation
 
         $filterGraph = $this->filterGraphCompiler->compileH264Video($filters);
         $arguments = [
-            CompiledArgument::option('-y'),
-            CompiledArgument::option('-framerate'),
+            CompiledArgument::option(CompiledOption::Overwrite),
+            CompiledArgument::option(CompiledOption::InputFrameRate),
             CompiledArgument::unsignedInteger($operation->framesPerSecond),
-            CompiledArgument::option('-loop'),
+            CompiledArgument::option(CompiledOption::Loop),
             CompiledArgument::literal(CompiledLiteral::One),
-            CompiledArgument::option('-i'),
+            CompiledArgument::option(CompiledOption::Input),
             CompiledArgument::existingLocalPath($operation->image),
-            CompiledArgument::option('-i'),
+            CompiledArgument::option(CompiledOption::Input),
             CompiledArgument::existingLocalPath($operation->audio),
             ...CompiledArgument::h264VideoOutput(
                 $filterGraph,
@@ -79,13 +81,13 @@ final readonly class VideoStillClipCompiler implements CompilesOperation
                 $operation->height,
                 $operation->framesPerSecond,
             ),
-            CompiledArgument::option('-map'),
+            CompiledArgument::option(CompiledOption::Map),
             CompiledArgument::literal(CompiledLiteral::VideoInputZero),
-            CompiledArgument::option('-map'),
+            CompiledArgument::option(CompiledOption::Map),
             CompiledArgument::literal(CompiledLiteral::AudioInputOne),
-            CompiledArgument::option('-t'),
+            CompiledArgument::option(CompiledOption::Duration),
             CompiledArgument::seconds($operation->durationSeconds),
-            CompiledArgument::localPath($operation->output),
+            CompiledArgument::localPath($operation->output, CompiledOutputType::Video),
         ];
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, $arguments);

@@ -9,6 +9,8 @@ use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledFilterGraph;
 use App\Slate\Driver\Binary\CompiledFilterType;
 use App\Slate\Driver\Binary\CompiledLiteral;
+use App\Slate\Driver\Binary\CompiledOption;
+use App\Slate\Driver\Binary\CompiledOutputType;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\CompiledRecipe;
@@ -39,17 +41,17 @@ final readonly class AudioPadCompiler implements CompilesOperation
         );
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, [
-            CompiledArgument::option('-y'),
-            CompiledArgument::option('-i'),
+            CompiledArgument::option(CompiledOption::Overwrite),
+            CompiledArgument::option(CompiledOption::Input),
             CompiledArgument::existingLocalPath($operation->input),
             ...CompiledArgument::filter(CompiledFilterType::Audio, $filter),
-            CompiledArgument::option('-c:a'),
+            CompiledArgument::option(CompiledOption::AudioCodec),
             CompiledArgument::literal(CompiledLiteral::Libmp3lame),
-            CompiledArgument::option('-b:a'),
+            CompiledArgument::option(CompiledOption::AudioBitrate),
             CompiledArgument::literal($this->bitrate($operation->bitrate)),
-            CompiledArgument::option('-f'),
+            CompiledArgument::option(CompiledOption::Format),
             CompiledArgument::literal(CompiledLiteral::Mp3),
-            CompiledArgument::localPath($operation->output),
+            CompiledArgument::localPath($operation->output, CompiledOutputType::Audio),
         ]);
     }
 

@@ -6,11 +6,15 @@ namespace App\Slate\Driver\Binary;
 
 enum CompiledArgumentKind
 {
+    case AudioCodecOption;
     case AudioFilterOption;
+    case AudioOutputPath;
+    case CodecOption;
     case ComplexFilterOption;
     case FilterGraph;
     case Option;
     case Value;
+    case VideoCodecOption;
     case VideoFilterOption;
-    case WritablePath;
+    case VideoOutputPath;
 }

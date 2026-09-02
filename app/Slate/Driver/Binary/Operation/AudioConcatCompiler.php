@@ -9,6 +9,8 @@ use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledFilterGraph;
 use App\Slate\Driver\Binary\CompiledFilterType;
 use App\Slate\Driver\Binary\CompiledLiteral;
+use App\Slate\Driver\Binary\CompiledOption;
+use App\Slate\Driver\Binary\CompiledOutputType;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\Binary\LavfiInput;
@@ -63,38 +65,38 @@ final readonly class AudioConcatCompiler implements CompilesOperation
         }
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, [
-            CompiledArgument::option('-y'),
-            CompiledArgument::option('-f'),
+            CompiledArgument::option(CompiledOption::Overwrite),
+            CompiledArgument::option(CompiledOption::Format),
             CompiledArgument::literal(CompiledLiteral::Concat),
-            CompiledArgument::option('-safe'),
+            CompiledArgument::option(CompiledOption::Safe),
             CompiledArgument::literal(CompiledLiteral::Zero),
-            CompiledArgument::option('-i'),
+            CompiledArgument::option(CompiledOption::Input),
             CompiledArgument::existingLocalPath($manifest),
-            CompiledArgument::option('-c:a'),
+            CompiledArgument::option(CompiledOption::AudioCodec),
             CompiledArgument::literal(CompiledLiteral::Copy),
-            CompiledArgument::option('-f'),
+            CompiledArgument::option(CompiledOption::Format),
             CompiledArgument::literal(CompiledLiteral::Mp3),
-            CompiledArgument::localPath($operation->output),
+            CompiledArgument::localPath($operation->output, CompiledOutputType::Audio),
         ]);
     }
 
     private function compileReencode(AudioConcat $operation): CompiledRecipe
     {
-        $arguments = [CompiledArgument::option('-y')];
+        $arguments = [CompiledArgument::option(CompiledOption::Overwrite)];
 
         foreach ($operation->items as $item) {
             if ($item instanceof AudioConcatInput) {
-                $arguments[] = CompiledArgument::option('-i');
+                $arguments[] = CompiledArgument::option(CompiledOption::Input);
                 $arguments[] = CompiledArgument::existingLocalPath($item->input);
 
                 continue;
             }
 
-            $arguments[] = CompiledArgument::option('-f');
+            $arguments[] = CompiledArgument::option(CompiledOption::Format);
             $arguments[] = CompiledArgument::literal(CompiledLiteral::Lavfi);
-            $arguments[] = CompiledArgument::option('-t');
+            $arguments[] = CompiledArgument::option(CompiledOption::Duration);
             $arguments[] = CompiledArgument::seconds($item->durationSeconds);
-            $arguments[] = CompiledArgument::option('-i');
+            $arguments[] = CompiledArgument::option(CompiledOption::Input);
             $arguments[] = CompiledArgument::lavfiInput(LavfiInput::Silence44100Mono);
         }
 
@@ -109,15 +111,15 @@ final readonly class AudioConcatCompiler implements CompilesOperation
         $arguments = [
             ...$arguments,
             ...CompiledArgument::filter(CompiledFilterType::Complex, $filter),
-            CompiledArgument::option('-map'),
+            CompiledArgument::option(CompiledOption::Map),
             CompiledArgument::literal(CompiledLiteral::AudioOutputLabel),
-            CompiledArgument::option('-c:a'),
+            CompiledArgument::option(CompiledOption::AudioCodec),
             CompiledArgument::literal(CompiledLiteral::Libmp3lame),
-            CompiledArgument::option('-b:a'),
+            CompiledArgument::option(CompiledOption::AudioBitrate),
             CompiledArgument::literal($this->bitrate($operation->bitrate)),
-            CompiledArgument::option('-f'),
+            CompiledArgument::option(CompiledOption::Format),
             CompiledArgument::literal(CompiledLiteral::Mp3),
-            CompiledArgument::localPath($operation->output),
+            CompiledArgument::localPath($operation->output, CompiledOutputType::Audio),
         ];
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, $arguments);

@@ -65,13 +65,28 @@ final readonly class CompiledRecipe
             throw new LogicException('A compiled recipe cannot combine -vf with -filter_complex.');
         }
 
-        $hasWritableOutput = array_any(
+        $hasAudioOutput = array_any(
             $arguments,
-            static fn (CompiledArgument $argument): bool => $argument->kind() === CompiledArgumentKind::WritablePath,
+            static fn (CompiledArgument $argument): bool => $argument->kind() === CompiledArgumentKind::AudioOutputPath,
         );
+        $hasVideoOutput = array_any(
+            $arguments,
+            static fn (CompiledArgument $argument): bool => $argument->kind() === CompiledArgumentKind::VideoOutputPath,
+        );
+        $hasAudioCodec = array_any($arguments, static fn (CompiledArgument $argument): bool => in_array(
+            $argument->kind(),
+            [CompiledArgumentKind::AudioCodecOption, CompiledArgumentKind::CodecOption],
+            true,
+        ));
+        $hasVideoCodec = array_any($arguments, static fn (CompiledArgument $argument): bool => in_array(
+            $argument->kind(),
+            [CompiledArgumentKind::VideoCodecOption, CompiledArgumentKind::CodecOption],
+            true,
+        ));
 
-        if ($executable === BinaryExecutable::Ffmpeg && $hasWritableOutput && ! $this->hasExplicitCodec($argumentValues)) {
-            throw new LogicException('Every ffmpeg file output must select its codec explicitly.');
+        if ($executable === BinaryExecutable::Ffmpeg
+            && (($hasAudioOutput && ! $hasAudioCodec) || ($hasVideoOutput && ! $hasVideoCodec))) {
+            throw new LogicException('Every ffmpeg file output must select its media codec explicitly.');
         }
 
         if (in_array(H264OutputContract::encoder(), $argumentValues, true)) {
@@ -124,19 +139,5 @@ final readonly class CompiledRecipe
     public function workingDirectory(): ?string
     {
         return $this->workingDirectory;
-    }
-
-    /** @param  list<string>  $arguments */
-    private function hasExplicitCodec(array $arguments): bool
-    {
-        return array_any($arguments, static function (string $argument): bool {
-            if (! str_starts_with($argument, '-')) {
-                return false;
-            }
-
-            $optionName = strtolower(explode(':', ltrim($argument, '-'), 2)[0]);
-
-            return in_array($optionName, ['c', 'codec'], true);
-        });
     }
 }

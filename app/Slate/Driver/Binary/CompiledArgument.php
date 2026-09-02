@@ -16,26 +16,14 @@ final readonly class CompiledArgument
         private CompiledArgumentKind $kind = CompiledArgumentKind::Value,
     ) {}
 
-    public static function option(string $option): self
+    public static function option(CompiledOption $option): self
     {
-        if (preg_match('/^-[A-Za-z][A-Za-z0-9:_-]*$/', $option) !== 1) {
-            throw new InvalidArgumentException('A compiled option must be one complete ffmpeg option.');
-        }
-
-        $optionName = strtolower(explode(':', ltrim($option, '-'), 2)[0]);
-
-        if (in_array($optionName, ['vf', 'af'], true)
-            || $optionName === 'filter'
-            || str_starts_with($optionName, 'filter_')) {
-            throw new InvalidArgumentException('Filter options and graphs must be compiled as one typed pair.');
-        }
-
-        return new self($option, CompiledArgumentKind::Option);
+        return new self($option->value, $option->argumentKind());
     }
 
-    public static function localPath(ScratchPath $path): self
+    public static function localPath(ScratchPath $path, CompiledOutputType $outputType): self
     {
-        return new self($path->writablePath(), CompiledArgumentKind::WritablePath);
+        return new self($path->writablePath(), $outputType->argumentKind());
     }
 
     public static function existingLocalPath(ScratchPath $path): self
@@ -101,13 +89,15 @@ final readonly class CompiledArgument
         if ($filterGraph->complex) {
             array_push(
                 $arguments,
-                self::option('-map'),
+                self::option(CompiledOption::Map),
                 self::literal(CompiledLiteral::VideoOutputLabel),
             );
         }
 
-        foreach (H264OutputContract::argumentsFor($tier, $width, $height, $framesPerSecond) as $argument) {
-            $arguments[] = new self($argument);
+        foreach (H264OutputContract::argumentsFor($tier, $width, $height, $framesPerSecond) as $index => $argument) {
+            $arguments[] = $index % 2 === 0
+                ? self::option(CompiledOption::from($argument))
+                : new self($argument);
         }
 
         return $arguments;
@@ -117,11 +107,11 @@ final readonly class CompiledArgument
     public static function jpegOutput(ScratchPath $output): array
     {
         return [
-            self::option('-c:v'),
+            self::option(CompiledOption::VideoCodec),
             self::literal(CompiledLiteral::Mjpeg),
-            self::option('-f'),
+            self::option(CompiledOption::Format),
             self::literal(CompiledLiteral::Image2),
-            self::localPath($output),
+            self::localPath($output, CompiledOutputType::Video),
         ];
     }
 

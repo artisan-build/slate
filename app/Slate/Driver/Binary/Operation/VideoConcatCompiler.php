@@ -7,6 +7,8 @@ namespace App\Slate\Driver\Binary\Operation;
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledLiteral;
+use App\Slate\Driver\Binary\CompiledOption;
+use App\Slate\Driver\Binary\CompiledOutputType;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\Binary\FilterGraphCompiler;
@@ -59,25 +61,25 @@ final readonly class VideoConcatCompiler implements CompilesOperation
         }
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, [
-            CompiledArgument::option('-y'),
-            CompiledArgument::option('-f'),
+            CompiledArgument::option(CompiledOption::Overwrite),
+            CompiledArgument::option(CompiledOption::Format),
             CompiledArgument::literal(CompiledLiteral::Concat),
-            CompiledArgument::option('-safe'),
+            CompiledArgument::option(CompiledOption::Safe),
             CompiledArgument::literal(CompiledLiteral::Zero),
-            CompiledArgument::option('-i'),
+            CompiledArgument::option(CompiledOption::Input),
             CompiledArgument::existingLocalPath($manifest),
-            CompiledArgument::option('-c'),
+            CompiledArgument::option(CompiledOption::Codec),
             CompiledArgument::literal(CompiledLiteral::Copy),
-            CompiledArgument::localPath($operation->output),
+            CompiledArgument::localPath($operation->output, CompiledOutputType::Video),
         ]);
     }
 
     private function compileXfade(VideoConcat $operation): CompiledRecipe
     {
-        $arguments = [CompiledArgument::option('-y')];
+        $arguments = [CompiledArgument::option(CompiledOption::Overwrite)];
 
         foreach ($operation->inputs as $input) {
-            $arguments[] = CompiledArgument::option('-i');
+            $arguments[] = CompiledArgument::option(CompiledOption::Input);
             $arguments[] = CompiledArgument::existingLocalPath($input->path);
         }
 
@@ -98,9 +100,9 @@ final readonly class VideoConcatCompiler implements CompilesOperation
                 $operation->height(),
                 $operation->framesPerSecond,
             ),
-            CompiledArgument::option('-map'),
+            CompiledArgument::option(CompiledOption::Map),
             CompiledArgument::literal(CompiledLiteral::AudioOutputLabel),
-            CompiledArgument::localPath($operation->output),
+            CompiledArgument::localPath($operation->output, CompiledOutputType::Video),
         ];
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, $arguments);

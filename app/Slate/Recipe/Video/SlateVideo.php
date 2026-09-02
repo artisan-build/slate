@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Slate\Recipe\Video;
 
+use App\Slate\Driver\Binary\H264OutputContract;
 use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\Driver;
 use App\Slate\Recipe\Audio\AudioDuration;
@@ -12,9 +13,14 @@ use App\Slate\Recipe\QualityTier;
 use App\Slate\Storage\ScratchPath;
 use RuntimeException;
 
-/** Media facts probed only after Slate successfully executes a video-producing operation. */
+/**
+ * Probed media facts plus the compiler-selected quality tier after the supplied collaborators report a
+ * successful render. Production provenance relies on the container-bound RecipeCompiler and Driver.
+ */
 final readonly class SlateVideo
 {
+    private const float DurationToleranceSeconds = 0.25;
+
     private function __construct(
         public ScratchPath $path,
         public int $width,
@@ -60,23 +66,26 @@ final readonly class SlateVideo
         $framesPerSecond = self::framesPerSecond($videoStream['avg_frame_rate'] ?? null);
         $durationValue = $properties['format']['duration'] ?? null;
         $durationSeconds = is_numeric($durationValue) ? (float) $durationValue : NAN;
-        [$expectedWidth, $expectedHeight, $expectedFramesPerSecond, $qualityTier] = match (true) {
+        [$expectedWidth, $expectedHeight, $expectedFramesPerSecond, $expectedDurationSeconds, $qualityTier] = match (true) {
             $operation instanceof VideoStillClip => [
                 $operation->width,
                 $operation->height,
                 $operation->framesPerSecond,
+                $operation->durationSeconds,
                 $operation->qualityTier,
             ],
             $operation instanceof VideoConcat => [
                 $operation->width(),
                 $operation->height(),
                 $operation->framesPerSecond,
+                $operation->outputDurationSeconds(),
                 $operation->qualityTier,
             ],
             $operation instanceof OverlayImage => [
                 $operation->input->width,
                 $operation->input->height,
                 $operation->input->framesPerSecond,
+                $operation->input->durationSeconds,
                 $operation->input->qualityTier,
             ],
         };
@@ -84,10 +93,12 @@ final readonly class SlateVideo
         if (($videoStream['codec_name'] ?? null) !== 'h264'
             || ($videoStream['pix_fmt'] ?? null) !== 'yuv420p'
             || ($videoStream['color_range'] ?? null) !== 'tv'
+            || ! self::hasAacAudioStream($properties)
             || $width !== $expectedWidth
             || $height !== $expectedHeight
             || $framesPerSecond !== $expectedFramesPerSecond
-            || ! AudioDuration::isPositiveMicrosecondDuration($durationSeconds)) {
+            || ! AudioDuration::isPositiveMicrosecondDuration($durationSeconds)
+            || abs($durationSeconds - $expectedDurationSeconds) > self::DurationToleranceSeconds) {
             throw new RuntimeException('Slate video output does not satisfy its probed H.264 media contract.');
         }
 
@@ -127,5 +138,23 @@ final readonly class SlateVideo
         }
 
         return intdiv($numerator, $denominator);
+    }
+
+    /** @param  array<mixed>  $properties */
+    private static function hasAacAudioStream(array $properties): bool
+    {
+        $streams = $properties['streams'] ?? null;
+
+        if (is_array($streams)) {
+            foreach ($streams as $stream) {
+                if (is_array($stream)
+                    && ($stream['codec_type'] ?? null) === 'audio'
+                    && ($stream['codec_name'] ?? null) === H264OutputContract::audioEncoder()) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }

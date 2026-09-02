@@ -7,6 +7,7 @@ namespace App\Slate\Driver\Binary\Operation;
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledLiteral;
+use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\CompiledRecipe;
@@ -30,12 +31,12 @@ final readonly class VideoThumbnailCompiler implements CompilesOperation
         }
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, [
-            CompiledArgument::option('-y'),
-            CompiledArgument::option('-ss'),
+            CompiledArgument::option(CompiledOption::Overwrite),
+            CompiledArgument::option(CompiledOption::Seek),
             CompiledArgument::literal(CompiledLiteral::Zero),
-            CompiledArgument::option('-i'),
+            CompiledArgument::option(CompiledOption::Input),
             CompiledArgument::existingLocalPath($operation->input->path),
-            CompiledArgument::option('-frames:v'),
+            CompiledArgument::option(CompiledOption::VideoFrames),
             CompiledArgument::literal(CompiledLiteral::One),
             ...CompiledArgument::jpegOutput($operation->output),
         ]);

@@ -4,6 +4,9 @@ use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledFilterGraph;
 use App\Slate\Driver\Binary\CompiledFilterType;
+use App\Slate\Driver\Binary\CompiledLiteral;
+use App\Slate\Driver\Binary\CompiledOption;
+use App\Slate\Driver\Binary\CompiledOutputType;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Storage\JobScratch;
@@ -17,7 +20,7 @@ test('accepts compiler-owned scratch paths as local binary arguments', function 
             new FfmpegLocator('Linux', 'arm64', '/runtime'),
             BinaryExecutable::Ffmpeg,
             [
-                CompiledArgument::option('-i'),
+                CompiledArgument::option(CompiledOption::Input),
                 CompiledArgument::existingLocalPath($input),
             ],
         );
@@ -39,7 +42,7 @@ test('rejects executable values not enum-selected from the supplied locator', fu
 ]);
 
 test('rejects every caller-authored string as a local path', function (string $input): void {
-    expect(fn (): CompiledArgument => CompiledArgument::localPath($input))
+    expect(fn (): CompiledArgument => CompiledArgument::localPath($input, CompiledOutputType::Video))
         ->toThrow(TypeError::class);
 })->with([
     'absolute file' => '/etc/passwd',
@@ -144,19 +147,19 @@ test('rejects a filtergraph separated from its typed option', function (): void 
     ))->toThrow(LogicException::class, 'cannot exist outside its typed option pair');
 });
 
-test('rejects every generic filter option spelling and exposes no free graph argument factory', function (string $option): void {
+test('rejects every string option so unlisted ffmpeg aliases cannot enter argv', function (string $option): void {
     expect(method_exists(CompiledArgument::class, 'filterGraph'))->toBeFalse()
         ->and(fn (): CompiledArgument => CompiledArgument::option($option))
-        ->toThrow(InvalidArgumentException::class, 'typed pair');
+        ->toThrow(TypeError::class);
 })->with([
+    '-i',
     '-vf',
-    '-af',
     '-filter:v',
-    '-filter:v:0',
-    '-filter:a',
     '-filter_complex',
-    '-filter_script:v',
-    '-filter_complex_script',
+    '-lavfi',
+    '-lavfi:v',
+    '-LAVFI',
+    '-future-option',
 ]);
 
 test('rejects implicit codec selection for every ffmpeg file output', function (): void {
@@ -164,7 +167,21 @@ test('rejects implicit codec selection for every ffmpeg file output', function (
         expect(fn (): CompiledRecipe => new CompiledRecipe(
             new FfmpegLocator('Linux', 'arm64', '/runtime'),
             BinaryExecutable::Ffmpeg,
-            [CompiledArgument::localPath($scratch->file('implicit.mp4'))],
-        ))->toThrow(LogicException::class, 'select its codec explicitly');
+            [CompiledArgument::localPath($scratch->file('implicit.mp4'), CompiledOutputType::Video)],
+        ))->toThrow(LogicException::class, 'select its media codec explicitly');
+    });
+});
+
+test('does not accept an audio codec as explicit selection for a video output', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        expect(fn (): CompiledRecipe => new CompiledRecipe(
+            new FfmpegLocator('Linux', 'arm64', '/runtime'),
+            BinaryExecutable::Ffmpeg,
+            [
+                CompiledArgument::option(CompiledOption::AudioCodec),
+                CompiledArgument::literal(CompiledLiteral::Copy),
+                CompiledArgument::localPath($scratch->file('implicit-video.mp4'), CompiledOutputType::Video),
+            ],
+        ))->toThrow(LogicException::class, 'select its media codec explicitly');
     });
 });

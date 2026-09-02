@@ -7,6 +7,8 @@ namespace App\Slate\Driver\Binary\Operation;
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledLiteral;
+use App\Slate\Driver\Binary\CompiledOption;
+use App\Slate\Driver\Binary\CompiledOutputType;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\Binary\LavfiInput;
@@ -47,22 +49,22 @@ final readonly class AudioSilenceCompiler implements CompilesOperation
         };
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, [
-            CompiledArgument::option('-y'),
-            CompiledArgument::option('-f'),
+            CompiledArgument::option(CompiledOption::Overwrite),
+            CompiledArgument::option(CompiledOption::Format),
             CompiledArgument::literal(CompiledLiteral::Lavfi),
-            CompiledArgument::option('-i'),
+            CompiledArgument::option(CompiledOption::Input),
             CompiledArgument::lavfiInput($silenceInput),
-            CompiledArgument::option('-t'),
+            CompiledArgument::option(CompiledOption::Duration),
             CompiledArgument::seconds($operation->durationSeconds),
-            CompiledArgument::option('-c:a'),
+            CompiledArgument::option(CompiledOption::AudioCodec),
             CompiledArgument::literal(CompiledLiteral::Libmp3lame),
-            CompiledArgument::option('-ac'),
+            CompiledArgument::option(CompiledOption::AudioChannels),
             CompiledArgument::literal($channelCount),
-            CompiledArgument::option('-b:a'),
+            CompiledArgument::option(CompiledOption::AudioBitrate),
             CompiledArgument::literal($this->bitrate($operation->bitrate)),
-            CompiledArgument::option('-f'),
+            CompiledArgument::option(CompiledOption::Format),
             CompiledArgument::literal($format),
-            CompiledArgument::localPath($operation->output),
+            CompiledArgument::localPath($operation->output, CompiledOutputType::Audio),
         ]);
     }
 

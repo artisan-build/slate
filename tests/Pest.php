@@ -25,9 +25,14 @@ function ffmpegFixture(string $name): string
     return $contents;
 }
 
+/** @param  array<string, mixed>  $videoStreamOverrides */
 function fakeRenderedSlateVideo(
     VideoStillClip|VideoConcat|OverlayImage $operation,
     ?float $durationSeconds = null,
+    array $videoStreamOverrides = [],
+    bool $includeVideo = true,
+    bool $includeAudio = true,
+    string $audioCodec = 'aac',
 ): SlateVideo {
     if ($operation instanceof VideoStillClip) {
         file_put_contents($operation->image->writablePath(), 'image');
@@ -49,8 +54,10 @@ function fakeRenderedSlateVideo(
         $durationSeconds ??= $operation->input->durationSeconds;
     }
 
-    $properties = [
-        'streams' => [[
+    $streams = [];
+
+    if ($includeVideo) {
+        $streams[] = array_replace([
             'codec_type' => 'video',
             'codec_name' => 'h264',
             'width' => $width,
@@ -58,7 +65,18 @@ function fakeRenderedSlateVideo(
             'avg_frame_rate' => $framesPerSecond.'/1',
             'pix_fmt' => 'yuv420p',
             'color_range' => 'tv',
-        ]],
+        ], $videoStreamOverrides);
+    }
+
+    if ($includeAudio) {
+        $streams[] = [
+            'codec_type' => 'audio',
+            'codec_name' => $audioCodec,
+        ];
+    }
+
+    $properties = [
+        'streams' => $streams,
         'format' => ['duration' => number_format($durationSeconds, 6, '.', '')],
     ];
     $driver = new class($operation->output, $properties) implements Driver
