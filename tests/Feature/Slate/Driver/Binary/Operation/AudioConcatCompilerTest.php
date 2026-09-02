@@ -13,7 +13,7 @@ use App\Slate\Storage\ScratchDirectory;
 test('compiles copy mode with a compiler-owned concat manifest', function (): void {
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
         $first = $scratch->file('first.mp3');
-        $second = $scratch->file('second.mp3');
+        $second = $scratch->file("second's.mp3");
         $output = $scratch->file('joined.mp3');
         file_put_contents($first->writablePath(), 'first');
         file_put_contents($second->writablePath(), 'second');
@@ -43,7 +43,8 @@ test('compiles copy mode with a compiler-owned concat manifest', function (): vo
             'mp3',
             $output->writablePath(),
         ])->and(file_get_contents($manifestPath))->toBe(
-            "ffconcat version 1.0\nfile '{$first->readablePath()}'\nfile '{$second->readablePath()}'\n",
+            "ffconcat version 1.0\nfile '{$first->readablePath()}'\nfile '".
+            dirname($second->readablePath())."/second'\\''s.mp3'\n",
         );
     });
 });

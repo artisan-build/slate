@@ -11,7 +11,7 @@ use App\Slate\Storage\ScratchDirectory;
 
 test('accepts only positive finite silence durations', function (): void {
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
-        foreach ([0.0, -0.1, INF, NAN] as $duration) {
+        foreach ([0.0, -0.1, 0.0000001, PHP_FLOAT_MAX, INF, NAN] as $duration) {
             expect(fn (): AudioSilence => new AudioSilence(
                 $scratch->file('silence.mp3'),
                 $duration,

@@ -51,6 +51,14 @@ test('rejects every caller-authored string as a local path', function (string $i
     'HTTP control' => 'http://example.com/input.mp4',
 ]);
 
+test('rejects positive durations outside compiler precision and range', function (float $seconds): void {
+    expect(fn (): CompiledArgument => CompiledArgument::seconds($seconds))
+        ->toThrow(InvalidArgumentException::class);
+})->with([
+    'below microsecond precision' => 0.0000001,
+    'largest finite float' => PHP_FLOAT_MAX,
+]);
+
 test('rejects URLs embedded in filtergraphs', function (string $filterGraph): void {
     expect(fn (): CompiledFilterGraph => CompiledFilterGraph::fromCompiler($filterGraph))
         ->toThrow(InvalidArgumentException::class);

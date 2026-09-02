@@ -19,8 +19,8 @@ final readonly class AudioSilence implements Operation
         public AudioFormat $format,
         public AudioBitrate $bitrate,
     ) {
-        if (! is_finite($durationSeconds) || $durationSeconds <= 0) {
-            throw new InvalidArgumentException('Silence duration must be finite and greater than zero.');
+        if (! AudioDuration::isPositiveMicrosecondDuration($durationSeconds)) {
+            throw new InvalidArgumentException('Silence duration must be between one microsecond and 24 hours at microsecond precision.');
         }
     }
 

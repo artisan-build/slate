@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Slate\Driver\Binary;
 
+use App\Slate\Recipe\Audio\AudioDuration;
 use App\Slate\Storage\ScratchPath;
 use InvalidArgumentException;
 
@@ -32,8 +33,8 @@ final readonly class CompiledArgument
 
     public static function seconds(float $seconds): self
     {
-        if (! is_finite($seconds) || $seconds <= 0) {
-            throw new InvalidArgumentException('Compiled seconds must be a finite positive duration.');
+        if (! AudioDuration::isPositiveMicrosecondDuration($seconds)) {
+            throw new InvalidArgumentException('Compiled seconds must be a positive microsecond-precision duration within the operational range.');
         }
 
         return new self(rtrim(rtrim(number_format($seconds, 6, '.', ''), '0'), '.'));

@@ -18,12 +18,12 @@ final readonly class AudioPad implements Operation
         public float $trailSilenceSeconds,
         public AudioBitrate $bitrate,
     ) {
-        if (! is_finite($leadSilenceSeconds) || $leadSilenceSeconds < 0) {
-            throw new InvalidArgumentException('Lead silence must be a finite non-negative duration.');
+        if (! AudioDuration::isNonNegativeMillisecondDuration($leadSilenceSeconds)) {
+            throw new InvalidArgumentException('Lead silence must be between zero and 24 hours at millisecond precision.');
         }
 
-        if (! is_finite($trailSilenceSeconds) || $trailSilenceSeconds < 0) {
-            throw new InvalidArgumentException('Trail silence must be a finite non-negative duration.');
+        if (! AudioDuration::isNonNegativeMicrosecondDuration($trailSilenceSeconds)) {
+            throw new InvalidArgumentException('Trail silence must be between zero and 24 hours at microsecond precision.');
         }
     }
 

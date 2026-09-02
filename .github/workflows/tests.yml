@@ -96,5 +96,5 @@ jobs:
       - name: Provision pinned ffmpeg runtime
         run: php artisan slate:provision-ffmpeg
 
-      - name: Run rendered escaping test
+      - name: Run pinned ffmpeg tests
         run: ./vendor/bin/pest --group=ffmpeg-render

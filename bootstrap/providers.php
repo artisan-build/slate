@@ -1,7 +1,7 @@
 <?php
 
 use App\Providers\AppServiceProvider;
-use App\Slate\Driver\DriverServiceProvider;
+use App\Providers\DriverServiceProvider;
 use App\Slate\Storage\StorageServiceProvider;
 
 return [
