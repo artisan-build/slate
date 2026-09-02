@@ -26,6 +26,7 @@ return RectorConfig::configure()
         __DIR__.'/app/Services/FfmpegBenchmark.php',
         __DIR__.'/config/slate.php',
         __DIR__.'/config/cache.php',
+        __DIR__.'/tests/Fixtures/Boundary/Processes/Deeply/Nested/LiteralCallable.php',
     ])
     ->withPhpSets(php83: true)
     ->withSets([
