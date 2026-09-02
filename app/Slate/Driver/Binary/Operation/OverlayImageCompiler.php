@@ -8,7 +8,7 @@ use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledLiteral;
 use App\Slate\Driver\Binary\CompiledOption;
-use App\Slate\Driver\Binary\CompiledOutputType;
+use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\Binary\FilterGraphCompiler;
@@ -54,18 +54,20 @@ final readonly class OverlayImageCompiler implements CompilesOperation
             CompiledArgument::seconds($operation->input->durationSeconds),
             CompiledArgument::option(CompiledOption::Input),
             CompiledArgument::existingLocalPath($operation->image),
-            ...CompiledArgument::h264VideoOutput(
+            CompiledOutput::h264(
                 $filterGraph,
                 $operation->input->qualityTier,
                 $operation->input->width,
                 $operation->input->height,
                 $operation->input->framesPerSecond,
+                [
+                    CompiledArgument::option(CompiledOption::Map),
+                    CompiledArgument::literal(CompiledLiteral::AudioInputZero),
+                    CompiledArgument::option(CompiledOption::Duration),
+                    CompiledArgument::seconds($operation->input->durationSeconds),
+                ],
+                $operation->output,
             ),
-            CompiledArgument::option(CompiledOption::Map),
-            CompiledArgument::literal(CompiledLiteral::AudioInputZero),
-            CompiledArgument::option(CompiledOption::Duration),
-            CompiledArgument::seconds($operation->input->durationSeconds),
-            CompiledArgument::localPath($operation->output, CompiledOutputType::Video),
         ];
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, $arguments);

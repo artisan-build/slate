@@ -7,15 +7,16 @@ namespace App\Slate\Driver;
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledArgumentKind;
+use App\Slate\Driver\Binary\CompiledFilterType;
+use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\FfmpegLocator;
-use App\Slate\Driver\Binary\H264OutputContract;
 use InvalidArgumentException;
 use LogicException;
 
 final readonly class CompiledRecipe
 {
     /**
-     * @param  list<CompiledArgument>  $arguments
+     * @param  list<CompiledArgument|CompiledOutput>  $arguments
      */
     public function __construct(
         FfmpegLocator $locator,
@@ -24,12 +25,19 @@ final readonly class CompiledRecipe
         private ?string $workingDirectory = null,
     ) {
         foreach ($arguments as $argument) {
-            if (! $argument instanceof CompiledArgument) {
+            if (! $argument instanceof CompiledArgument && ! $argument instanceof CompiledOutput) {
                 throw new InvalidArgumentException('Compiled recipe arguments must be typed compiler output.');
             }
         }
 
-        $argumentValues = array_map(static fn (CompiledArgument $argument): string => $argument->value(), $arguments);
+        $argumentValues = [];
+
+        foreach ($arguments as $argument) {
+            array_push(
+                $argumentValues,
+                ...($argument instanceof CompiledOutput ? $argument->commandValues() : [$argument->value()]),
+            );
+        }
         $filterOptionKinds = [
             CompiledArgumentKind::AudioFilterOption,
             CompiledArgumentKind::ComplexFilterOption,
@@ -37,24 +45,34 @@ final readonly class CompiledRecipe
         ];
 
         foreach ($arguments as $index => $argument) {
+            if ($argument instanceof CompiledOutput) {
+                continue;
+            }
+
             if (in_array($argument->kind(), $filterOptionKinds, true)
-                && ($arguments[$index + 1] ?? null)?->kind() !== CompiledArgumentKind::FilterGraph) {
+                && (! ($arguments[$index + 1] ?? null) instanceof CompiledArgument
+                    || $arguments[$index + 1]->kind() !== CompiledArgumentKind::FilterGraph)) {
                 throw new LogicException('A compiled filter option must be immediately paired with its graph.');
             }
 
             if ($argument->kind() === CompiledArgumentKind::FilterGraph
-                && ! in_array(($arguments[$index - 1] ?? null)?->kind(), $filterOptionKinds, true)) {
+                && (! ($arguments[$index - 1] ?? null) instanceof CompiledArgument
+                    || ! in_array($arguments[$index - 1]->kind(), $filterOptionKinds, true))) {
                 throw new LogicException('A compiled filtergraph cannot exist outside its typed option pair.');
             }
         }
 
         $simpleVideoFilterCount = count(array_filter(
             $arguments,
-            static fn (CompiledArgument $argument): bool => $argument->kind() === CompiledArgumentKind::VideoFilterOption,
+            static fn (CompiledArgument|CompiledOutput $argument): bool => ($argument instanceof CompiledArgument
+                && $argument->kind() === CompiledArgumentKind::VideoFilterOption)
+                || ($argument instanceof CompiledOutput && $argument->videoFilterType() === CompiledFilterType::Video),
         ));
         $complexFilterCount = count(array_filter(
             $arguments,
-            static fn (CompiledArgument $argument): bool => $argument->kind() === CompiledArgumentKind::ComplexFilterOption,
+            static fn (CompiledArgument|CompiledOutput $argument): bool => ($argument instanceof CompiledArgument
+                && $argument->kind() === CompiledArgumentKind::ComplexFilterOption)
+                || ($argument instanceof CompiledOutput && $argument->videoFilterType() === CompiledFilterType::Complex),
         ));
 
         if ($simpleVideoFilterCount > 1) {
@@ -65,54 +83,18 @@ final readonly class CompiledRecipe
             throw new LogicException('A compiled recipe cannot combine -vf with -filter_complex.');
         }
 
-        $hasAudioOutput = array_any(
+        $hasDiagnosticOption = array_any(
             $arguments,
-            static fn (CompiledArgument $argument): bool => $argument->kind() === CompiledArgumentKind::AudioOutputPath,
+            static fn (CompiledArgument|CompiledOutput $argument): bool => $argument instanceof CompiledArgument
+                && $argument->kind() === CompiledArgumentKind::DiagnosticOption,
         );
-        $hasVideoOutput = array_any(
+        $hasFileOutput = array_any(
             $arguments,
-            static fn (CompiledArgument $argument): bool => $argument->kind() === CompiledArgumentKind::VideoOutputPath,
+            static fn (CompiledArgument|CompiledOutput $argument): bool => $argument instanceof CompiledOutput,
         );
-        $hasAudioCodec = array_any($arguments, static fn (CompiledArgument $argument): bool => in_array(
-            $argument->kind(),
-            [CompiledArgumentKind::AudioCodecOption, CompiledArgumentKind::CodecOption],
-            true,
-        ));
-        $hasVideoCodec = array_any($arguments, static fn (CompiledArgument $argument): bool => in_array(
-            $argument->kind(),
-            [CompiledArgumentKind::VideoCodecOption, CompiledArgumentKind::CodecOption],
-            true,
-        ));
 
-        if ($executable === BinaryExecutable::Ffmpeg
-            && (($hasAudioOutput && ! $hasAudioCodec) || ($hasVideoOutput && ! $hasVideoCodec))) {
-            throw new LogicException('Every ffmpeg file output must select its media codec explicitly.');
-        }
-
-        if (in_array(H264OutputContract::encoder(), $argumentValues, true)) {
-            $videoFilterOptions = array_filter(
-                $arguments,
-                static fn (CompiledArgument $argument): bool => in_array($argument->kind(), [
-                    CompiledArgumentKind::ComplexFilterOption,
-                    CompiledArgumentKind::VideoFilterOption,
-                ], true),
-            );
-
-            if (count($videoFilterOptions) !== 1) {
-                throw new LogicException('Every H.264 recipe must contain exactly one normalized video filtergraph.');
-            }
-
-            $filterIndex = array_key_first($videoFilterOptions);
-            $filterGraph = is_int($filterIndex) ? ($argumentValues[$filterIndex + 1] ?? '') : '';
-            $normalizationSuffix = H264OutputContract::videoNormalizationFilter();
-
-            if (($arguments[$filterIndex]->kind() ?? null) === CompiledArgumentKind::ComplexFilterOption) {
-                $normalizationSuffix .= '[video]';
-            }
-
-            if (! str_ends_with($filterGraph, $normalizationSuffix)) {
-                throw new LogicException('Every H.264 recipe filtergraph must end with video normalization.');
-            }
+        if ($hasDiagnosticOption && $hasFileOutput) {
+            throw new LogicException('Diagnostic early-exit options cannot be combined with a file output.');
         }
 
         if ($workingDirectory !== null && (! str_starts_with($workingDirectory, '/') || str_contains($workingDirectory, "\0"))) {

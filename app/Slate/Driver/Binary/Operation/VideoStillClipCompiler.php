@@ -8,7 +8,7 @@ use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledLiteral;
 use App\Slate\Driver\Binary\CompiledOption;
-use App\Slate\Driver\Binary\CompiledOutputType;
+use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\Binary\FilterGraphCompiler;
@@ -74,20 +74,22 @@ final readonly class VideoStillClipCompiler implements CompilesOperation
             CompiledArgument::existingLocalPath($operation->image),
             CompiledArgument::option(CompiledOption::Input),
             CompiledArgument::existingLocalPath($operation->audio),
-            ...CompiledArgument::h264VideoOutput(
+            CompiledOutput::h264(
                 $filterGraph,
                 $operation->qualityTier,
                 $operation->width,
                 $operation->height,
                 $operation->framesPerSecond,
+                [
+                    CompiledArgument::option(CompiledOption::Map),
+                    CompiledArgument::literal(CompiledLiteral::VideoInputZero),
+                    CompiledArgument::option(CompiledOption::Map),
+                    CompiledArgument::literal(CompiledLiteral::AudioInputOne),
+                    CompiledArgument::option(CompiledOption::Duration),
+                    CompiledArgument::seconds($operation->durationSeconds),
+                ],
+                $operation->output,
             ),
-            CompiledArgument::option(CompiledOption::Map),
-            CompiledArgument::literal(CompiledLiteral::VideoInputZero),
-            CompiledArgument::option(CompiledOption::Map),
-            CompiledArgument::literal(CompiledLiteral::AudioInputOne),
-            CompiledArgument::option(CompiledOption::Duration),
-            CompiledArgument::seconds($operation->durationSeconds),
-            CompiledArgument::localPath($operation->output, CompiledOutputType::Video),
         ];
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, $arguments);

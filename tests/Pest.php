@@ -239,9 +239,10 @@ function binaryAuthorityLocations(string $root): array
                     $locations['compiled recipe reference'][] = $relativePath;
                 }
 
-                if (in_array($text, ['CompiledArgument', 'CompiledFilterGraph'], true)
+                if (in_array($text, ['CompiledArgument', 'CompiledFilterGraph', 'CompiledOutput'], true)
                     || str_ends_with($text, '\\CompiledArgument')
-                    || str_ends_with($text, '\\CompiledFilterGraph')) {
+                    || str_ends_with($text, '\\CompiledFilterGraph')
+                    || str_ends_with($text, '\\CompiledOutput')) {
                     $locations['compiled output reference'][] = $relativePath;
                 }
             }

@@ -8,6 +8,7 @@ use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledLiteral;
 use App\Slate\Driver\Binary\CompiledOption;
+use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\CompiledRecipe;
@@ -38,7 +39,7 @@ final readonly class VideoThumbnailCompiler implements CompilesOperation
             CompiledArgument::existingLocalPath($operation->input->path),
             CompiledArgument::option(CompiledOption::VideoFrames),
             CompiledArgument::literal(CompiledLiteral::One),
-            ...CompiledArgument::jpegOutput($operation->output),
+            CompiledOutput::jpeg($operation->output),
         ]);
     }
 }

@@ -8,13 +8,11 @@ use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledFilterGraph;
 use App\Slate\Driver\Binary\CompiledFilterType;
-use App\Slate\Driver\Binary\CompiledLiteral;
 use App\Slate\Driver\Binary\CompiledOption;
-use App\Slate\Driver\Binary\CompiledOutputType;
+use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\CompiledRecipe;
-use App\Slate\Recipe\Audio\AudioBitrate;
 use App\Slate\Recipe\Audio\AudioPad;
 use App\Slate\Recipe\Operation;
 use InvalidArgumentException;
@@ -45,22 +43,8 @@ final readonly class AudioPadCompiler implements CompilesOperation
             CompiledArgument::option(CompiledOption::Input),
             CompiledArgument::existingLocalPath($operation->input),
             ...CompiledArgument::filter(CompiledFilterType::Audio, $filter),
-            CompiledArgument::option(CompiledOption::AudioCodec),
-            CompiledArgument::literal(CompiledLiteral::Libmp3lame),
-            CompiledArgument::option(CompiledOption::AudioBitrate),
-            CompiledArgument::literal($this->bitrate($operation->bitrate)),
-            CompiledArgument::option(CompiledOption::Format),
-            CompiledArgument::literal(CompiledLiteral::Mp3),
-            CompiledArgument::localPath($operation->output, CompiledOutputType::Audio),
+            CompiledOutput::mp3($operation->bitrate, $operation->output),
         ]);
-    }
-
-    private function bitrate(AudioBitrate $bitrate): CompiledLiteral
-    {
-        return match ($bitrate) {
-            AudioBitrate::Kbps128 => CompiledLiteral::Kbps128,
-            AudioBitrate::Kbps192 => CompiledLiteral::Kbps192,
-        };
     }
 
     private function formatSeconds(float $seconds): string

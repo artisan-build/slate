@@ -74,6 +74,7 @@ test('recursive binary scan catches locator hardcoded literal and compiled recip
         'compiled output reference' => [
             'Deeply/Nested/CompiledArgumentSmuggling.php',
             'Deeply/Nested/CompiledFilterGraphSmuggling.php',
+            'Deeply/Nested/CompiledOutputSmuggling.php',
         ],
         'compiled recipe reference' => ['Deeply/Nested/CompiledRecipeSmuggling.php'],
         'locator or path accessor' => ['Deeply/Nested/TwoStepArguments.php'],

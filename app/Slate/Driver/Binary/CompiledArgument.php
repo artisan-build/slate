@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Slate\Driver\Binary;
 
 use App\Slate\Recipe\Audio\AudioDuration;
-use App\Slate\Recipe\QualityTier;
 use App\Slate\Storage\ScratchPath;
 use InvalidArgumentException;
 
@@ -19,11 +18,6 @@ final readonly class CompiledArgument
     public static function option(CompiledOption $option): self
     {
         return new self($option->value, $option->argumentKind());
-    }
-
-    public static function localPath(ScratchPath $path, CompiledOutputType $outputType): self
-    {
-        return new self($path->writablePath(), $outputType->argumentKind());
     }
 
     public static function existingLocalPath(ScratchPath $path): self
@@ -65,53 +59,6 @@ final readonly class CompiledArgument
         return [
             new self($type->value, $type->argumentKind()),
             new self($filterGraph->value(), CompiledArgumentKind::FilterGraph),
-        ];
-    }
-
-    /**
-     * This is the only production construction path for H.264 output argv, so a normalized graph is
-     * required rather than left to each operation compiler to remember.
-     *
-     * @return non-empty-list<self>
-     */
-    public static function h264VideoOutput(
-        CompiledH264FilterGraph $filterGraph,
-        QualityTier $tier,
-        int $width,
-        int $height,
-        int $framesPerSecond,
-    ): array {
-        $arguments = self::filter(
-            $filterGraph->complex ? CompiledFilterType::Complex : CompiledFilterType::Video,
-            $filterGraph->filterGraph(),
-        );
-
-        if ($filterGraph->complex) {
-            array_push(
-                $arguments,
-                self::option(CompiledOption::Map),
-                self::literal(CompiledLiteral::VideoOutputLabel),
-            );
-        }
-
-        foreach (H264OutputContract::argumentsFor($tier, $width, $height, $framesPerSecond) as $index => $argument) {
-            $arguments[] = $index % 2 === 0
-                ? self::option(CompiledOption::from($argument))
-                : new self($argument);
-        }
-
-        return $arguments;
-    }
-
-    /** @return non-empty-list<self> */
-    public static function jpegOutput(ScratchPath $output): array
-    {
-        return [
-            self::option(CompiledOption::VideoCodec),
-            self::literal(CompiledLiteral::Mjpeg),
-            self::option(CompiledOption::Format),
-            self::literal(CompiledLiteral::Image2),
-            self::localPath($output, CompiledOutputType::Video),
         ];
     }
 

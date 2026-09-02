@@ -10,12 +10,11 @@ use App\Slate\Driver\Binary\CompiledFilterGraph;
 use App\Slate\Driver\Binary\CompiledFilterType;
 use App\Slate\Driver\Binary\CompiledLiteral;
 use App\Slate\Driver\Binary\CompiledOption;
-use App\Slate\Driver\Binary\CompiledOutputType;
+use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\Binary\LavfiInput;
 use App\Slate\Driver\CompiledRecipe;
-use App\Slate\Recipe\Audio\AudioBitrate;
 use App\Slate\Recipe\Audio\AudioConcat;
 use App\Slate\Recipe\Audio\AudioConcatInput;
 use App\Slate\Recipe\Audio\AudioConcatMode;
@@ -72,11 +71,7 @@ final readonly class AudioConcatCompiler implements CompilesOperation
             CompiledArgument::literal(CompiledLiteral::Zero),
             CompiledArgument::option(CompiledOption::Input),
             CompiledArgument::existingLocalPath($manifest),
-            CompiledArgument::option(CompiledOption::AudioCodec),
-            CompiledArgument::literal(CompiledLiteral::Copy),
-            CompiledArgument::option(CompiledOption::Format),
-            CompiledArgument::literal(CompiledLiteral::Mp3),
-            CompiledArgument::localPath($operation->output, CompiledOutputType::Audio),
+            CompiledOutput::copiedMp3($operation->output),
         ]);
     }
 
@@ -113,24 +108,10 @@ final readonly class AudioConcatCompiler implements CompilesOperation
             ...CompiledArgument::filter(CompiledFilterType::Complex, $filter),
             CompiledArgument::option(CompiledOption::Map),
             CompiledArgument::literal(CompiledLiteral::AudioOutputLabel),
-            CompiledArgument::option(CompiledOption::AudioCodec),
-            CompiledArgument::literal(CompiledLiteral::Libmp3lame),
-            CompiledArgument::option(CompiledOption::AudioBitrate),
-            CompiledArgument::literal($this->bitrate($operation->bitrate)),
-            CompiledArgument::option(CompiledOption::Format),
-            CompiledArgument::literal(CompiledLiteral::Mp3),
-            CompiledArgument::localPath($operation->output, CompiledOutputType::Audio),
+            CompiledOutput::mp3($operation->bitrate, $operation->output),
         ];
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, $arguments);
-    }
-
-    private function bitrate(AudioBitrate $bitrate): CompiledLiteral
-    {
-        return match ($bitrate) {
-            AudioBitrate::Kbps128 => CompiledLiteral::Kbps128,
-            AudioBitrate::Kbps192 => CompiledLiteral::Kbps192,
-        };
     }
 
     private function escapeManifestPath(string $path): string

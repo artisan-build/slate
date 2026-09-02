@@ -4,9 +4,8 @@ use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledFilterGraph;
 use App\Slate\Driver\Binary\CompiledFilterType;
-use App\Slate\Driver\Binary\CompiledLiteral;
 use App\Slate\Driver\Binary\CompiledOption;
-use App\Slate\Driver\Binary\CompiledOutputType;
+use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Storage\JobScratch;
@@ -41,19 +40,12 @@ test('rejects executable values not enum-selected from the supplied locator', fu
     'different absolute executable' => '/tmp/evil/ffmpeg',
 ]);
 
-test('rejects every caller-authored string as a local path', function (string $input): void {
-    expect(fn (): CompiledArgument => CompiledArgument::localPath($input, CompiledOutputType::Video))
-        ->toThrow(TypeError::class);
-})->with([
-    'absolute file' => '/etc/passwd',
-    'root directory' => '/',
-    'network-path reference' => '//evil.com/x',
-    'FTP URL' => 'ftp://example.com/input.mp4',
-    'RTMP URL' => 'rtmp://example.com/live',
-    'TCP URL' => 'tcp://example.com:80',
-    'SRT URL' => 'srt://example.com:9000',
-    'HTTP control' => 'http://example.com/input.mp4',
-]);
+test('exposes no standalone output path or codec option construction', function (): void {
+    expect(method_exists(CompiledArgument::class, 'localPath'))->toBeFalse()
+        ->and(CompiledOption::tryFrom('-c'))->toBeNull()
+        ->and(CompiledOption::tryFrom('-c:a'))->toBeNull()
+        ->and(CompiledOption::tryFrom('-c:v'))->toBeNull();
+});
 
 test('rejects positive durations outside compiler precision and range', function (float $seconds): void {
     expect(fn (): CompiledArgument => CompiledArgument::seconds($seconds))
@@ -162,26 +154,58 @@ test('rejects every string option so unlisted ffmpeg aliases cannot enter argv',
     '-future-option',
 ]);
 
-test('rejects implicit codec selection for every ffmpeg file output', function (): void {
+test('keeps codec selection inside the same ordered output unit as its path', function (): void {
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
-        expect(fn (): CompiledRecipe => new CompiledRecipe(
+        $output = $scratch->file('poster.jpg');
+
+        $recipe = new CompiledRecipe(
             new FfmpegLocator('Linux', 'arm64', '/runtime'),
             BinaryExecutable::Ffmpeg,
-            [CompiledArgument::localPath($scratch->file('implicit.mp4'), CompiledOutputType::Video)],
-        ))->toThrow(LogicException::class, 'select its media codec explicitly');
+            [CompiledOutput::jpeg($output)],
+        );
+
+        expect($recipe->command())->toBe([
+            '/runtime/ffmpeg/bin/ffmpeg',
+            '-c:v',
+            'mjpeg',
+            '-f',
+            'image2',
+            $output->writablePath(),
+        ]);
     });
 });
 
-test('does not accept an audio codec as explicit selection for a video output', function (): void {
+test('supports multiple independently scoped outputs with different media codecs', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $audio = $scratch->file('audio.mp3');
+        $image = $scratch->file('poster.jpg');
+
+        $recipe = new CompiledRecipe(
+            new FfmpegLocator('Linux', 'arm64', '/runtime'),
+            BinaryExecutable::Ffmpeg,
+            [
+                CompiledOutput::copiedMp3($audio),
+                CompiledOutput::jpeg($image),
+            ],
+        );
+
+        expect($recipe->command())->toBe([
+            '/runtime/ffmpeg/bin/ffmpeg',
+            '-c:a', 'copy', '-f', 'mp3', $audio->writablePath(),
+            '-c:v', 'mjpeg', '-f', 'image2', $image->writablePath(),
+        ]);
+    });
+});
+
+test('rejects diagnostic early-exit options in a file-output recipe', function (): void {
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
         expect(fn (): CompiledRecipe => new CompiledRecipe(
             new FfmpegLocator('Linux', 'arm64', '/runtime'),
             BinaryExecutable::Ffmpeg,
             [
-                CompiledArgument::option(CompiledOption::AudioCodec),
-                CompiledArgument::literal(CompiledLiteral::Copy),
-                CompiledArgument::localPath($scratch->file('implicit-video.mp4'), CompiledOutputType::Video),
+                CompiledArgument::option(CompiledOption::Filters),
+                CompiledOutput::jpeg($scratch->file('poster.jpg')),
             ],
-        ))->toThrow(LogicException::class, 'select its media codec explicitly');
+        ))->toThrow(LogicException::class, 'Diagnostic early-exit');
     });
 });

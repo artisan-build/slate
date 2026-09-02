@@ -8,9 +8,7 @@ enum CompiledOption: string
 {
     case AudioBitrate = '-b:a';
     case AudioChannels = '-ac';
-    case AudioCodec = '-c:a';
     case BuildConfiguration = '-buildconf';
-    case Codec = '-c';
     case Encoders = '-encoders';
     case EntropyCoder = '-coder';
     case Format = '-f';
@@ -34,7 +32,6 @@ enum CompiledOption: string
     case Verbosity = '-v';
     case Version = '-version';
     case VideoBitrate = '-b:v';
-    case VideoCodec = '-c:v';
     case VideoFrames = '-frames:v';
     case VideoProfile = '-profile:v';
     case Filters = '-filters';
@@ -42,9 +39,7 @@ enum CompiledOption: string
     public function argumentKind(): CompiledArgumentKind
     {
         return match ($this) {
-            self::AudioCodec => CompiledArgumentKind::AudioCodecOption,
-            self::Codec => CompiledArgumentKind::CodecOption,
-            self::VideoCodec => CompiledArgumentKind::VideoCodecOption,
+            self::BuildConfiguration, self::Encoders, self::Filters, self::Version => CompiledArgumentKind::DiagnosticOption,
             default => CompiledArgumentKind::Option,
         };
     }

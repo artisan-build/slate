@@ -1,7 +1,7 @@
 <?php
 
-use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledFilterGraph;
+use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\FilterGraphCompiler;
 use App\Slate\Recipe\QualityTier;
 
@@ -43,12 +43,14 @@ test('reserves normalized output labels from operation-authored complex chains',
 test('requires a normalized graph before H264 output arguments can be constructed', function (): void {
     $unnormalized = CompiledFilterGraph::fromCompiler('scale=1536:1024');
 
-    expect(fn (): array => CompiledArgument::h264VideoOutput(
+    expect(fn (): CompiledOutput => CompiledOutput::h264(
         $unnormalized,
         QualityTier::Delivery,
         1536,
         1024,
         24,
+        [],
+        new stdClass,
     ))->toThrow(TypeError::class);
 });
 
