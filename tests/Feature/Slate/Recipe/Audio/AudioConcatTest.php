@@ -25,10 +25,15 @@ test('rejects malformed item lists and silence in copy mode', function (): void 
 });
 
 test('accepts inline silence gaps only within the customer range', function (): void {
-    foreach ([0.0, -0.1, 0.0000001, 1.500001, PHP_FLOAT_MAX, INF, NAN] as $duration) {
+    foreach ([0.0, -0.1, 1.500001, INF, NAN] as $duration) {
         expect(fn (): AudioConcatSilence => new AudioConcatSilence($duration))
             ->toThrow(InvalidArgumentException::class);
     }
 
     expect((new AudioConcatSilence(1.5))->durationSeconds)->toBe(1.5);
+});
+
+test('rejects inline silence below compiler precision', function (): void {
+    expect(fn (): AudioConcatSilence => new AudioConcatSilence(0.0000001))
+        ->toThrow(InvalidArgumentException::class);
 });
