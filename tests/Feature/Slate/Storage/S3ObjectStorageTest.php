@@ -5,6 +5,19 @@ use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\S3ObjectStorage;
 use App\Slate\Storage\ScratchDirectory;
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Support\Facades\Process;
+
+test('moves an object larger than its process memory headroom without buffering it', function (): void {
+    $probe = Process::timeout(120)->run([
+        PHP_BINARY,
+        '-d',
+        'memory_limit=128M',
+        base_path('tests/Fixtures/Storage/memory-probe.php'),
+    ]);
+
+    expect($probe->successful())->toBeTrue($probe->errorOutput())
+        ->and($probe->output())->toContain('round_trip_bytes=100663296');
+});
 
 /**
  * Proves stage-in calls size/readStream and copies that resource to scratch, so using get() fails.
