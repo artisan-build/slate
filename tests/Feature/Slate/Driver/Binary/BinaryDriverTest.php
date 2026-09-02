@@ -21,13 +21,11 @@ test('executes only a compiled recipe and returns its complete result', function
         ->and($result->exitCode)->toBe(2)
         ->and($result->failed())->toBeTrue();
 
-    Process::assertRan(function (PendingProcess $process, ProcessResult $processResult): bool {
-        return $process->command === ['/runtime/ffprobe', '-version']
-            && $process->path === '/tmp/slate-job'
-            && $process->timeout === 45;
-    });
+    Process::assertRan(fn (PendingProcess $process, ProcessResult $processResult): bool => $process->command === ['/runtime/ffprobe', '-version']
+        && $process->path === '/tmp/slate-job'
+        && $process->timeout === 45);
 });
 
 test('binds the driver contract to the binary implementation', function (): void {
-    expect(app(Driver::class))->toBeInstanceOf(BinaryDriver::class);
+    expect(resolve(Driver::class))->toBeInstanceOf(BinaryDriver::class);
 });

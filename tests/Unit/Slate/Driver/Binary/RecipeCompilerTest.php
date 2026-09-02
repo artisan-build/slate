@@ -21,7 +21,7 @@ test('dispatches a typed timed-word operation to its one registered compiler', f
             return OperationName::CaptionsTimedWords;
         }
     };
-    $operationCompiler = new class($operation::class) implements CompilesOperation
+    $operationCompiler = new readonly class($operation::class) implements CompilesOperation
     {
         /**
          * @param  class-string<Operation>  $operationClass
