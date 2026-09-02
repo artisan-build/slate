@@ -6,7 +6,9 @@ artifact by a build command, exactly the way `matte` vendors `bg-remover`. Larav
 skeleton for now.
 
 ## Phase & mode
-- phase: **experiment** (Stage A — prove the binary + drawtext work on a real Cloud worker)
+- phase: **MVP assembler** (`~/Herd/brain/projects/slate/PRD-mvp.md`). Stage A is DONE and proven:
+  ffmpeg + drawtext runs at 7.77× realtime on a real managed-queue worker, with a 180s visibility
+  window and 8s cold provision.
 - default mode: A-autonomous (set by Ed 2026-09-01)
 - merge_policy: **merge when CI is green; no human PR code review**
 - merge method: `gh pr merge --squash`
@@ -14,9 +16,8 @@ skeleton for now.
   (Ed, 2026-09-01). Do **not** pre-build the monorepo split.
 
 ## CI (the merge gate for Mode A)
-- status: ⚠️ **NOT YET ESTABLISHED.** This repo was created 2026-09-01 and has no workflows.
-- **Until CI exists with BOTH testing and static analysis, Mode A is NOT in force.** The first PR
-  establishes CI and is merged by Ed, not by the agent. Merge-on-green begins with the second PR.
+- status: **established and green on PHP 8.5** via `.github/workflows/lint.yml` and `tests.yml`.
+- **Mode A IS in force.** Merge when CI is green; no human PR code review is required.
 - required minimum: pest (tests) + phpstan (static analysis). Pint for formatting.
 
 ## Hard gate (green before merge; verify on the committed SHA, clean tree)
@@ -50,6 +51,9 @@ These are verified facts, not guesses. Re-deriving them costs a Cloud deploy eac
 8. **Cardinal Cloud rule:** never set an env var for a Cloud-provisioned resource. Cloud injects all
    resource config (credentials AND selectors like `QUEUE_CONNECTION`/`DB_CONNECTION`) itself.
 9. **`.cloud/config.json` is COMMITTED.** Never gitignore it.
+10. **The LGPL build's H.264 encoder cannot reach x264 CRF 12 quality on flat-gradient content at any
+    bitrate.** SSIM saturates at 0.996677 versus CRF 12's 0.998485, so quality tiers are operational
+    choices, not parity targets.
 
 ## Toolchain conformance — the ride-along rule (STANDING, all projects)
 
