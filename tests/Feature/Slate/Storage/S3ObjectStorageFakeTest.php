@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Storage;
 test('round-trips queued-job data through the configured object disk', function (): void {
     Storage::fake('s3');
 
-    $objectStorage = app(ObjectStorage::class);
+    $objectStorage = resolve(ObjectStorage::class);
     $objectKey = ObjectKey::withinPrefix('customers/customer-123', 'customers/customer-123/chunks/001.mp4');
     $outputPath = storage_path('framework/testing/slate-stage-out.mp4');
     $inputPath = storage_path('framework/testing/slate-stage-in.mp4');

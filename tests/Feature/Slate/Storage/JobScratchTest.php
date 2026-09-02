@@ -8,7 +8,7 @@ test('removes per-job scratch after successful work', function (): void {
     config()->set('slate.storage.scratch_path', $scratchRoot);
     $scratchPath = null;
 
-    $result = app(JobScratch::class)->run(function (string $path) use (&$scratchPath, $scratchRoot): string {
+    $result = resolve(JobScratch::class)->run(function (string $path) use (&$scratchPath, $scratchRoot): string {
         $scratchPath = $path;
 
         expect(is_dir($path))->toBeTrue()
@@ -32,7 +32,7 @@ test('removes per-job scratch when work fails and preserves the exception', func
     $scratchPath = null;
 
     expect(function () use (&$scratchPath): void {
-        app(JobScratch::class)->run(function (string $path) use (&$scratchPath): never {
+        resolve(JobScratch::class)->run(function (string $path) use (&$scratchPath): never {
             $scratchPath = $path;
             file_put_contents($path.'/partial.mp4', 'partial payload');
 

@@ -50,9 +50,7 @@ test('stage-out streams a local file to an object', function (): void {
         ->once()
         ->with(
             'customers/customer-123/output.mp4',
-            Mockery::on(function (mixed $stream): bool {
-                return is_resource($stream) && stream_get_contents($stream) === 'encoded payload';
-            }),
+            Mockery::on(fn (mixed $stream): bool => is_resource($stream) && stream_get_contents($stream) === 'encoded payload'),
         )
         ->andReturnTrue();
 
