@@ -19,11 +19,25 @@ final class FilterGraphCompiler
 
     public function compileDiagnosticDrawtext(string $fontPath): string
     {
-        return "drawtext=fontfile='{$this->escapeOptionValue($fontPath)}':text='slate doctor':fontcolor=white:fontsize=48:x=20:y=60";
+        return $this->compileDrawtext($fontPath, 'slate doctor');
     }
 
-    private function escapeOptionValue(string $value): string
+    public function compileDrawtext(string $fontPath, string $text): string
     {
-        return str_replace(['\\', ':', "'"], ['\\\\', '\\:', "\\'"], $value);
+        return 'drawtext=fontfile='.$this->escapeOptionValue($fontPath)
+            .':text='.$this->escapeOptionValue($text)
+            .':expansion=none:fontcolor=white:fontsize=48:x=20:y=60';
+    }
+
+    public function escapeOptionValue(string $value): string
+    {
+        $value = str_replace(["\r\n", "\r", "\n"], '\\n', $value);
+        $value = str_replace(['\\', "'", ':'], ['\\\\', "\\'", '\\:'], $value);
+
+        return str_replace(
+            ['\\', "'", ',', ';', '[', ']'],
+            ['\\\\', "\\'", '\\,', '\\;', '\\[', '\\]'],
+            $value,
+        );
     }
 }

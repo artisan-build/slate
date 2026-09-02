@@ -13,10 +13,10 @@ test('appends normalization to the operation filter chain', function (): void {
     );
 });
 
-test('escapes diagnostic font paths inside the compiler boundary', function (): void {
-    $filter = (new FilterGraphCompiler)->compileDiagnosticDrawtext("C:\\fonts\\Mia's.ttf");
+test('escapes drawtext option values for both ffmpeg parser levels', function (): void {
+    $escaped = (new FilterGraphCompiler)->escapeOptionValue("it's: 50%\\ready\nnext");
 
-    expect($filter)->toBe(
-        "drawtext=fontfile='C\\:\\\\fonts\\\\Mia\\'s.ttf':text='slate doctor':fontcolor=white:fontsize=48:x=20:y=60",
-    );
+    expect($escaped)->toBe(<<<'ESCAPED'
+it\\\'s\\: 50%\\\\ready\\\\nnext
+ESCAPED);
 });
