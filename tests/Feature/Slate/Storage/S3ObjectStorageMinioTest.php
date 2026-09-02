@@ -40,6 +40,7 @@ test('round-trips through MinIO without driver buffering or process memory buffe
 
     fclose($socket);
 
+    config()->set('filesystems.default', 's3');
     $diskConfig = MinioConfiguration::disk($configuredDisk);
 
     $client = new S3Client([
@@ -84,7 +85,7 @@ test('round-trips through MinIO without driver buffering or process memory buffe
             fclose($sourceStream);
             $objectStorage->stageOut($sourcePath, $objectKey);
 
-            $driverStream = Storage::disk('s3')->readStream($objectKey->value());
+            $driverStream = Storage::disk()->readStream($objectKey->value());
             expect($driverStream)->toBeResource();
             $metadata = stream_get_meta_data($driverStream);
             fclose($driverStream);
@@ -109,8 +110,8 @@ test('round-trips through MinIO without driver buffering or process memory buffe
         expect($probe->successful())->toBeTrue($probe->errorOutput())
             ->and($probe->output())->toContain('round_trip_bytes=100663296');
     } finally {
-        Storage::disk('s3')->delete($objectKey->value());
-        Storage::disk('s3')->delete('minio-tests/memory-probe.bin');
+        Storage::disk()->delete($objectKey->value());
+        Storage::disk()->delete('minio-tests/memory-probe.bin');
         Storage::forgetDisk('s3');
     }
 })->group('minio');

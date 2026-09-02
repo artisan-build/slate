@@ -21,6 +21,7 @@ if (! is_array($configuredDisk)) {
     throw new RuntimeException('S3 disk is not configured.');
 }
 
+config()->set('filesystems.default', 's3');
 config()->set('filesystems.disks.s3', MinioConfiguration::disk($configuredDisk));
 Storage::forgetDisk('s3');
 

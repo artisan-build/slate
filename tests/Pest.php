@@ -375,15 +375,35 @@ function drawtextEmitterLocations(string $root): array
  * S3ObjectStorage construction, and Laravel Storage facade disk/build/drive/cloud/URL calls. It cannot
  * detect aliased classes or dynamic method names; the storage interface and code review cover that residue.
  *
- * @return list<string>
+ * @return array<string, list<string>>
  */
 function storageBoundaryLocations(string $root): array
 {
-    return sourcePatternLocations(
-        $root,
-        '/(?:new\s+(?:\\\\?Aws\\\\S3\\\\S3Client|S3Client|S3ObjectStorage)\s*\(|S3ObjectStorage::fromConfiguredDisk\s*\(|Storage::(?:build|cloud|disk|drive|temporaryUrl|url)\s*\()/',
-        excludedPrefixes: ['Slate/Storage/'],
-    );
+    $patterns = [
+        'configured object storage construction' => '/S3ObjectStorage::fromConfiguredDisk\s*\(/',
+        'fully qualified S3 client construction' => '/new\s+\\\\?Aws\\\\S3\\\\S3Client\s*\(/',
+        'imported S3 client construction' => '/new\s+S3Client\s*\(/',
+        'object storage construction' => '/new\s+S3ObjectStorage\s*\(/',
+        'storage build' => '/Storage::build\s*\(/',
+        'storage cloud' => '/Storage::cloud\s*\(/',
+        'storage disk' => '/Storage::disk\s*\(/',
+        'storage drive' => '/Storage::drive\s*\(/',
+        'storage temporary url' => '/Storage::temporaryUrl\s*\(/',
+        'storage url' => '/Storage::url\s*\(/',
+    ];
+    $locations = [];
+
+    foreach ($patterns as $category => $pattern) {
+        $matches = sourcePatternLocations($root, $pattern, excludedPrefixes: ['Slate/Storage/']);
+
+        if ($matches !== []) {
+            $locations[$category] = $matches;
+        }
+    }
+
+    ksort($locations);
+
+    return $locations;
 }
 
 /**

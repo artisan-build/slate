@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Storage;
  */
 test('round-trips job data through the object-storage seam on a local fake disk', function (): void {
     $resolvedBeforeFake = resolve(ObjectStorage::class);
-    Storage::fake('s3');
+    Storage::fake();
 
     $objectStorage = resolve(ObjectStorage::class);
     $objectKey = ObjectKey::withinPrefix('customers/customer-123', 'customers/customer-123/chunks/001.mp4');
@@ -27,7 +27,7 @@ test('round-trips job data through the object-storage seam on a local fake disk'
         $objectStorage->stageOut($outputPath, $objectKey);
         $objectStorage->stageIn($objectKey, $inputPath);
 
-        Storage::disk('s3')->assertExists('customers/customer-123/chunks/001.mp4');
+        Storage::disk()->assertExists('customers/customer-123/chunks/001.mp4');
         expect(file_get_contents($inputPath->readablePath()))->toBe('chunk payload');
     });
 });
