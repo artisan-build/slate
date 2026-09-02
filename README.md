@@ -41,6 +41,23 @@ php artisan boost:install
 
 Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
 
+## Object Storage Tests
+
+Run MinIO locally in one terminal:
+
+```bash
+docker run --rm --publish 19000:9000 \
+    --env MINIO_ROOT_USER=slate-minio \
+    --env MINIO_ROOT_PASSWORD=slate-minio-secret \
+    minio/minio:latest server /data
+```
+
+Require the real S3-driver lane in another terminal:
+
+```bash
+SLATE_REQUIRE_MINIO=1 php artisan test --group=minio
+```
+
 ## Contributing
 
 Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).

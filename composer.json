@@ -9,7 +9,8 @@
         "php": "^8.3",
         "aws/aws-sdk-php": "^3.394",
         "laravel/framework": "^13.17",
-        "laravel/tinker": "^3.0"
+        "laravel/tinker": "^3.0",
+        "league/flysystem-aws-s3-v3": "^3.35"
     },
     "require-dev": {
         "barryvdh/laravel-ide-helper": "^3.6",

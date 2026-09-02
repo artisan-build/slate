@@ -22,4 +22,7 @@ return [
         'job_timeout_seconds' => 170,
         'scratch_path' => storage_path('app/slate-benchmarks'),
     ],
+    'storage' => [
+        'scratch_path' => storage_path('app/slate-jobs'),
+    ],
 ];
