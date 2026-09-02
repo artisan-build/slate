@@ -5,6 +5,7 @@ use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Driver\Driver;
 use App\Slate\Driver\DriverResult;
 use App\Slate\Recipe\Caption\TimedWords;
+use App\Slate\Recipe\Operation;
 use App\Slate\Recipe\Video\OverlayImage;
 use App\Slate\Recipe\Video\SlateVideo;
 use App\Slate\Recipe\Video\VideoConcat;
@@ -428,6 +429,21 @@ function ffmpegFilterFragmentLocations(string $root, array $exceptions = []): ar
 }
 
 /**
+ * Finds input-bearing filter sources inside the trusted driver compiler boundary.
+ *
+ * The concat filter's compiler-owned `n=` form joins already-typed inputs and is not an input source.
+ *
+ * @return list<string>
+ */
+function ffmpegDriverInputFilterFragmentLocations(string $root): array
+{
+    return sourcePatternLocations(
+        $root,
+        '/(?:(?<=[\'",])|(?<=\n)\h*)(?:(?:amovie|movie)\s*=|concat\s*=(?!n\s*=))/',
+    );
+}
+
+/**
  * Finds drawtext `text=` emitters inside the compiler boundary.
  *
  * The caller-layer filter scan deliberately excludes Slate/Driver, so this exact-location scan ensures
@@ -518,6 +534,39 @@ function drawtextExpressionEmitterLocations(string $root): array
     ksort($locations);
 
     return $locations;
+}
+
+/** @return list<class-string<Operation>> */
+function operationImplementationClasses(string $root): array
+{
+    $classes = [];
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
+        $root,
+        FilesystemIterator::SKIP_DOTS,
+    ));
+
+    foreach ($iterator as $file) {
+        if (! $file->isFile() || $file->getExtension() !== 'php') {
+            continue;
+        }
+
+        $relativePath = substr($file->getPathname(), strlen($root) + 1, -4);
+        $class = 'App\\Slate\\Recipe\\'.str_replace(DIRECTORY_SEPARATOR, '\\', $relativePath);
+
+        if (class_exists($class) && is_subclass_of($class, Operation::class)) {
+            $classes[] = $class;
+        }
+    }
+
+    sort($classes);
+
+    return $classes;
+}
+
+/** @return list<string> */
+function allowedOperationPublicStringProperties(): array
+{
+    return [];
 }
 
 /**
