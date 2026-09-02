@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Slate\Driver\Binary;
 
 use App\Slate\Recipe\Audio\AudioDuration;
-use App\Slate\Storage\ScratchPath;
 use InvalidArgumentException;
 
 final readonly class CompiledArgument
@@ -13,16 +12,12 @@ final readonly class CompiledArgument
     private function __construct(
         private string $value,
         private CompiledArgumentKind $kind = CompiledArgumentKind::Value,
+        private bool $expectsValue = false,
     ) {}
 
     public static function option(CompiledOption $option): self
     {
-        return new self($option->value, $option->argumentKind());
-    }
-
-    public static function existingLocalPath(ScratchPath $path): self
-    {
-        return new self($path->readablePath());
+        return new self($option->value, $option->argumentKind(), $option->takesValue());
     }
 
     public static function seconds(float $seconds): self
@@ -48,11 +43,6 @@ final readonly class CompiledArgument
         return new self($literal->value);
     }
 
-    public static function lavfiInput(LavfiInput $input): self
-    {
-        return new self($input->value);
-    }
-
     /** @return array{self, self} */
     public static function filter(CompiledFilterType $type, CompiledFilterGraph $filterGraph): array
     {
@@ -70,5 +60,10 @@ final readonly class CompiledArgument
     public function kind(): CompiledArgumentKind
     {
         return $this->kind;
+    }
+
+    public function expectsValue(): bool
+    {
+        return $this->expectsValue;
     }
 }

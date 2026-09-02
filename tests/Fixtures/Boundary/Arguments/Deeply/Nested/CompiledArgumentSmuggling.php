@@ -1,5 +1,5 @@
 <?php
 
-use App\Slate\Driver\Binary\CompiledArgument;
+use App\Slate\Driver\Binary\CompiledInput;
 
-$argument = CompiledArgument::localPath($callerPath);
+$argument = CompiledInput::ffmpeg($callerPath);

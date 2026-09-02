@@ -1,6 +1,7 @@
 <?php
 
 use App\Slate\Driver\Binary\CompiledFilterGraph;
+use App\Slate\Driver\Binary\CompiledH264OutputOptions;
 use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\FilterGraphCompiler;
 use App\Slate\Recipe\QualityTier;
@@ -49,7 +50,7 @@ test('requires a normalized graph before H264 output arguments can be constructe
         1536,
         1024,
         24,
-        [],
+        CompiledH264OutputOptions::concat(),
         new stdClass,
     ))->toThrow(TypeError::class);
 });

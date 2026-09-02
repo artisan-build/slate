@@ -8,6 +8,7 @@ use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledFilterGraph;
 use App\Slate\Driver\Binary\CompiledFilterType;
+use App\Slate\Driver\Binary\CompiledInput;
 use App\Slate\Driver\Binary\CompiledLiteral;
 use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\CompiledOutput;
@@ -69,8 +70,7 @@ final readonly class AudioConcatCompiler implements CompilesOperation
             CompiledArgument::literal(CompiledLiteral::Concat),
             CompiledArgument::option(CompiledOption::Safe),
             CompiledArgument::literal(CompiledLiteral::Zero),
-            CompiledArgument::option(CompiledOption::Input),
-            CompiledArgument::existingLocalPath($manifest),
+            CompiledInput::ffmpeg($manifest),
             CompiledOutput::copiedMp3($operation->output),
         ]);
     }
@@ -81,8 +81,7 @@ final readonly class AudioConcatCompiler implements CompilesOperation
 
         foreach ($operation->items as $item) {
             if ($item instanceof AudioConcatInput) {
-                $arguments[] = CompiledArgument::option(CompiledOption::Input);
-                $arguments[] = CompiledArgument::existingLocalPath($item->input);
+                $arguments[] = CompiledInput::ffmpeg($item->input);
 
                 continue;
             }
@@ -91,8 +90,7 @@ final readonly class AudioConcatCompiler implements CompilesOperation
             $arguments[] = CompiledArgument::literal(CompiledLiteral::Lavfi);
             $arguments[] = CompiledArgument::option(CompiledOption::Duration);
             $arguments[] = CompiledArgument::seconds($item->durationSeconds);
-            $arguments[] = CompiledArgument::option(CompiledOption::Input);
-            $arguments[] = CompiledArgument::lavfiInput(LavfiInput::Silence44100Mono);
+            $arguments[] = CompiledInput::lavfi(LavfiInput::Silence44100Mono);
         }
 
         $inputLabels = implode('', array_map(

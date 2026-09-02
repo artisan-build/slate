@@ -14,7 +14,6 @@ enum CompiledOption: string
     case Format = '-f';
     case GroupOfPictures = '-g';
     case HideBanner = '-hide_banner';
-    case Input = '-i';
     case InputFrameRate = '-framerate';
     case LogLevel = '-loglevel';
     case Loop = '-loop';
@@ -41,6 +40,21 @@ enum CompiledOption: string
         return match ($this) {
             self::BuildConfiguration, self::Encoders, self::Filters, self::Version => CompiledArgumentKind::DiagnosticOption,
             default => CompiledArgumentKind::Option,
+        };
+    }
+
+    public function takesValue(): bool
+    {
+        return match ($this) {
+            self::BuildConfiguration,
+            self::Encoders,
+            self::Filters,
+            self::HideBanner,
+            self::Overwrite,
+            self::ShowFormat,
+            self::ShowStreams,
+            self::Version => false,
+            default => true,
         };
     }
 }

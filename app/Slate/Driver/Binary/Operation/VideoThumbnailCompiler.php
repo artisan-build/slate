@@ -6,6 +6,7 @@ namespace App\Slate\Driver\Binary\Operation;
 
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
+use App\Slate\Driver\Binary\CompiledInput;
 use App\Slate\Driver\Binary\CompiledLiteral;
 use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\CompiledOutput;
@@ -35,8 +36,7 @@ final readonly class VideoThumbnailCompiler implements CompilesOperation
             CompiledArgument::option(CompiledOption::Overwrite),
             CompiledArgument::option(CompiledOption::Seek),
             CompiledArgument::literal(CompiledLiteral::Zero),
-            CompiledArgument::option(CompiledOption::Input),
-            CompiledArgument::existingLocalPath($operation->input->path),
+            CompiledInput::ffmpeg($operation->input->path),
             CompiledArgument::option(CompiledOption::VideoFrames),
             CompiledArgument::literal(CompiledLiteral::One),
             CompiledOutput::jpeg($operation->output),

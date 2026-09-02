@@ -6,6 +6,7 @@ namespace App\Slate\Driver\Binary\Operation;
 
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
+use App\Slate\Driver\Binary\CompiledInput;
 use App\Slate\Driver\Binary\CompiledLiteral;
 use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\CompiledOutput;
@@ -47,10 +48,7 @@ final readonly class AudioSilenceCompiler implements CompilesOperation
             AudioFormat::Mp3 => CompiledOutput::mp3(
                 $operation->bitrate,
                 $operation->output,
-                [
-                    CompiledArgument::option(CompiledOption::AudioChannels),
-                    CompiledArgument::literal($channelCount),
-                ],
+                $operation->channels,
             ),
         };
 
@@ -58,8 +56,7 @@ final readonly class AudioSilenceCompiler implements CompilesOperation
             CompiledArgument::option(CompiledOption::Overwrite),
             CompiledArgument::option(CompiledOption::Format),
             CompiledArgument::literal(CompiledLiteral::Lavfi),
-            CompiledArgument::option(CompiledOption::Input),
-            CompiledArgument::lavfiInput($silenceInput),
+            CompiledInput::lavfi($silenceInput),
             CompiledArgument::option(CompiledOption::Duration),
             CompiledArgument::seconds($operation->durationSeconds),
             $output,

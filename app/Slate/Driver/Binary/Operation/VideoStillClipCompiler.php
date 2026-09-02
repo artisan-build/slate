@@ -6,6 +6,8 @@ namespace App\Slate\Driver\Binary\Operation;
 
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
+use App\Slate\Driver\Binary\CompiledH264OutputOptions;
+use App\Slate\Driver\Binary\CompiledInput;
 use App\Slate\Driver\Binary\CompiledLiteral;
 use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\CompiledOutput;
@@ -70,24 +72,15 @@ final readonly class VideoStillClipCompiler implements CompilesOperation
             CompiledArgument::unsignedInteger($operation->framesPerSecond),
             CompiledArgument::option(CompiledOption::Loop),
             CompiledArgument::literal(CompiledLiteral::One),
-            CompiledArgument::option(CompiledOption::Input),
-            CompiledArgument::existingLocalPath($operation->image),
-            CompiledArgument::option(CompiledOption::Input),
-            CompiledArgument::existingLocalPath($operation->audio),
+            CompiledInput::ffmpeg($operation->image),
+            CompiledInput::ffmpeg($operation->audio),
             CompiledOutput::h264(
                 $filterGraph,
                 $operation->qualityTier,
                 $operation->width,
                 $operation->height,
                 $operation->framesPerSecond,
-                [
-                    CompiledArgument::option(CompiledOption::Map),
-                    CompiledArgument::literal(CompiledLiteral::VideoInputZero),
-                    CompiledArgument::option(CompiledOption::Map),
-                    CompiledArgument::literal(CompiledLiteral::AudioInputOne),
-                    CompiledArgument::option(CompiledOption::Duration),
-                    CompiledArgument::seconds($operation->durationSeconds),
-                ],
+                CompiledH264OutputOptions::stillClip($operation->durationSeconds),
                 $operation->output,
             ),
         ];

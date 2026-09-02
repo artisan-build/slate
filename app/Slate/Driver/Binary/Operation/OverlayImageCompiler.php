@@ -6,6 +6,8 @@ namespace App\Slate\Driver\Binary\Operation;
 
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
+use App\Slate\Driver\Binary\CompiledH264OutputOptions;
+use App\Slate\Driver\Binary\CompiledInput;
 use App\Slate\Driver\Binary\CompiledLiteral;
 use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\CompiledOutput;
@@ -44,28 +46,21 @@ final readonly class OverlayImageCompiler implements CompilesOperation
         );
         $arguments = [
             CompiledArgument::option(CompiledOption::Overwrite),
-            CompiledArgument::option(CompiledOption::Input),
-            CompiledArgument::existingLocalPath($operation->input->path),
+            CompiledInput::ffmpeg($operation->input->path),
             CompiledArgument::option(CompiledOption::InputFrameRate),
             CompiledArgument::unsignedInteger($operation->input->framesPerSecond),
             CompiledArgument::option(CompiledOption::Loop),
             CompiledArgument::literal(CompiledLiteral::One),
             CompiledArgument::option(CompiledOption::Duration),
             CompiledArgument::seconds($operation->input->durationSeconds),
-            CompiledArgument::option(CompiledOption::Input),
-            CompiledArgument::existingLocalPath($operation->image),
+            CompiledInput::ffmpeg($operation->image),
             CompiledOutput::h264(
                 $filterGraph,
                 $operation->input->qualityTier,
                 $operation->input->width,
                 $operation->input->height,
                 $operation->input->framesPerSecond,
-                [
-                    CompiledArgument::option(CompiledOption::Map),
-                    CompiledArgument::literal(CompiledLiteral::AudioInputZero),
-                    CompiledArgument::option(CompiledOption::Duration),
-                    CompiledArgument::seconds($operation->input->durationSeconds),
-                ],
+                CompiledH264OutputOptions::overlay($operation->input->durationSeconds),
                 $operation->output,
             ),
         ];

@@ -6,6 +6,8 @@ namespace App\Slate\Driver\Binary\Operation;
 
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
+use App\Slate\Driver\Binary\CompiledH264OutputOptions;
+use App\Slate\Driver\Binary\CompiledInput;
 use App\Slate\Driver\Binary\CompiledLiteral;
 use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\CompiledOutput;
@@ -66,8 +68,7 @@ final readonly class VideoConcatCompiler implements CompilesOperation
             CompiledArgument::literal(CompiledLiteral::Concat),
             CompiledArgument::option(CompiledOption::Safe),
             CompiledArgument::literal(CompiledLiteral::Zero),
-            CompiledArgument::option(CompiledOption::Input),
-            CompiledArgument::existingLocalPath($manifest),
+            CompiledInput::ffmpeg($manifest),
             CompiledOutput::copiedVideo($operation->output),
         ]);
     }
@@ -77,8 +78,7 @@ final readonly class VideoConcatCompiler implements CompilesOperation
         $arguments = [CompiledArgument::option(CompiledOption::Overwrite)];
 
         foreach ($operation->inputs as $input) {
-            $arguments[] = CompiledArgument::option(CompiledOption::Input);
-            $arguments[] = CompiledArgument::existingLocalPath($input->path);
+            $arguments[] = CompiledInput::ffmpeg($input->path);
         }
 
         [$videoChains, $terminalVideoChain] = $this->videoChains($operation);
@@ -97,10 +97,7 @@ final readonly class VideoConcatCompiler implements CompilesOperation
                 $operation->width(),
                 $operation->height(),
                 $operation->framesPerSecond,
-                [
-                    CompiledArgument::option(CompiledOption::Map),
-                    CompiledArgument::literal(CompiledLiteral::AudioOutputLabel),
-                ],
+                CompiledH264OutputOptions::concat(),
                 $operation->output,
             ),
         ];

@@ -4,10 +4,15 @@ use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledFilterGraph;
 use App\Slate\Driver\Binary\CompiledFilterType;
+use App\Slate\Driver\Binary\CompiledInput;
+use App\Slate\Driver\Binary\CompiledLiteral;
 use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\FfmpegLocator;
+use App\Slate\Driver\Binary\FilterGraphCompiler;
 use App\Slate\Driver\CompiledRecipe;
+use App\Slate\Recipe\Audio\AudioBitrate;
+use App\Slate\Recipe\QualityTier;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ScratchDirectory;
 
@@ -18,10 +23,7 @@ test('accepts compiler-owned scratch paths as local binary arguments', function 
         $recipe = new CompiledRecipe(
             new FfmpegLocator('Linux', 'arm64', '/runtime'),
             BinaryExecutable::Ffmpeg,
-            [
-                CompiledArgument::option(CompiledOption::Input),
-                CompiledArgument::existingLocalPath($input),
-            ],
+            [CompiledInput::ffmpeg($input)],
         );
 
         expect($recipe->command())->toBe(['/runtime/ffmpeg/bin/ffmpeg', '-i', $input->readablePath()]);
@@ -42,9 +44,36 @@ test('rejects executable values not enum-selected from the supplied locator', fu
 
 test('exposes no standalone output path or codec option construction', function (): void {
     expect(method_exists(CompiledArgument::class, 'localPath'))->toBeFalse()
+        ->and(method_exists(CompiledArgument::class, 'existingLocalPath'))->toBeFalse()
+        ->and(method_exists(CompiledArgument::class, 'input'))->toBeFalse()
         ->and(CompiledOption::tryFrom('-c'))->toBeNull()
         ->and(CompiledOption::tryFrom('-c:a'))->toBeNull()
         ->and(CompiledOption::tryFrom('-c:v'))->toBeNull();
+});
+
+test('rejects a detached local input source in terminal output position', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $input = $scratch->file('input.mp4');
+        $victim = $scratch->file('victim.mp4');
+        file_put_contents($input->writablePath(), 'input');
+        file_put_contents($victim->writablePath(), 'victim');
+        $inputUnit = CompiledInput::ffmpeg($input);
+        $victimUnit = CompiledInput::ffprobe($victim);
+
+        expect(fn (): CompiledRecipe => new CompiledRecipe(
+            new FfmpegLocator('Linux', 'arm64', '/runtime'),
+            BinaryExecutable::Ffmpeg,
+            [$inputUnit, $victimUnit],
+        ))->toThrow(LogicException::class, 'different executable');
+    });
+});
+
+test('rejects a free literal in positional output scope', function (): void {
+    expect(fn (): CompiledRecipe => new CompiledRecipe(
+        new FfmpegLocator('Linux', 'arm64', '/runtime'),
+        BinaryExecutable::Ffmpeg,
+        [CompiledArgument::literal(CompiledLiteral::Mp3)],
+    ))->toThrow(LogicException::class, 'value cannot exist outside its typed option pair');
 });
 
 test('rejects positive durations outside compiler precision and range', function (float $seconds): void {
@@ -207,5 +236,29 @@ test('rejects diagnostic early-exit options in a file-output recipe', function (
                 CompiledOutput::jpeg($scratch->file('poster.jpg')),
             ],
         ))->toThrow(LogicException::class, 'Diagnostic early-exit');
+    });
+});
+
+test('rejects extra output injection through closed H264 and MP3 option types', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $extra = $scratch->file('extra.mp4');
+        file_put_contents($extra->writablePath(), 'existing output');
+        $extraInput = CompiledInput::ffmpeg($extra);
+        $filter = (new FilterGraphCompiler)->compileH264Video(['null']);
+
+        expect(fn (): CompiledOutput => CompiledOutput::h264(
+            $filter,
+            QualityTier::Delivery,
+            1536,
+            1024,
+            24,
+            [$extraInput],
+            $scratch->file('intended.mp4'),
+        ))->toThrow(TypeError::class)
+            ->and(fn (): CompiledOutput => CompiledOutput::mp3(
+                AudioBitrate::Kbps192,
+                $scratch->file('intended.mp3'),
+                [$extraInput],
+            ))->toThrow(TypeError::class);
     });
 });

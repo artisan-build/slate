@@ -8,6 +8,7 @@ use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledFilterGraph;
 use App\Slate\Driver\Binary\CompiledFilterType;
+use App\Slate\Driver\Binary\CompiledInput;
 use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\CompilesOperation;
@@ -40,8 +41,7 @@ final readonly class AudioPadCompiler implements CompilesOperation
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, [
             CompiledArgument::option(CompiledOption::Overwrite),
-            CompiledArgument::option(CompiledOption::Input),
-            CompiledArgument::existingLocalPath($operation->input),
+            CompiledInput::ffmpeg($operation->input),
             ...CompiledArgument::filter(CompiledFilterType::Audio, $filter),
             CompiledOutput::mp3($operation->bitrate, $operation->output),
         ]);

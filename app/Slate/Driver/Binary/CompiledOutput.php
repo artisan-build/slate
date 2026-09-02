@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace App\Slate\Driver\Binary;
 
 use App\Slate\Recipe\Audio\AudioBitrate;
+use App\Slate\Recipe\Audio\AudioChannelLayout;
 use App\Slate\Recipe\QualityTier;
 use App\Slate\Storage\ScratchPath;
-use InvalidArgumentException;
 
 /** An atomic ordered output scope containing its codec selection and destination path. */
 final readonly class CompiledOutput
@@ -20,25 +20,15 @@ final readonly class CompiledOutput
         private ?CompiledFilterType $videoFilterType = null,
     ) {}
 
-    /**
-     * @param  list<CompiledArgument>  $outputArguments
-     */
     public static function h264(
         CompiledH264FilterGraph $filterGraph,
         QualityTier $tier,
         int $width,
         int $height,
         int $framesPerSecond,
-        array $outputArguments,
+        CompiledH264OutputOptions $outputOptions,
         ScratchPath $output,
     ): self {
-        foreach ($outputArguments as $argument) {
-            if (! $argument instanceof CompiledArgument
-                || ! in_array($argument->kind(), [CompiledArgumentKind::Option, CompiledArgumentKind::Value], true)) {
-                throw new InvalidArgumentException('H.264 output options must be ordinary typed arguments.');
-            }
-        }
-
         $filterType = $filterGraph->complex ? CompiledFilterType::Complex : CompiledFilterType::Video;
         $values = [$filterType->value, $filterGraph->filterGraph()->value()];
 
@@ -49,22 +39,28 @@ final readonly class CompiledOutput
         $values = [
             ...$values,
             ...H264OutputContract::argumentsFor($tier, $width, $height, $framesPerSecond),
-            ...array_map(static fn (CompiledArgument $argument): string => $argument->value(), $outputArguments),
+            ...$outputOptions->commandValues(),
             $output->writablePath(),
         ];
 
         return new self($values, $filterType);
     }
 
-    /** @param  list<CompiledArgument>  $outputArguments */
-    public static function mp3(AudioBitrate $bitrate, ScratchPath $output, array $outputArguments = []): self
-    {
-        $argumentValues = self::ordinaryArgumentValues($outputArguments);
+    public static function mp3(
+        AudioBitrate $bitrate,
+        ScratchPath $output,
+        ?AudioChannelLayout $channels = null,
+    ): self {
+        $channelValues = match ($channels) {
+            AudioChannelLayout::Mono => ['-ac', '1'],
+            AudioChannelLayout::Stereo => ['-ac', '2'],
+            null => [],
+        };
 
         return new self([
             '-c:a',
             CompiledLiteral::Libmp3lame->value,
-            ...$argumentValues,
+            ...$channelValues,
             '-b:a',
             $bitrate->value,
             '-f',
@@ -104,6 +100,11 @@ final readonly class CompiledOutput
         ]);
     }
 
+    public static function null(): self
+    {
+        return new self(['-f', CompiledLiteral::NullMuxer->value, CompiledLiteral::StandardStream->value]);
+    }
+
     /** @return non-empty-list<string> */
     public function commandValues(): array
     {
@@ -113,21 +114,5 @@ final readonly class CompiledOutput
     public function videoFilterType(): ?CompiledFilterType
     {
         return $this->videoFilterType;
-    }
-
-    /**
-     * @param  list<CompiledArgument>  $arguments
-     * @return list<string>
-     */
-    private static function ordinaryArgumentValues(array $arguments): array
-    {
-        foreach ($arguments as $argument) {
-            if (! $argument instanceof CompiledArgument
-                || ! in_array($argument->kind(), [CompiledArgumentKind::Option, CompiledArgumentKind::Value], true)) {
-                throw new InvalidArgumentException('Output options must be ordinary typed arguments.');
-            }
-        }
-
-        return array_map(static fn (CompiledArgument $argument): string => $argument->value(), $arguments);
     }
 }

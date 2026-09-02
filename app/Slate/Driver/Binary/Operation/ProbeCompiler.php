@@ -6,6 +6,7 @@ namespace App\Slate\Driver\Binary\Operation;
 
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
+use App\Slate\Driver\Binary\CompiledInput;
 use App\Slate\Driver\Binary\CompiledLiteral;
 use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\CompilesOperation;
@@ -37,7 +38,7 @@ final readonly class ProbeCompiler implements CompilesOperation
             CompiledArgument::option(CompiledOption::ShowStreams),
             CompiledArgument::option(CompiledOption::OutputFormat),
             CompiledArgument::literal(CompiledLiteral::Json),
-            CompiledArgument::existingLocalPath($operation->input),
+            CompiledInput::ffprobe($operation->input),
         ]);
     }
 }

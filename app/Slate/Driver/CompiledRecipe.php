@@ -8,6 +8,7 @@ use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledArgumentKind;
 use App\Slate\Driver\Binary\CompiledFilterType;
+use App\Slate\Driver\Binary\CompiledInput;
 use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use InvalidArgumentException;
@@ -16,7 +17,7 @@ use LogicException;
 final readonly class CompiledRecipe
 {
     /**
-     * @param  list<CompiledArgument|CompiledOutput>  $arguments
+     * @param  list<CompiledArgument|CompiledInput|CompiledOutput>  $arguments
      */
     public function __construct(
         FfmpegLocator $locator,
@@ -25,8 +26,14 @@ final readonly class CompiledRecipe
         private ?string $workingDirectory = null,
     ) {
         foreach ($arguments as $argument) {
-            if (! $argument instanceof CompiledArgument && ! $argument instanceof CompiledOutput) {
+            if (! $argument instanceof CompiledArgument
+                && ! $argument instanceof CompiledInput
+                && ! $argument instanceof CompiledOutput) {
                 throw new InvalidArgumentException('Compiled recipe arguments must be typed compiler output.');
+            }
+
+            if ($argument instanceof CompiledInput && ! $argument->supports($executable)) {
+                throw new LogicException('A compiled input cannot be used with a different executable.');
             }
         }
 
@@ -35,7 +42,10 @@ final readonly class CompiledRecipe
         foreach ($arguments as $argument) {
             array_push(
                 $argumentValues,
-                ...($argument instanceof CompiledOutput ? $argument->commandValues() : [$argument->value()]),
+                ...match (true) {
+                    $argument instanceof CompiledInput, $argument instanceof CompiledOutput => $argument->commandValues(),
+                    default => [$argument->value()],
+                },
             );
         }
         $filterOptionKinds = [
@@ -45,7 +55,7 @@ final readonly class CompiledRecipe
         ];
 
         foreach ($arguments as $index => $argument) {
-            if ($argument instanceof CompiledOutput) {
+            if (! $argument instanceof CompiledArgument) {
                 continue;
             }
 
@@ -60,17 +70,31 @@ final readonly class CompiledRecipe
                     || ! in_array($arguments[$index - 1]->kind(), $filterOptionKinds, true))) {
                 throw new LogicException('A compiled filtergraph cannot exist outside its typed option pair.');
             }
+
+            if ($argument->kind() === CompiledArgumentKind::Option
+                && $argument->expectsValue()
+                && (! ($arguments[$index + 1] ?? null) instanceof CompiledArgument
+                    || $arguments[$index + 1]->kind() !== CompiledArgumentKind::Value)) {
+                throw new LogicException('A compiled option that takes a value must be immediately paired with it.');
+            }
+
+            if ($argument->kind() === CompiledArgumentKind::Value
+                && (! ($arguments[$index - 1] ?? null) instanceof CompiledArgument
+                    || ! $arguments[$index - 1]->expectsValue())) {
+                throw new LogicException('A compiled value cannot exist outside its typed option pair.');
+            }
+
         }
 
         $simpleVideoFilterCount = count(array_filter(
             $arguments,
-            static fn (CompiledArgument|CompiledOutput $argument): bool => ($argument instanceof CompiledArgument
+            static fn (CompiledArgument|CompiledInput|CompiledOutput $argument): bool => ($argument instanceof CompiledArgument
                 && $argument->kind() === CompiledArgumentKind::VideoFilterOption)
                 || ($argument instanceof CompiledOutput && $argument->videoFilterType() === CompiledFilterType::Video),
         ));
         $complexFilterCount = count(array_filter(
             $arguments,
-            static fn (CompiledArgument|CompiledOutput $argument): bool => ($argument instanceof CompiledArgument
+            static fn (CompiledArgument|CompiledInput|CompiledOutput $argument): bool => ($argument instanceof CompiledArgument
                 && $argument->kind() === CompiledArgumentKind::ComplexFilterOption)
                 || ($argument instanceof CompiledOutput && $argument->videoFilterType() === CompiledFilterType::Complex),
         ));
@@ -85,12 +109,12 @@ final readonly class CompiledRecipe
 
         $hasDiagnosticOption = array_any(
             $arguments,
-            static fn (CompiledArgument|CompiledOutput $argument): bool => $argument instanceof CompiledArgument
+            static fn (CompiledArgument|CompiledInput|CompiledOutput $argument): bool => $argument instanceof CompiledArgument
                 && $argument->kind() === CompiledArgumentKind::DiagnosticOption,
         );
         $hasFileOutput = array_any(
             $arguments,
-            static fn (CompiledArgument|CompiledOutput $argument): bool => $argument instanceof CompiledOutput,
+            static fn (CompiledArgument|CompiledInput|CompiledOutput $argument): bool => $argument instanceof CompiledOutput,
         );
 
         if ($hasDiagnosticOption && $hasFileOutput) {

@@ -59,22 +59,19 @@ final readonly class DiagnosticRecipeCompiler
             CompiledArgument::literal(CompiledLiteral::Info),
             CompiledArgument::option(CompiledOption::Format),
             CompiledArgument::literal(CompiledLiteral::Lavfi),
-            CompiledArgument::option(CompiledOption::Input),
-            CompiledArgument::lavfiInput(LavfiInput::BlackDiagnosticFrame),
+            CompiledInput::lavfi(LavfiInput::BlackDiagnosticFrame),
             ...CompiledArgument::filter(
                 CompiledFilterType::Video,
                 CompiledFilterGraph::fromCompiler(implode(',', $filters)),
             ),
             CompiledArgument::option(CompiledOption::VideoFrames),
             CompiledArgument::literal(CompiledLiteral::One),
-            CompiledArgument::option(CompiledOption::Format),
-            CompiledArgument::literal(CompiledLiteral::NullMuxer),
-            CompiledArgument::literal(CompiledLiteral::StandardStream),
+            CompiledOutput::null(),
         ]);
     }
 
     /**
-     * @param  list<CompiledArgument>  $arguments
+     * @param  list<CompiledArgument|CompiledInput|CompiledOutput>  $arguments
      */
     private function ffmpegRecipe(array $arguments): CompiledRecipe
     {
