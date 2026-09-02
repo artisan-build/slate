@@ -14,7 +14,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->singleton(
+        $this->app->bind(
             ObjectStorage::class,
             fn (): ObjectStorage => new S3ObjectStorage(Storage::disk('s3')),
         );

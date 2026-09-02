@@ -1,27 +1,33 @@
 <?php
 
+use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\ObjectStorage;
+use App\Slate\Storage\ScratchDirectory;
 use Illuminate\Support\Facades\Storage;
 
-test('round-trips queued-job data through the configured object disk', function (): void {
+/**
+ * Proves the container binding round-trips bytes through the ObjectStorage seam on a local fake disk.
+ * It does not construct the S3 driver or exercise credentials, signing, transport, multipart, or R2.
+ */
+test('round-trips job data through the object-storage seam on a local fake disk', function (): void {
+    $resolvedBeforeFake = resolve(ObjectStorage::class);
     Storage::fake('s3');
 
     $objectStorage = resolve(ObjectStorage::class);
     $objectKey = ObjectKey::withinPrefix('customers/customer-123', 'customers/customer-123/chunks/001.mp4');
-    $outputPath = storage_path('framework/testing/slate-stage-out.mp4');
-    $inputPath = storage_path('framework/testing/slate-stage-in.mp4');
-    file_put_contents($outputPath, 'chunk payload');
 
-    try {
+    expect($objectStorage)->not->toBe($resolvedBeforeFake);
+
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch) use ($objectStorage, $objectKey): void {
+        $outputPath = $scratch->file('stage-out.mp4');
+        $inputPath = $scratch->file('stage-in.mp4');
+        file_put_contents($outputPath->writablePath(), 'chunk payload');
+
         $objectStorage->stageOut($outputPath, $objectKey);
-        @unlink($outputPath);
         $objectStorage->stageIn($objectKey, $inputPath);
 
         Storage::disk('s3')->assertExists('customers/customer-123/chunks/001.mp4');
-        expect(file_get_contents($inputPath))->toBe('chunk payload');
-    } finally {
-        @unlink($outputPath);
-        @unlink($inputPath);
-    }
+        expect(file_get_contents($inputPath->readablePath()))->toBe('chunk payload');
+    });
 });

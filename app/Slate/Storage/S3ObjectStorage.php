@@ -6,53 +6,78 @@ namespace App\Slate\Storage;
 
 use Illuminate\Contracts\Filesystem\Filesystem;
 use RuntimeException;
+use Throwable;
 
 final readonly class S3ObjectStorage implements ObjectStorage
 {
     public function __construct(private Filesystem $filesystem) {}
 
-    public function stageIn(ObjectKey $objectKey, string $localPath): void
+    public function stageIn(ObjectKey $objectKey, ScratchPath $localPath): void
     {
-        $objectStream = $this->filesystem->readStream($objectKey->value());
+        $resolvedLocalPath = $localPath->writablePath();
+
+        try {
+            $expectedBytes = $this->filesystem->size($objectKey->value());
+            $objectStream = $this->filesystem->readStream($objectKey->value());
+        } catch (Throwable $exception) {
+            throw new RuntimeException("Unable to read object: {$objectKey->value()}", previous: $exception);
+        }
 
         if (! is_resource($objectStream)) {
             throw new RuntimeException("Unable to read object: {$objectKey->value()}");
         }
 
-        $localStream = fopen($localPath, 'wb');
+        $localStream = @fopen($resolvedLocalPath, 'wb');
 
         if (! is_resource($localStream)) {
             fclose($objectStream);
 
-            throw new RuntimeException("Unable to open local stage-in path: {$localPath}");
+            throw new RuntimeException("Unable to open local stage-in path: {$resolvedLocalPath}");
         }
 
-        try {
-            if (stream_copy_to_stream($objectStream, $localStream) === false) {
-                throw new RuntimeException("Unable to stage object to local path: {$objectKey->value()}");
-            }
-        } catch (\Throwable $exception) {
-            @unlink($localPath);
+        $copyFailure = null;
 
-            throw $exception;
+        try {
+            $copiedBytes = stream_copy_to_stream($objectStream, $localStream);
+        } catch (Throwable $exception) {
+            $copyFailure = $exception;
+            $copiedBytes = false;
         } finally {
             fclose($localStream);
             fclose($objectStream);
         }
+
+        if ($copyFailure instanceof Throwable) {
+            @unlink($resolvedLocalPath);
+
+            throw new RuntimeException("Unable to stage object to local path: {$objectKey->value()}", previous: $copyFailure);
+        }
+
+        if ($copiedBytes === false || $copiedBytes !== $expectedBytes) {
+            @unlink($resolvedLocalPath);
+
+            throw new RuntimeException(
+                "Staged object size mismatch for {$objectKey->value()}: expected {$expectedBytes} bytes, copied ".
+                ($copiedBytes === false ? 'an unknown number of' : (string) $copiedBytes).' bytes.',
+            );
+        }
     }
 
-    public function stageOut(string $localPath, ObjectKey $objectKey): void
+    public function stageOut(ScratchPath $localPath, ObjectKey $objectKey): void
     {
-        $localStream = fopen($localPath, 'rb');
+        $resolvedLocalPath = $localPath->readablePath();
+        $localStream = @fopen($resolvedLocalPath, 'rb');
 
         if (! is_resource($localStream)) {
-            throw new RuntimeException("Unable to open local stage-out path: {$localPath}");
+            throw new RuntimeException("Unable to open local stage-out path: {$resolvedLocalPath}");
         }
 
         try {
             if (! $this->filesystem->writeStream($objectKey->value(), $localStream)) {
                 throw new RuntimeException("Unable to write object: {$objectKey->value()}");
             }
+        } catch (Throwable $exception) {
+            throw new RuntimeException("Unable to write object: {$objectKey->value()}", previous: $exception);
         } finally {
             fclose($localStream);
         }

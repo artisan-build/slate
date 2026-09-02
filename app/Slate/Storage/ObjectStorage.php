@@ -7,12 +7,12 @@ namespace App\Slate\Storage;
 /**
  * Stages objects between durable bucket storage and one job's local scratch directory.
  *
- * Queued jobs may run on different hosts. Stage-out followed by stage-in is therefore the transfer
- * mechanism between jobs; a local scratch path must never be passed to another queued job.
+ * This seam provides bucket transfer for jobs that may run on different hosts. It does not enforce
+ * that every queued job uses it; FfmpegBenchmark still passes local chunk paths pending PR 3.
  */
 interface ObjectStorage
 {
-    public function stageIn(ObjectKey $objectKey, string $localPath): void;
+    public function stageIn(ObjectKey $objectKey, ScratchPath $localPath): void;
 
-    public function stageOut(string $localPath, ObjectKey $objectKey): void;
+    public function stageOut(ScratchPath $localPath, ObjectKey $objectKey): void;
 }
