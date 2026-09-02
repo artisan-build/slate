@@ -175,18 +175,14 @@ function encoderNameLocations(string $root): array
 }
 
 /**
- * The benchmark harness predates the sealed vocabulary and PR 7 supersedes it.
- *
- * FfmpegBenchmark retains one hand-built drawtext fragment pending PR 7. No job, directory, or wildcard
- * is exempted, so every exception must still match the filter pattern and the list self-prunes.
+ * All application workloads now compile through the sealed vocabulary. This list remains explicit so
+ * a future migration cannot quietly reintroduce a caller-layer filter exception.
  *
  * @return list<string>
  */
 function legacyFfmpegBoundaryExceptions(): array
 {
-    return [
-        'Services/FfmpegBenchmark.php',
-    ];
+    return [];
 }
 
 /**
@@ -196,7 +192,7 @@ function legacyFfmpegBoundaryExceptions(): array
  * FfmpegLocator/path-accessor or CompiledRecipe reference and any string literal containing `ffmpeg`
  * or `ffprobe`. It ignores comments, but cannot detect names assembled from split strings at runtime.
  * A binary path assembled from concatenated fragments is undetectable by source scan, full stop.
- * Existing provisioning, diagnostics, and PR 7 benchmark residue are held to an exact location map.
+ * Existing provisioning and diagnostics are held to an exact location map.
  *
  * @return array<string, list<string>>
  */

@@ -16,11 +16,12 @@ return [
         ),
     ],
     'benchmark' => [
-        'duration_seconds' => 60,
-        'chunk_seconds' => 10,
+        'duration_seconds' => 540,
+        'segment_seconds' => 40,
         'visibility_timeout_seconds' => 180,
-        'job_timeout_seconds' => 170,
-        'scratch_path' => storage_path('app/slate-benchmarks'),
+        // The instrument must outlive production's kill point to measure the uncensored operation.
+        'instrument_operation_timeout_seconds' => 600,
+        'font_path' => resource_path('fonts/NotoSans[wdth,wght].ttf'),
     ],
     'driver' => [
         'timeout_seconds' => 170,

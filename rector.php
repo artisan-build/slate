@@ -17,10 +17,10 @@ return RectorConfig::configure()
         __DIR__.'/tests',
     ])
     ->withSkip([
+        __DIR__.'/_ide_helper_models.php',
+        __DIR__.'/bootstrap/cache',
         __DIR__.'/app/Console/Commands/ProvisionFfmpegCommand.php',
         __DIR__.'/app/Console/Commands/FfmpegDoctorCommand.php',
-        __DIR__.'/app/Console/Commands/DispatchFfmpegBenchmarkCommand.php',
-        __DIR__.'/app/Jobs',
         __DIR__.'/app/Slate/Driver/Binary/FfmpegLocator.php',
         __DIR__.'/app/Services/FfmpegDiagnostics.php',
         __DIR__.'/app/Services/FfmpegBenchmark.php',

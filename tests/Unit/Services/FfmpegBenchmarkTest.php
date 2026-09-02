@@ -2,48 +2,57 @@
 
 use App\Services\FfmpegBenchmark;
 
-test('summarizes chunk throughput against the configured visibility timeout', function (): void {
-    $worker = [
-        'hostname' => 'worker-a',
-        'memory_max' => '2147483648',
-        'memory_bytes' => 2147483648,
-        'cpu_max' => '100000 100000',
-        'cpu_cores' => 1.0,
-    ];
+test('summarizes operation throughput against the configured visibility timeout', function (): void {
     $measurements = [
         [
-            'chunk_index' => 0,
+            'operation' => 'video.still_clip',
             'media_duration_ms' => 10000,
             'processing_duration_ms' => 2000,
             'output_size_bytes' => 100,
-            'worker' => $worker,
         ],
         [
-            'chunk_index' => 1,
+            'operation' => 'captions.timed_words',
             'media_duration_ms' => 10000,
             'processing_duration_ms' => 2500,
             'output_size_bytes' => 110,
-            'worker' => $worker,
         ],
         [
-            'chunk_index' => 2,
-            'media_duration_ms' => 10000,
-            'processing_duration_ms' => 1500,
+            'operation' => 'video.concat',
+            'media_duration_ms' => 550250,
+            'processing_duration_ms' => 212188,
             'output_size_bytes' => 90,
-            'worker' => $worker,
         ],
     ];
 
-    $summary = (new FfmpegBenchmark)->summarizeMeasurements($measurements, 1000, 13000, 180);
+    $summary = FfmpegBenchmark::summarizeMeasurements($measurements, 550250, 220000, 180, 170);
 
     expect($summary)->toBe([
-        'media_duration_ms' => 30000,
-        'chunk_processing_ms' => 6000,
-        'total_wall_ms' => 12000,
-        'encoding_realtime_factor' => 5.0,
-        'end_to_end_realtime_factor' => 2.5,
-        'peak_chunk_ms' => 2500,
+        'operation_media_ms' => 570250,
+        'operation_processing_ms' => 216688,
+        'operation_realtime_factor' => 2.632,
+        'segment_media_ms' => 10000,
+        'segment_processing_ms' => 4500,
+        'segment_realtime_factor' => 2.222,
+        'caption_media_ms' => 10000,
+        'caption_processing_ms' => 2500,
+        'caption_realtime_factor' => 4.0,
+        'concat_media_ms' => 550250,
+        'concat_processing_ms' => 212188,
+        'concat_realtime_factor' => 2.593,
+        'output_duration_ms' => 550250,
+        'total_wall_ms' => 220000,
+        'end_to_end_realtime_factor' => 2.501,
+        'peak_operation' => 'video.concat',
+        'peak_operation_ms' => 212188,
+        'driver_timeout_ms' => 170000,
+        'driver_headroom_ms' => -42188,
         'visibility_timeout_ms' => 180000,
-        'visibility_headroom_ms' => 177500,
+        'visibility_headroom_ms' => -32188,
     ]);
+});
+
+test('pins the published default output duration and frame count', function (): void {
+    expect(FfmpegBenchmark::matchesPublishedOutputShape(550250, 13206))->toBeTrue()
+        ->and(FfmpegBenchmark::matchesPublishedOutputShape(546750, 13122))->toBeFalse()
+        ->and(FfmpegBenchmark::matchesPublishedOutputShape(550250, 13205))->toBeFalse();
 });
