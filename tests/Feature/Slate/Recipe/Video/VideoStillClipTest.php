@@ -70,6 +70,7 @@ test('rejects incomplete or contradictory probed media', function (
     bool $includeAudio,
     string $audioCodec,
     float $probedDuration,
+    string $expectedMessage,
 ): void {
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch) use (
         $videoStreamOverrides,
@@ -77,6 +78,7 @@ test('rejects incomplete or contradictory probed media', function (
         $includeAudio,
         $audioCodec,
         $probedDuration,
+        $expectedMessage,
     ): void {
         $operation = new VideoStillClip(
             $scratch->file('image.png'), $scratch->file('audio.mp3'), $scratch->file('clip.mp4'),
@@ -91,18 +93,57 @@ test('rejects incomplete or contradictory probed media', function (
             $includeVideo,
             $includeAudio,
             $audioCodec,
-        ))->toThrow(RuntimeException::class);
+        ))->toThrow(RuntimeException::class, $expectedMessage);
     });
 })->with([
-    'wrong video codec' => [['codec_name' => 'vp9'], true, true, 'aac', 12.0],
-    'wrong pixel format' => [['pix_fmt' => 'yuv444p'], true, true, 'aac', 12.0],
-    'full color range' => [['color_range' => 'pc'], true, true, 'aac', 12.0],
-    'wrong width' => [['width' => 640], true, true, 'aac', 12.0],
-    'invalid frame rate' => [['avg_frame_rate' => '25/1'], true, true, 'aac', 12.0],
-    'missing video stream' => [[], false, true, 'aac', 12.0],
-    'missing audio stream' => [[], true, false, 'aac', 12.0],
-    'wrong audio codec' => [[], true, true, 'mp3', 12.0],
-    'truncated duration' => [[], true, true, 'aac', 10.0],
+    'wrong video codec' => [
+        ['codec_name' => 'vp9'], true, true, 'aac', 12.0,
+        'video.codec_name expected "h264", probed "vp9"',
+    ],
+    'wrong pixel format' => [
+        ['pix_fmt' => 'yuv444p'], true, true, 'aac', 12.0,
+        'video.pix_fmt expected "yuv420p", probed "yuv444p"',
+    ],
+    'full color range' => [
+        ['color_range' => 'pc'], true, true, 'aac', 12.0,
+        'video.color_range expected "tv", probed "pc"',
+    ],
+    'unknown color range' => [
+        ['color_range' => null], true, true, 'aac', 12.0,
+        'video.color_range expected "tv", probed null',
+    ],
+    'wrong width' => [
+        ['width' => 640], true, true, 'aac', 12.0,
+        'video.width expected 1536, probed 640',
+    ],
+    'wrong height' => [
+        ['height' => 720], true, true, 'aac', 12.0,
+        'video.height expected 1024, probed 720',
+    ],
+    'wrong frame rate' => [
+        ['avg_frame_rate' => '25/1'], true, true, 'aac', 12.0,
+        'video.frames_per_second expected 24, probed 25 (avg_frame_rate "25/1")',
+    ],
+    'missing video stream' => [
+        [], false, true, 'aac', 12.0,
+        'Slate video output probe did not contain a video stream.',
+    ],
+    'missing audio stream' => [
+        [], true, false, 'aac', 12.0,
+        'audio.codec_name expected to include "aac", probed []',
+    ],
+    'wrong audio codec' => [
+        [], true, true, 'mp3', 12.0,
+        'audio.codec_name expected to include "aac", probed ["mp3"]',
+    ],
+    'non-positive duration' => [
+        [], true, true, 'aac', 0.0,
+        'format.duration expected a positive microsecond value, probed 0.0',
+    ],
+    'truncated duration' => [
+        [], true, true, 'aac', 10.0,
+        'format.duration expected 12.0 +/- 0.25 seconds, probed 10.0 seconds',
+    ],
 ]);
 
 test('rejects still clip values outside the audited video contract', function (): void {

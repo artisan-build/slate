@@ -90,16 +90,84 @@ final readonly class SlateVideo
             ],
         };
 
-        if (($videoStream['codec_name'] ?? null) !== 'h264'
-            || ($videoStream['pix_fmt'] ?? null) !== 'yuv420p'
-            || ($videoStream['color_range'] ?? null) !== 'tv'
-            || ! self::hasAacAudioStream($properties)
-            || $width !== $expectedWidth
-            || $height !== $expectedHeight
-            || $framesPerSecond !== $expectedFramesPerSecond
-            || ! AudioDuration::isPositiveMicrosecondDuration($durationSeconds)
-            || abs($durationSeconds - $expectedDurationSeconds) > self::DurationToleranceSeconds) {
-            throw new RuntimeException('Slate video output does not satisfy its probed H.264 media contract.');
+        $contractFailures = [];
+        $audioCodecs = self::audioCodecs($properties);
+
+        if (($videoStream['codec_name'] ?? null) !== 'h264') {
+            $contractFailures[] = sprintf(
+                'video.codec_name expected "h264", probed %s',
+                self::probeValue($videoStream['codec_name'] ?? null),
+            );
+        }
+
+        if (($videoStream['pix_fmt'] ?? null) !== 'yuv420p') {
+            $contractFailures[] = sprintf(
+                'video.pix_fmt expected "yuv420p", probed %s',
+                self::probeValue($videoStream['pix_fmt'] ?? null),
+            );
+        }
+
+        if (($videoStream['color_range'] ?? null) !== 'tv') {
+            $contractFailures[] = sprintf(
+                'video.color_range expected "tv", probed %s',
+                self::probeValue($videoStream['color_range'] ?? null),
+            );
+        }
+
+        if (! in_array(H264OutputContract::audioEncoder(), $audioCodecs, true)) {
+            $contractFailures[] = sprintf(
+                'audio.codec_name expected to include %s, probed %s',
+                self::probeValue(H264OutputContract::audioEncoder()),
+                self::probeValue($audioCodecs),
+            );
+        }
+
+        if ($width !== $expectedWidth) {
+            $contractFailures[] = sprintf(
+                'video.width expected %s, probed %s',
+                self::probeValue($expectedWidth),
+                self::probeValue($width),
+            );
+        }
+
+        if ($height !== $expectedHeight) {
+            $contractFailures[] = sprintf(
+                'video.height expected %s, probed %s',
+                self::probeValue($expectedHeight),
+                self::probeValue($height),
+            );
+        }
+
+        if ($framesPerSecond !== $expectedFramesPerSecond) {
+            $contractFailures[] = sprintf(
+                'video.frames_per_second expected %s, probed %s (avg_frame_rate %s)',
+                self::probeValue($expectedFramesPerSecond),
+                self::probeValue($framesPerSecond),
+                self::probeValue($videoStream['avg_frame_rate'] ?? null),
+            );
+        }
+
+        if (! AudioDuration::isPositiveMicrosecondDuration($durationSeconds)) {
+            $contractFailures[] = sprintf(
+                'format.duration expected a positive microsecond value, probed %s',
+                self::probeValue($durationSeconds),
+            );
+        }
+
+        if (abs($durationSeconds - $expectedDurationSeconds) > self::DurationToleranceSeconds) {
+            $contractFailures[] = sprintf(
+                'format.duration expected %s +/- %s seconds, probed %s seconds',
+                self::probeValue($expectedDurationSeconds),
+                self::probeValue(self::DurationToleranceSeconds),
+                self::probeValue($durationSeconds),
+            );
+        }
+
+        if ($contractFailures !== []) {
+            throw new RuntimeException(
+                'Slate video output does not satisfy its probed H.264 media contract: '
+                .implode('; ', $contractFailures).'.',
+            );
         }
 
         return new self($output, $width, $height, $framesPerSecond, $durationSeconds, $qualityTier);
@@ -140,21 +208,33 @@ final readonly class SlateVideo
         return intdiv($numerator, $denominator);
     }
 
-    /** @param  array<mixed>  $properties */
-    private static function hasAacAudioStream(array $properties): bool
+    /**
+     * @param  array<mixed>  $properties
+     * @return list<mixed>
+     */
+    private static function audioCodecs(array $properties): array
     {
         $streams = $properties['streams'] ?? null;
+        $audioCodecs = [];
 
         if (is_array($streams)) {
             foreach ($streams as $stream) {
                 if (is_array($stream)
-                    && ($stream['codec_type'] ?? null) === 'audio'
-                    && ($stream['codec_name'] ?? null) === H264OutputContract::audioEncoder()) {
-                    return true;
+                    && ($stream['codec_type'] ?? null) === 'audio') {
+                    $audioCodecs[] = $stream['codec_name'] ?? null;
                 }
             }
         }
 
-        return false;
+        return $audioCodecs;
+    }
+
+    private static function probeValue(mixed $value): string
+    {
+        if (is_float($value) && ! is_finite($value)) {
+            return is_nan($value) ? 'NAN' : ($value > 0 ? 'INF' : '-INF');
+        }
+
+        return json_encode($value, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_SLASHES);
     }
 }
