@@ -241,9 +241,7 @@ test('rejects diagnostic early-exit options in a file-output recipe', function (
 
 test('rejects extra output injection through closed H264 and MP3 option types', function (): void {
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
-        $extra = $scratch->file('extra.mp4');
-        file_put_contents($extra->writablePath(), 'existing output');
-        $extraInput = CompiledInput::ffmpeg($extra);
+        $extraOutput = CompiledArgument::literal(CompiledLiteral::Mp3);
         $filter = (new FilterGraphCompiler)->compileH264Video(['null']);
 
         expect(fn (): CompiledOutput => CompiledOutput::h264(
@@ -252,13 +250,13 @@ test('rejects extra output injection through closed H264 and MP3 option types', 
             1536,
             1024,
             24,
-            [$extraInput],
+            [$extraOutput],
             $scratch->file('intended.mp4'),
         ))->toThrow(TypeError::class)
             ->and(fn (): CompiledOutput => CompiledOutput::mp3(
                 AudioBitrate::Kbps192,
                 $scratch->file('intended.mp3'),
-                [$extraInput],
+                [$extraOutput],
             ))->toThrow(TypeError::class);
     });
 });
