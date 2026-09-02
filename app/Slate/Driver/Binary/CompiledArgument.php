@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Slate\Driver\Binary;
 
+use App\Slate\Storage\ScratchPath;
 use InvalidArgumentException;
 
 final readonly class CompiledArgument
@@ -19,13 +20,23 @@ final readonly class CompiledArgument
         return new self($option);
     }
 
-    public static function localPath(string $path): self
+    public static function localPath(ScratchPath $path): self
     {
-        if (! str_starts_with($path, '/') || str_contains($path, "\0")) {
-            throw new InvalidArgumentException('A compiled local path must be absolute and contain no null bytes.');
+        return new self($path->writablePath());
+    }
+
+    public static function existingLocalPath(ScratchPath $path): self
+    {
+        return new self($path->readablePath());
+    }
+
+    public static function seconds(float $seconds): self
+    {
+        if (! is_finite($seconds) || $seconds <= 0) {
+            throw new InvalidArgumentException('Compiled seconds must be a finite positive duration.');
         }
 
-        return new self($path);
+        return new self(rtrim(rtrim(number_format($seconds, 6, '.', ''), '0'), '.'));
     }
 
     public static function literal(CompiledLiteral $literal): self
