@@ -8,6 +8,7 @@ use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\ScratchDirectory;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\Storage;
+use Tests\Support\MinioConfiguration;
 
 require dirname(__DIR__, 3).'/vendor/autoload.php';
 
@@ -20,14 +21,7 @@ if (! is_array($configuredDisk)) {
     throw new RuntimeException('S3 disk is not configured.');
 }
 
-config()->set('filesystems.disks.s3', [...$configuredDisk, ...[
-    'key' => 'slate-minio',
-    'secret' => 'slate-minio-secret',
-    'region' => 'us-east-1',
-    'bucket' => 'slate-tests',
-    'endpoint' => 'http://127.0.0.1:19000',
-    'use_path_style_endpoint' => true,
-]]);
+config()->set('filesystems.disks.s3', MinioConfiguration::disk($configuredDisk));
 Storage::forgetDisk('s3');
 
 $objectKey = ObjectKey::withinPrefix('minio-tests', 'minio-tests/memory-probe.bin');

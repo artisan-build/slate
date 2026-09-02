@@ -7,34 +7,40 @@ use App\Slate\Storage\ScratchDirectory;
 use Aws\S3\S3Client;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
+use Tests\Support\MinioConfiguration;
 
 /**
  * Exercises the real S3 driver, signing, HTTP transport, streamed reads, and multipart-capable writes.
  * It does not exercise Cloudflare R2, Cloud-injected credentials, R2 checksum semantics, or Cloud workers.
  */
 test('round-trips through MinIO without driver buffering or process memory buffering', function (): void {
-    $socket = @fsockopen('127.0.0.1', 19000, $errorCode, $errorMessage, 0.2);
-
-    if (! is_resource($socket)) {
-        test()->markTestSkipped('MinIO unavailable at http://127.0.0.1:19000; real S3-driver lane not run.');
-    }
-
-    fclose($socket);
-
     $configuredDisk = config('filesystems.disks.s3');
 
     expect($configuredDisk)->toBeArray()
         ->and($configuredDisk['stream_reads'] ?? null)->toBeTrue()
         ->and($configuredDisk['throw'] ?? null)->toBeTrue();
 
-    $diskConfig = [...$configuredDisk, ...[
-        'key' => 'slate-minio',
-        'secret' => 'slate-minio-secret',
-        'region' => 'us-east-1',
-        'bucket' => 'slate-tests',
-        'endpoint' => 'http://127.0.0.1:19000',
-        'use_path_style_endpoint' => true,
-    ]];
+    $socket = @fsockopen(
+        MinioConfiguration::Host,
+        MinioConfiguration::Port,
+        $errorCode,
+        $errorMessage,
+        0.2,
+    );
+
+    if (! is_resource($socket)) {
+        $message = 'MinIO unavailable at '.MinioConfiguration::Endpoint.'; real S3-driver lane not run.';
+
+        if (filter_var(getenv('SLATE_REQUIRE_MINIO'), FILTER_VALIDATE_BOOL)) {
+            test()->fail($message.' SLATE_REQUIRE_MINIO requires this lane to run.');
+        }
+
+        test()->markTestSkipped($message);
+    }
+
+    fclose($socket);
+
+    $diskConfig = MinioConfiguration::disk($configuredDisk);
 
     $client = new S3Client([
         'version' => 'latest',

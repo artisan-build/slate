@@ -11,9 +11,20 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    env:
+      SLATE_REQUIRE_MINIO: '1'
     strategy:
       matrix:
         php-version: ['8.5']
+
+    services:
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: slate-minio
+          MINIO_ROOT_PASSWORD: slate-minio-secret
+        ports:
+          - 19000:9000
 
     steps:
       - name: Checkout code
@@ -36,6 +47,15 @@ jobs:
 
       - name: Generate Application Key
         run: php artisan key:generate
+
+      # The upstream image has no default `server /data` command for Actions services to supply.
+      - name: Start MinIO service
+        run: |
+          docker rm --force "${{ job.services.minio.id }}" || true
+          docker run --detach --name slate-ci-minio --publish 19000:9000 \
+            --env MINIO_ROOT_USER=slate-minio \
+            --env MINIO_ROOT_PASSWORD=slate-minio-secret \
+            minio/minio:latest server /data
 
       - name: Run PHPStan
         run: composer stan
