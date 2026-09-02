@@ -1,10 +1,14 @@
 <?php
 
+use App\Slate\Driver\Binary\RecipeCompiler;
+use App\Slate\Driver\DriverResult;
+use App\Slate\Driver\FakeDriver;
 use App\Slate\Recipe\Audio\AudioBitrate;
 use App\Slate\Recipe\QualityTier;
 use App\Slate\Recipe\Video\KenBurnsDirection;
 use App\Slate\Recipe\Video\KenBurnsEase;
 use App\Slate\Recipe\Video\KenBurnsMotion;
+use App\Slate\Recipe\Video\SlateVideo;
 use App\Slate\Recipe\Video\StillMotion;
 use App\Slate\Recipe\Video\VideoColor;
 use App\Slate\Recipe\Video\VideoFadeOut;
@@ -32,9 +36,31 @@ test('accepts the audited still clip vocabulary and exposes a trusted Slate outp
             new VideoFadeOut(11.345678, 1.0, VideoColor::Black),
         );
 
+        $video = fakeRenderedSlateVideo($operation, 10.123456);
+
         expect($operation->name()->value)->toBe('video.still_clip')
-            ->and($operation->video()->path)->toBe($operation->output)
-            ->and($operation->video()->durationSeconds)->toBe(12.345678);
+            ->and($video->path)->toBe($operation->output)
+            ->and($video->durationSeconds)->toBe(10.123456);
+    });
+});
+
+test('does not mint a Slate video when rendering fails', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $image = $scratch->file('image.png');
+        $audio = $scratch->file('audio.mp3');
+        file_put_contents($image->writablePath(), 'image');
+        file_put_contents($audio->writablePath(), 'audio');
+        $operation = new VideoStillClip(
+            $image, $audio, $scratch->file('clip.mp4'), 1536, 1024, 24, 2.0,
+            VideoFit::ContainPad, VideoColor::Black, new StillMotion, 1,
+            QualityTier::Delivery, AudioBitrate::Kbps192,
+        );
+
+        expect(fn (): SlateVideo => SlateVideo::render(
+            $operation,
+            RecipeCompiler::fromSystem(),
+            new FakeDriver(new DriverResult('', 'render failed', 1)),
+        ))->toThrow(RuntimeException::class, 'render failed');
     });
 });
 

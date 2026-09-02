@@ -37,7 +37,7 @@ final readonly class VideoThumbnailCompiler implements CompilesOperation
             CompiledArgument::existingLocalPath($operation->input->path),
             CompiledArgument::option('-frames:v'),
             CompiledArgument::literal(CompiledLiteral::One),
-            CompiledArgument::localPath($operation->output),
+            ...CompiledArgument::jpegOutput($operation->output),
         ]);
     }
 }

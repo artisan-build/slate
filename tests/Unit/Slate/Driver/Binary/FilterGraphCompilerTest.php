@@ -30,6 +30,16 @@ test('attaches normalization to the labelled output of a complex video graph', f
         );
 });
 
+test('reserves normalized output labels from operation-authored complex chains', function (array $prefix, string $terminal): void {
+    expect(fn () => (new FilterGraphCompiler)->compileH264ComplexVideo($prefix, $terminal))
+        ->toThrow(InvalidArgumentException::class);
+})->with([
+    'video label in prefix' => [['[0:v]null[video]'], '[1:v]null'],
+    'operation label in prefix' => [['[0:v]null[operation_video]'], '[1:v]null'],
+    'video label in terminal' => [[], '[0:v]null[video]'],
+    'custom terminal output label' => [[], '[0:v]null[custom]'],
+]);
+
 test('requires a normalized graph before H264 output arguments can be constructed', function (): void {
     $unnormalized = CompiledFilterGraph::fromCompiler('scale=1536:1024');
 

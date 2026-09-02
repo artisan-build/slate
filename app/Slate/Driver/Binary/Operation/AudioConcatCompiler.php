@@ -7,6 +7,7 @@ namespace App\Slate\Driver\Binary\Operation;
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledFilterGraph;
+use App\Slate\Driver\Binary\CompiledFilterType;
 use App\Slate\Driver\Binary\CompiledLiteral;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
@@ -105,10 +106,9 @@ final readonly class AudioConcatCompiler implements CompilesOperation
             $inputLabels.'concat=n='.count($operation->items).':v=0:a=1[audio]',
         );
 
-        array_push(
-            $arguments,
-            CompiledArgument::option('-filter_complex'),
-            CompiledArgument::filterGraph($filter),
+        $arguments = [
+            ...$arguments,
+            ...CompiledArgument::filter(CompiledFilterType::Complex, $filter),
             CompiledArgument::option('-map'),
             CompiledArgument::literal(CompiledLiteral::AudioOutputLabel),
             CompiledArgument::option('-c:a'),
@@ -118,7 +118,7 @@ final readonly class AudioConcatCompiler implements CompilesOperation
             CompiledArgument::option('-f'),
             CompiledArgument::literal(CompiledLiteral::Mp3),
             CompiledArgument::localPath($operation->output),
-        );
+        ];
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, $arguments);
     }

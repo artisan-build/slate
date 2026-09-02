@@ -11,7 +11,10 @@ use InvalidArgumentException;
 
 final readonly class CompiledArgument
 {
-    private function __construct(private string $value) {}
+    private function __construct(
+        private string $value,
+        private CompiledArgumentKind $kind = CompiledArgumentKind::Value,
+    ) {}
 
     public static function option(string $option): self
     {
@@ -19,12 +22,20 @@ final readonly class CompiledArgument
             throw new InvalidArgumentException('A compiled option must be one complete ffmpeg option.');
         }
 
-        return new self($option);
+        $optionName = strtolower(explode(':', ltrim($option, '-'), 2)[0]);
+
+        if (in_array($optionName, ['vf', 'af'], true)
+            || $optionName === 'filter'
+            || str_starts_with($optionName, 'filter_')) {
+            throw new InvalidArgumentException('Filter options and graphs must be compiled as one typed pair.');
+        }
+
+        return new self($option, CompiledArgumentKind::Option);
     }
 
     public static function localPath(ScratchPath $path): self
     {
-        return new self($path->writablePath());
+        return new self($path->writablePath(), CompiledArgumentKind::WritablePath);
     }
 
     public static function existingLocalPath(ScratchPath $path): self
@@ -60,9 +71,13 @@ final readonly class CompiledArgument
         return new self($input->value);
     }
 
-    public static function filterGraph(CompiledFilterGraph $filterGraph): self
+    /** @return array{self, self} */
+    public static function filter(CompiledFilterType $type, CompiledFilterGraph $filterGraph): array
     {
-        return new self($filterGraph->value());
+        return [
+            new self($type->value, $type->argumentKind()),
+            new self($filterGraph->value(), CompiledArgumentKind::FilterGraph),
+        ];
     }
 
     /**
@@ -78,10 +93,10 @@ final readonly class CompiledArgument
         int $height,
         int $framesPerSecond,
     ): array {
-        $arguments = [
-            self::option($filterGraph->complex ? '-filter_complex' : '-vf'),
-            self::filterGraph($filterGraph->filterGraph()),
-        ];
+        $arguments = self::filter(
+            $filterGraph->complex ? CompiledFilterType::Complex : CompiledFilterType::Video,
+            $filterGraph->filterGraph(),
+        );
 
         if ($filterGraph->complex) {
             array_push(
@@ -98,8 +113,25 @@ final readonly class CompiledArgument
         return $arguments;
     }
 
+    /** @return non-empty-list<self> */
+    public static function jpegOutput(ScratchPath $output): array
+    {
+        return [
+            self::option('-c:v'),
+            self::literal(CompiledLiteral::Mjpeg),
+            self::option('-f'),
+            self::literal(CompiledLiteral::Image2),
+            self::localPath($output),
+        ];
+    }
+
     public function value(): string
     {
         return $this->value;
+    }
+
+    public function kind(): CompiledArgumentKind
+    {
+        return $this->kind;
     }
 }

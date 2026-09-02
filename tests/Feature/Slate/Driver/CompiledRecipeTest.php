@@ -3,8 +3,8 @@
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledFilterGraph;
+use App\Slate\Driver\Binary\CompiledFilterType;
 use App\Slate\Driver\Binary\FfmpegLocator;
-use App\Slate\Driver\Binary\H264OutputContract;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ScratchDirectory;
@@ -111,10 +111,8 @@ test('rejects multiple simple video filters in one compiled recipe', function ()
         new FfmpegLocator('Linux', 'arm64', '/runtime'),
         BinaryExecutable::Ffmpeg,
         [
-            CompiledArgument::option('-vf'),
-            CompiledArgument::filterGraph($first),
-            CompiledArgument::option('-vf'),
-            CompiledArgument::filterGraph($second),
+            ...CompiledArgument::filter(CompiledFilterType::Video, $first),
+            ...CompiledArgument::filter(CompiledFilterType::Video, $second),
         ],
     ))->toThrow(LogicException::class, 'more than one -vf');
 });
@@ -127,26 +125,46 @@ test('rejects simple and complex video filters in one compiled recipe', function
         new FfmpegLocator('Linux', 'arm64', '/runtime'),
         BinaryExecutable::Ffmpeg,
         [
-            CompiledArgument::option('-vf'),
-            CompiledArgument::filterGraph($simple),
-            CompiledArgument::option('-filter_complex'),
-            CompiledArgument::filterGraph($complex),
+            ...CompiledArgument::filter(CompiledFilterType::Video, $simple),
+            ...CompiledArgument::filter(CompiledFilterType::Complex, $complex),
         ],
     ))->toThrow(LogicException::class, 'cannot combine -vf with -filter_complex');
 });
 
-test('rejects H264 output whose filtergraph omits normalization', function (): void {
-    $encoder = CompiledFilterGraph::fromCompiler(H264OutputContract::encoder());
-    $operationFilter = CompiledFilterGraph::fromCompiler('scale=1536:1024');
+test('rejects a filtergraph separated from its typed option', function (): void {
+    $filter = CompiledArgument::filter(
+        CompiledFilterType::Video,
+        CompiledFilterGraph::fromCompiler('null'),
+    );
 
     expect(fn (): CompiledRecipe => new CompiledRecipe(
         new FfmpegLocator('Linux', 'arm64', '/runtime'),
         BinaryExecutable::Ffmpeg,
-        [
-            CompiledArgument::option('-c:v'),
-            CompiledArgument::filterGraph($encoder),
-            CompiledArgument::option('-vf'),
-            CompiledArgument::filterGraph($operationFilter),
-        ],
-    ))->toThrow(LogicException::class, 'must contain video normalization');
+        [$filter[1]],
+    ))->toThrow(LogicException::class, 'cannot exist outside its typed option pair');
+});
+
+test('rejects every generic filter option spelling and exposes no free graph argument factory', function (string $option): void {
+    expect(method_exists(CompiledArgument::class, 'filterGraph'))->toBeFalse()
+        ->and(fn (): CompiledArgument => CompiledArgument::option($option))
+        ->toThrow(InvalidArgumentException::class, 'typed pair');
+})->with([
+    '-vf',
+    '-af',
+    '-filter:v',
+    '-filter:v:0',
+    '-filter:a',
+    '-filter_complex',
+    '-filter_script:v',
+    '-filter_complex_script',
+]);
+
+test('rejects implicit codec selection for every ffmpeg file output', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        expect(fn (): CompiledRecipe => new CompiledRecipe(
+            new FfmpegLocator('Linux', 'arm64', '/runtime'),
+            BinaryExecutable::Ffmpeg,
+            [CompiledArgument::localPath($scratch->file('implicit.mp4'))],
+        ))->toThrow(LogicException::class, 'select its codec explicitly');
+    });
 });

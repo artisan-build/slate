@@ -30,7 +30,10 @@ function compilerTestVideo(ScratchDirectory $scratch, string $name, float $durat
 test('compiles xfade acrossfade and normalization in one complex graph', function (): void {
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
         $operation = new VideoConcat(
-            [compilerTestVideo($scratch, 'first', 2.0)->video(), compilerTestVideo($scratch, 'second', 3.0)->video()],
+            [
+                fakeRenderedSlateVideo(compilerTestVideo($scratch, 'first', 2.0)),
+                fakeRenderedSlateVideo(compilerTestVideo($scratch, 'second', 3.0)),
+            ],
             VideoConcatMode::Xfade, VideoTransition::Fade, 0.75, true,
             QualityTier::Delivery, 24, $scratch->file('joined.mp4'),
         );
@@ -52,10 +55,42 @@ test('compiles xfade acrossfade and normalization in one complex graph', functio
     });
 });
 
+test('chains three inputs through intermediate xfade and acrossfade labels', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $operation = new VideoConcat(
+            [
+                fakeRenderedSlateVideo(compilerTestVideo($scratch, 'first', 2.0)),
+                fakeRenderedSlateVideo(compilerTestVideo($scratch, 'second', 3.0)),
+                fakeRenderedSlateVideo(compilerTestVideo($scratch, 'third', 4.0)),
+            ],
+            VideoConcatMode::Xfade, VideoTransition::Fade, 0.75, true,
+            QualityTier::Delivery, 24, $scratch->file('joined.mp4'),
+        );
+
+        $command = (new VideoConcatCompiler(
+            new FfmpegLocator('Linux', 'arm64', '/runtime'),
+            new FilterGraphCompiler,
+        ))->compile($operation)->command();
+        $filterIndex = array_search('-filter_complex', $command, true);
+
+        expect($filterIndex)->toBeInt()
+            ->and($command[$filterIndex + 1])->toBe(
+                '[0:v][1:v]xfade=transition=fade:duration=0.75:offset=1.25[xfade1];'
+                .'[0:a][1:a]acrossfade=d=0.75[acrossfade1];'
+                .'[acrossfade1][2:a]acrossfade=d=0.75[audio];'
+                .'[xfade1][2:v]xfade=transition=fade:duration=0.75:offset=3.5[operation_video];'
+                .'[operation_video]scale=in_range=auto:out_range=tv,format=yuv420p[video]',
+            );
+    });
+});
+
 test('compiles hard-cut audio to the shortened xfade timeline', function (): void {
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
         $operation = new VideoConcat(
-            [compilerTestVideo($scratch, 'first', 2.0)->video(), compilerTestVideo($scratch, 'second', 3.0)->video()],
+            [
+                fakeRenderedSlateVideo(compilerTestVideo($scratch, 'first', 2.0)),
+                fakeRenderedSlateVideo(compilerTestVideo($scratch, 'second', 3.0)),
+            ],
             VideoConcatMode::Xfade, VideoTransition::Fade, 0.75, false,
             QualityTier::Delivery, 24, $scratch->file('joined.mp4'),
         );
@@ -77,8 +112,8 @@ test('compiles hard-cut audio to the shortened xfade timeline', function (): voi
 
 test('compiles copy mode with a compiler-owned concat manifest', function (): void {
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
-        $first = compilerTestVideo($scratch, 'first', 2.0)->video();
-        $second = compilerTestVideo($scratch, "second's", 3.0)->video();
+        $first = fakeRenderedSlateVideo(compilerTestVideo($scratch, 'first', 2.0));
+        $second = fakeRenderedSlateVideo(compilerTestVideo($scratch, "second's", 3.0));
         $output = $scratch->file('joined.mp4');
         $operation = new VideoConcat(
             [$first, $second], VideoConcatMode::Copy, null, 0.0, false,

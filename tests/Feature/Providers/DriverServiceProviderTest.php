@@ -48,6 +48,8 @@ test('registers production compilers for every shipped operation', function (): 
             VideoFit::ContainPad, VideoColor::Black, new StillMotion, 1,
             QualityTier::Delivery, AudioBitrate::Kbps192,
         );
+        $video = fakeRenderedSlateVideo($stillClip);
+        $secondVideo = fakeRenderedSlateVideo($secondStillClip);
         $compiler = resolve(RecipeCompiler::class);
         $operations = [
             new Probe($input),
@@ -68,15 +70,15 @@ test('registers production compilers for every shipped operation', function (): 
             new AudioPad($input, $scratch->file('padded.mp3'), 0.25, 0.5, AudioBitrate::Kbps128),
             $stillClip,
             new VideoConcat(
-                [$stillClip->video(), $secondStillClip->video()], VideoConcatMode::Xfade,
+                [$video, $secondVideo], VideoConcatMode::Xfade,
                 VideoTransition::Fade, 0.5, true, QualityTier::Delivery, 24,
                 $scratch->file('joined.mp4'),
             ),
             new OverlayImage(
-                $stillClip->video(), $image, $scratch->file('overlay.mp4'), 0, 0,
+                $video, $image, $scratch->file('overlay.mp4'), 0, 0,
                 new OverlayFadeIn(0.5, 0.5), 0.5,
             ),
-            new VideoThumbnail($stillClip->video(), $scratch->file('poster.jpg')),
+            new VideoThumbnail($video, $scratch->file('poster.jpg')),
         ];
 
         $executables = array_map(

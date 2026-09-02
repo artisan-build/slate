@@ -29,7 +29,7 @@ test('accepts a fading image overlay on a typed Slate output', function (): void
             AudioBitrate::Kbps192,
         );
         $operation = new OverlayImage(
-            $source->video(),
+            fakeRenderedSlateVideo($source),
             $scratch->file('badge.png'),
             $scratch->file('badged.mp4'),
             20,
@@ -38,9 +38,11 @@ test('accepts a fading image overlay on a typed Slate output', function (): void
             1.0,
         );
 
+        $video = fakeRenderedSlateVideo($operation);
+
         expect($operation->name()->value)->toBe('overlay.image')
-            ->and($operation->video()->durationSeconds)->toBe(3.0)
-            ->and($operation->video()->path)->toBe($operation->output);
+            ->and($video->durationSeconds)->toBe(3.0)
+            ->and($video->path)->toBe($operation->output);
     });
 });
 
@@ -52,16 +54,18 @@ test('rejects overlay coordinates and timings outside the source video', functio
             QualityTier::Delivery, AudioBitrate::Kbps192,
         );
 
+        $video = fakeRenderedSlateVideo($source);
+
         expect(fn (): OverlayImage => new OverlayImage(
-            $source->video(), $scratch->file('badge.png'), $scratch->file('out.mp4'),
+            $video, $scratch->file('badge.png'), $scratch->file('out.mp4'),
             -1, 0, new OverlayFadeIn(1.0, 0.5), 1.0,
         ))->toThrow(InvalidArgumentException::class, 'coordinates')
             ->and(fn (): OverlayImage => new OverlayImage(
-                $source->video(), $scratch->file('badge.png'), $scratch->file('out.mp4'),
+                $video, $scratch->file('badge.png'), $scratch->file('out.mp4'),
                 0, 0, new OverlayFadeIn(1.75, 0.5), 1.0,
             ))->toThrow(InvalidArgumentException::class, 'fade must end')
             ->and(fn (): OverlayImage => new OverlayImage(
-                $source->video(), $scratch->file('badge.png'), $scratch->file('out.mp4'),
+                $video, $scratch->file('badge.png'), $scratch->file('out.mp4'),
                 0, 0, new OverlayFadeIn(1.0, 0.5), 2.000001,
             ))->toThrow(InvalidArgumentException::class, 'enable time');
     });

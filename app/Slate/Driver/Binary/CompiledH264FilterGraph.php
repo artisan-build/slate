@@ -33,6 +33,16 @@ final readonly class CompiledH264FilterGraph
             throw new InvalidArgumentException('A complex H.264 graph requires ordered chains and one terminal video chain.');
         }
 
+        foreach ([...$prefixChains, $terminalVideoChain] as $chain) {
+            if ($chain === '' || str_contains($chain, '[operation_video]') || str_contains($chain, '[video]')) {
+                throw new InvalidArgumentException('Operation chains cannot use reserved H.264 output labels.');
+            }
+        }
+
+        if (preg_match('/\[[^]]+\]\s*$/', $terminalVideoChain) === 1) {
+            throw new InvalidArgumentException('The terminal H.264 video chain must not declare its own output label.');
+        }
+
         return new self(CompiledFilterGraph::fromCompiler(implode(';', [
             ...$prefixChains,
             $terminalVideoChain.'[operation_video]',

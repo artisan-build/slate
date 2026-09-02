@@ -17,6 +17,7 @@ use App\Slate\Recipe\Video\KenBurnsEase;
 use App\Slate\Recipe\Video\KenBurnsMotion;
 use App\Slate\Recipe\Video\OverlayFadeIn;
 use App\Slate\Recipe\Video\OverlayImage;
+use App\Slate\Recipe\Video\SlateVideo;
 use App\Slate\Recipe\Video\StillMotion;
 use App\Slate\Recipe\Video\VideoColor;
 use App\Slate\Recipe\Video\VideoConcat;
@@ -104,38 +105,40 @@ test('renders every video operation and emitted filter through the pinned ffmpeg
             VideoFit::ContainPad, VideoColor::Black, new StillMotion, 1,
             QualityTier::Intermediate, AudioBitrate::Kbps192,
         );
-        runPinnedVideoOperation($first, $compiler, $driver);
-        runPinnedVideoOperation($second, $compiler, $driver);
+        $firstVideo = SlateVideo::render($first, $compiler, $driver);
+        $secondVideo = SlateVideo::render($second, $compiler, $driver);
 
         $overlay = new OverlayImage(
-            $first->video(), $badge, $scratch->file('overlay.mp4'), 20, 40,
+            $firstVideo, $badge, $scratch->file('overlay.mp4'), 20, 40,
             new OverlayFadeIn(0.25, 0.25), 0.25,
         );
-        runPinnedVideoOperation($overlay, $compiler, $driver);
+        $overlayVideo = SlateVideo::render($overlay, $compiler, $driver);
 
         $crossfaded = new VideoConcat(
-            [$overlay->video(), $second->video()], VideoConcatMode::Xfade,
+            [$overlayVideo, $secondVideo], VideoConcatMode::Xfade,
             VideoTransition::Fade, 0.25, true, QualityTier::Delivery, 24,
             $scratch->file('crossfaded.mp4'),
         );
         $hardCutAudio = new VideoConcat(
-            [$first->video(), $second->video()], VideoConcatMode::Xfade,
+            [$firstVideo, $secondVideo], VideoConcatMode::Xfade,
             VideoTransition::Fade, 0.25, false, QualityTier::Delivery, 24,
             $scratch->file('hard-cut-audio.mp4'),
         );
         $copied = new VideoConcat(
-            [$first->video(), $second->video()], VideoConcatMode::Copy,
+            [$firstVideo, $secondVideo], VideoConcatMode::Copy,
             null, 0.0, false, QualityTier::Intermediate, 24,
             $scratch->file('copied.mp4'),
         );
-        runPinnedVideoOperation($crossfaded, $compiler, $driver);
-        runPinnedVideoOperation($hardCutAudio, $compiler, $driver);
-        runPinnedVideoOperation($copied, $compiler, $driver);
+        $crossfadedVideo = SlateVideo::render($crossfaded, $compiler, $driver);
+        $hardCutAudioVideo = SlateVideo::render($hardCutAudio, $compiler, $driver);
+        $copiedVideo = SlateVideo::render($copied, $compiler, $driver);
 
         $thumbnail = $scratch->file('poster.jpg');
-        runPinnedVideoOperation(new VideoThumbnail($crossfaded->video(), $thumbnail), $compiler, $driver);
-        $properties = probeRenderedVideo($crossfaded->video()->path, $compiler, $driver);
+        runPinnedVideoOperation(new VideoThumbnail($crossfadedVideo, $thumbnail), $compiler, $driver);
+        $properties = probeRenderedVideo($crossfadedVideo->path, $compiler, $driver);
         $videoStream = collect(data_get($properties, 'streams', []))->firstWhere('codec_type', 'video');
+        $thumbnailProperties = probeRenderedVideo($thumbnail, $compiler, $driver);
+        $thumbnailStream = collect(data_get($thumbnailProperties, 'streams', []))->firstWhere('codec_type', 'video');
 
         expect($videoStream)->toBeArray()
             ->and(data_get($videoStream, 'codec_name'))->toBe('h264')
@@ -143,8 +146,15 @@ test('renders every video operation and emitted filter through the pinned ffmpeg
             ->and(data_get($videoStream, 'height'))->toBe(1024)
             ->and(data_get($videoStream, 'pix_fmt'))->toBe('yuv420p')
             ->and(data_get($videoStream, 'color_range'))->toBe('tv')
-            ->and($thumbnail->readablePath())->toEndWith('poster.jpg')
-            ->and($hardCutAudio->video()->path->readablePath())->toEndWith('hard-cut-audio.mp4')
-            ->and($copied->video()->path->readablePath())->toEndWith('copied.mp4');
+            ->and($crossfadedVideo->durationSeconds)->toBeGreaterThan(1.65)
+            ->and($crossfadedVideo->durationSeconds)->toBeLessThan(1.85)
+            ->and($hardCutAudioVideo->durationSeconds)->toBeGreaterThan(1.65)
+            ->and($hardCutAudioVideo->durationSeconds)->toBeLessThan(1.85)
+            ->and($copiedVideo->durationSeconds)->toBeGreaterThan(1.9)
+            ->and($copiedVideo->durationSeconds)->toBeLessThan(2.2)
+            ->and($thumbnailStream)->toBeArray()
+            ->and(data_get($thumbnailStream, 'codec_name'))->toBe('mjpeg')
+            ->and(data_get($thumbnailStream, 'width'))->toBe(1536)
+            ->and(data_get($thumbnailStream, 'height'))->toBe(1024);
     });
 })->group('ffmpeg-render');

@@ -59,9 +59,4 @@ final readonly class VideoStillClip implements Operation
     {
         return OperationName::VideoStillClip;
     }
-
-    public function video(): SlateVideo
-    {
-        return SlateVideo::fromStillClip($this);
-    }
 }

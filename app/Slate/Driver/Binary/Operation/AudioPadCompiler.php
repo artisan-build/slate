@@ -7,6 +7,7 @@ namespace App\Slate\Driver\Binary\Operation;
 use App\Slate\Driver\Binary\BinaryExecutable;
 use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledFilterGraph;
+use App\Slate\Driver\Binary\CompiledFilterType;
 use App\Slate\Driver\Binary\CompiledLiteral;
 use App\Slate\Driver\Binary\CompilesOperation;
 use App\Slate\Driver\Binary\FfmpegLocator;
@@ -41,8 +42,7 @@ final readonly class AudioPadCompiler implements CompilesOperation
             CompiledArgument::option('-y'),
             CompiledArgument::option('-i'),
             CompiledArgument::existingLocalPath($operation->input),
-            CompiledArgument::option('-af'),
-            CompiledArgument::filterGraph($filter),
+            ...CompiledArgument::filter(CompiledFilterType::Audio, $filter),
             CompiledArgument::option('-c:a'),
             CompiledArgument::literal(CompiledLiteral::Libmp3lame),
             CompiledArgument::option('-b:a'),

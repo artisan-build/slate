@@ -13,8 +13,11 @@ use App\Slate\Driver\Binary\FilterGraphCompiler;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Recipe\Operation;
 use App\Slate\Recipe\Video\KenBurnsDirection;
+use App\Slate\Recipe\Video\KenBurnsEase;
 use App\Slate\Recipe\Video\KenBurnsMotion;
 use App\Slate\Recipe\Video\StillMotion;
+use App\Slate\Recipe\Video\VideoColor;
+use App\Slate\Recipe\Video\VideoFit;
 use App\Slate\Recipe\Video\VideoStillClip;
 use InvalidArgumentException;
 
@@ -40,11 +43,13 @@ final readonly class VideoStillClipCompiler implements CompilesOperation
         $workingHeight = $operation->height * $operation->supersample;
         $frames = max(1, (int) round($operation->durationSeconds * $operation->framesPerSecond));
         $zoom = $this->zoomExpression($operation->motion, $frames);
-        $filters = [
-            "scale={$workingWidth}:{$workingHeight}:force_original_aspect_ratio=decrease",
-            "pad={$workingWidth}:{$workingHeight}:(ow-iw)/2:(oh-ih)/2:color={$operation->padColor->value}",
-            "zoompan=z={$zoom}:x=iw/2-(iw/zoom/2):y=ih/2-(ih/zoom/2):d={$frames}:s={$workingWidth}x{$workingHeight}:fps={$operation->framesPerSecond}",
-        ];
+        $filters = match ($operation->fit) {
+            VideoFit::ContainPad => [
+                "scale={$workingWidth}:{$workingHeight}:force_original_aspect_ratio=decrease",
+                "pad={$workingWidth}:{$workingHeight}:(ow-iw)/2:(oh-ih)/2:color=".$this->color($operation->padColor),
+                "zoompan=z={$zoom}:x=iw/2-(iw/zoom/2):y=ih/2-(ih/zoom/2):d={$frames}:s={$workingWidth}x{$workingHeight}:fps={$operation->framesPerSecond}",
+            ],
+        };
 
         if ($operation->supersample === 2) {
             $filters[] = "scale={$operation->width}:{$operation->height}";
@@ -53,7 +58,7 @@ final readonly class VideoStillClipCompiler implements CompilesOperation
         if ($operation->fadeOut !== null) {
             $filters[] = 'fade=type=out:st='.$this->formatSeconds($operation->fadeOut->startSeconds)
                 .':d='.$this->formatSeconds($operation->fadeOut->durationSeconds)
-                .':color='.$operation->fadeOut->color->value;
+                .':color='.$this->color($operation->fadeOut->color);
         }
 
         $filterGraph = $this->filterGraphCompiler->compileH264Video($filters);
@@ -92,7 +97,9 @@ final readonly class VideoStillClipCompiler implements CompilesOperation
             return '1';
         }
 
-        $zoomRatio = $this->formatSeconds($motion->zoomPercent / 100);
+        $zoomRatio = match ($motion->ease) {
+            KenBurnsEase::Sine => $this->formatSeconds($motion->zoomPercent / 100),
+        };
 
         return match ($motion->direction) {
             KenBurnsDirection::In => "1+{$zoomRatio}*(1-cos(PI*on/{$frames}))/2",
@@ -103,5 +110,12 @@ final readonly class VideoStillClipCompiler implements CompilesOperation
     private function formatSeconds(float $seconds): string
     {
         return rtrim(rtrim(number_format($seconds, 6, '.', ''), '0'), '.') ?: '0';
+    }
+
+    private function color(VideoColor $color): string
+    {
+        return match ($color) {
+            VideoColor::Black => 'black',
+        };
     }
 }

@@ -115,9 +115,4 @@ final readonly class VideoConcat implements Operation
 
         return $duration;
     }
-
-    public function video(): SlateVideo
-    {
-        return SlateVideo::fromConcat($this);
-    }
 }

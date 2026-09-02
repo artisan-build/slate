@@ -26,7 +26,7 @@ test('compiles overlay and normalization onto one labelled complex graph', funct
             QualityTier::Delivery, AudioBitrate::Kbps192,
         );
         $operation = new OverlayImage(
-            $source->video(), $badge, $scratch->file('badged.mp4'), 20, 40,
+            fakeRenderedSlateVideo($source), $badge, $scratch->file('badged.mp4'), 20, 40,
             new OverlayFadeIn(1.0, 0.5), 1.0,
         );
 

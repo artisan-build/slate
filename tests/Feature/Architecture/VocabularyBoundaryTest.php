@@ -14,6 +14,7 @@ test('keeps documented encoder literals at their approved source locations', fun
         'libopenh264' => ['Slate/Driver/Binary/H264OutputContract.php'],
         'libsvtav1' => ['Services/FfmpegDiagnostics.php'],
         'libvpx-vp9' => ['Services/FfmpegDiagnostics.php'],
+        'mjpeg' => ['Slate/Driver/Binary/CompiledLiteral.php'],
     ]);
 });
 

@@ -35,8 +35,8 @@ test('computes xfade duration from probed six-decimal input values', function ()
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
         $operation = new VideoConcat(
             [
-                concatTestVideo($scratch, 'first', (float) '12.345678')->video(),
-                concatTestVideo($scratch, 'second', (float) '23.456789')->video(),
+                fakeRenderedSlateVideo(concatTestVideo($scratch, 'first', (float) '12.345678')),
+                fakeRenderedSlateVideo(concatTestVideo($scratch, 'second', (float) '23.456789')),
             ],
             VideoConcatMode::Xfade,
             VideoTransition::Fade,
@@ -47,14 +47,16 @@ test('computes xfade duration from probed six-decimal input values', function ()
             $scratch->file('joined.mp4'),
         );
 
+        $video = fakeRenderedSlateVideo($operation, 35.052467);
+
         expect($operation->outputDurationSeconds())->toBe(35.052467)
-            ->and($operation->video()->durationSeconds)->toBe(35.052467);
+            ->and($video->durationSeconds)->toBe(35.052467);
     });
 });
 
 test('rejects malformed concat lists and transition values', function (): void {
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
-        $video = concatTestVideo($scratch, 'first', 2.0)->video();
+        $video = fakeRenderedSlateVideo(concatTestVideo($scratch, 'first', 2.0));
         $output = $scratch->file('joined.mp4');
 
         expect(fn (): VideoConcat => new VideoConcat([], VideoConcatMode::Copy, null, 0.0, false, QualityTier::Delivery, 24, $output))

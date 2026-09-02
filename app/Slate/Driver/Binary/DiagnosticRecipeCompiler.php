@@ -61,8 +61,10 @@ final readonly class DiagnosticRecipeCompiler
             CompiledArgument::literal(CompiledLiteral::Lavfi),
             CompiledArgument::option('-i'),
             CompiledArgument::lavfiInput(LavfiInput::BlackDiagnosticFrame),
-            CompiledArgument::option('-vf'),
-            CompiledArgument::filterGraph(CompiledFilterGraph::fromCompiler(implode(',', $filters))),
+            ...CompiledArgument::filter(
+                CompiledFilterType::Video,
+                CompiledFilterGraph::fromCompiler(implode(',', $filters)),
+            ),
             CompiledArgument::option('-frames:v'),
             CompiledArgument::literal(CompiledLiteral::One),
             CompiledArgument::option('-f'),

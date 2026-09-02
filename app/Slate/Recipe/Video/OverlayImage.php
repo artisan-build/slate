@@ -39,9 +39,4 @@ final readonly class OverlayImage implements Operation
     {
         return OperationName::OverlayImage;
     }
-
-    public function video(): SlateVideo
-    {
-        return SlateVideo::fromOverlay($this);
-    }
 }
