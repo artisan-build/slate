@@ -21,7 +21,7 @@ final class DriverServiceProvider extends ServiceProvider
             Driver::class,
             fn (): Driver => new BinaryDriver((int) config('slate.driver.timeout_seconds')),
         );
-        $this->app->singleton(RecipeCompiler::class, function (): RecipeCompiler {
+        $this->app->singleton(function (): RecipeCompiler {
             $locator = FfmpegLocator::fromSystem();
 
             return new RecipeCompiler(
