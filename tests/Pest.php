@@ -142,6 +142,12 @@ function binaryAuthorityLocations(string $root): array
                 if ($text === 'CompiledRecipe' || str_ends_with($text, '\\CompiledRecipe')) {
                     $locations['compiled recipe reference'][] = $relativePath;
                 }
+
+                if (in_array($text, ['CompiledArgument', 'CompiledFilterGraph'], true)
+                    || str_ends_with($text, '\\CompiledArgument')
+                    || str_ends_with($text, '\\CompiledFilterGraph')) {
+                    $locations['compiled output reference'][] = $relativePath;
+                }
             }
 
             if (in_array($tokenType, [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE], true)
@@ -234,7 +240,7 @@ function processPrimitiveLocations(string $root): array
         }
 
         if (preg_match(
-            '/\bcall_user_func\s*\(\s*[\'\"](?:exec|passthru|pcntl_exec|pcntl_fork|popen|proc_open|shell_exec|system)[\'\"]\s*,/i',
+            '/\bcall_user_func\s*\(\s*[\'\"]\\\\?(?:exec|passthru|pcntl_exec|pcntl_fork|popen|proc_open|shell_exec|system)[\'\"]\s*,/i',
             $contents,
         ) === 1) {
             $locations['literal process callable'][] = $relativePath;
@@ -268,7 +274,7 @@ function ffmpegFilterFragmentLocations(string $root, array $exceptions = []): ar
 {
     return sourcePatternLocations(
         $root,
-        '/(?<=[\'",\n])(?:acrossfade|adelay|amovie|anullsrc|apad|ass|concat|drawtext|fade|format|metadata|movie|overlay|scale|sendcmd|subtitles|xfade|zoompan)\s*=/',
+        '/(?:(?<=[\'",])|(?<=\n)\h*)(?:acrossfade|adelay|amovie|anullsrc|apad|ass|concat|drawtext|fade|format|metadata|movie|overlay|scale|sendcmd|subtitles|xfade|zoompan)\s*=/',
         $exceptions,
         ['Slate/Driver/'],
     );

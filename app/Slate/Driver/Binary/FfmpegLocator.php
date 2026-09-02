@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Slate\Driver\Binary;
 
+use InvalidArgumentException;
 use RuntimeException;
 
 final readonly class FfmpegLocator
@@ -12,7 +13,11 @@ final readonly class FfmpegLocator
         private string $osFamily,
         private string $machine,
         private ?string $runtimePathOverride = null,
-    ) {}
+    ) {
+        if ($runtimePathOverride !== null && ! str_starts_with($runtimePathOverride, '/')) {
+            throw new InvalidArgumentException('The ffmpeg runtime path override must be absolute.');
+        }
+    }
 
     public static function fromSystem(): self
     {

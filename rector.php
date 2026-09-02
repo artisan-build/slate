@@ -27,6 +27,7 @@ return RectorConfig::configure()
         __DIR__.'/config/slate.php',
         __DIR__.'/config/cache.php',
         __DIR__.'/tests/Fixtures/Boundary/Processes/Deeply/Nested/LiteralCallable.php',
+        __DIR__.'/tests/Fixtures/Boundary/Processes/Deeply/Nested/QualifiedLiteralCallable.php',
     ])
     ->withPhpSets(php83: true)
     ->withSets([

@@ -39,8 +39,8 @@ test('keeps every legacy exception attached to a current filter violation', func
 });
 
 /**
- * Provisioning and diagnostics still name the binary, while the four benchmark files remain the exact
- * PR 7 exception. New binary authority above Slate/Driver changes this map and fails the test.
+ * Provisioning and diagnostics still name the binary, while FfmpegBenchmark remains the sole exact PR 7
+ * filter exception. New binary authority above Slate/Driver changes this map and fails the test.
  */
 test('keeps detectable binary references at approved class locations', function (): void {
     expect(binaryAuthorityLocations(base_path('app')))->toBe([
@@ -69,6 +69,10 @@ test('recursive binary scan catches locator hardcoded literal and compiled recip
             'Deeply/Nested/CompiledRecipeSmuggling.php',
             'Deeply/Nested/HardcodedBinary.php',
         ],
+        'compiled output reference' => [
+            'Deeply/Nested/CompiledArgumentSmuggling.php',
+            'Deeply/Nested/CompiledFilterGraphSmuggling.php',
+        ],
         'compiled recipe reference' => ['Deeply/Nested/CompiledRecipeSmuggling.php'],
         'locator or path accessor' => ['Deeply/Nested/TwoStepArguments.php'],
     ]);
@@ -92,6 +96,7 @@ test('recursive process scan catches every enumerated execution primitive', func
         ],
         'literal process callable' => [
             'Deeply/Nested/LiteralCallable.php',
+            'Deeply/Nested/QualifiedLiteralCallable.php',
         ],
         'process class reference' => [
             'Deeply/Nested/LaravelProcess.php',
@@ -120,6 +125,7 @@ test('recursive filter scan catches a nested rogue fragment', function (): void 
 
     expect(ffmpegFilterFragmentLocations($fixtureDirectory))->toBe([
         'Deeply/Nested/ConcatFilter.php',
+        'Deeply/Nested/IndentedHeredocFilter.php',
         'Deeply/Nested/MovieFilter.php',
         'Deeply/Nested/RogueFilter.php',
     ]);
