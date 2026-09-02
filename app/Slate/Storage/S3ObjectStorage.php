@@ -5,12 +5,18 @@ declare(strict_types=1);
 namespace App\Slate\Storage;
 
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use Throwable;
 
 final readonly class S3ObjectStorage implements ObjectStorage
 {
     public function __construct(private Filesystem $filesystem) {}
+
+    public static function fromConfiguredDisk(): self
+    {
+        return new self(Storage::disk('s3'));
+    }
 
     public function stageIn(ObjectKey $objectKey, ScratchPath $localPath): void
     {
