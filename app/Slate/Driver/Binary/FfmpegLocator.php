@@ -2,8 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Services;
+namespace App\Slate\Driver\Binary;
 
+use InvalidArgumentException;
 use RuntimeException;
 
 final readonly class FfmpegLocator
@@ -11,7 +12,12 @@ final readonly class FfmpegLocator
     public function __construct(
         private string $osFamily,
         private string $machine,
-    ) {}
+        private ?string $runtimePathOverride = null,
+    ) {
+        if ($runtimePathOverride !== null && ! str_starts_with($runtimePathOverride, '/')) {
+            throw new InvalidArgumentException('The ffmpeg runtime path override must be absolute.');
+        }
+    }
 
     public static function fromSystem(): self
     {
@@ -28,7 +34,7 @@ final readonly class FfmpegLocator
 
     public function runtimePath(): string
     {
-        return (string) config('slate.ffmpeg.runtime_path');
+        return $this->runtimePathOverride ?? (string) config('slate.ffmpeg.runtime_path');
     }
 
     public function installationPath(): string

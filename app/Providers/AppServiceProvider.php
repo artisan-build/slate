@@ -2,9 +2,8 @@
 
 namespace App\Providers;
 
-use App\Slate\Storage\ObjectStorage;
-use App\Slate\Storage\S3ObjectStorage;
-use Illuminate\Support\Facades\Storage;
+use App\Slate\Driver\Binary\BinaryDriver;
+use App\Slate\Driver\Driver;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -15,8 +14,8 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(
-            ObjectStorage::class,
-            fn (): ObjectStorage => new S3ObjectStorage(Storage::disk('s3')),
+            Driver::class,
+            fn (): Driver => new BinaryDriver((int) config('slate.driver.timeout_seconds')),
         );
     }
 

@@ -1,0 +1,3 @@
+<?php
+
+$filter = "movie={$callerPath}";

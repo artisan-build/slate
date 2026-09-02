@@ -1,6 +1,6 @@
 <?php
 
-use App\Services\FfmpegLocator;
+use App\Slate\Driver\Binary\FfmpegLocator;
 use Tests\TestCase;
 
 uses(TestCase::class);
@@ -33,4 +33,15 @@ test('keeps binaries inside the configured app runtime path', function (): void 
 
     expect($locator->ffmpegPath())->toBe('/var/www/html/runtime/ffmpeg/bin/ffmpeg')
         ->and($locator->ffprobePath())->toBe('/var/www/html/runtime/ffmpeg/bin/ffprobe');
+});
+
+test('accepts an absolute runtime override outside the application root', function (): void {
+    $locator = new FfmpegLocator('Linux', 'arm64', '/mounted/slate-runtime');
+
+    expect($locator->ffmpegPath())->toBe('/mounted/slate-runtime/ffmpeg/bin/ffmpeg');
+});
+
+test('rejects a relative runtime override', function (): void {
+    expect(fn (): FfmpegLocator => new FfmpegLocator('Linux', 'arm64', 'relative/runtime'))
+        ->toThrow(InvalidArgumentException::class);
 });

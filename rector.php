@@ -21,11 +21,16 @@ return RectorConfig::configure()
         __DIR__.'/app/Console/Commands/FfmpegDoctorCommand.php',
         __DIR__.'/app/Console/Commands/DispatchFfmpegBenchmarkCommand.php',
         __DIR__.'/app/Jobs',
-        __DIR__.'/app/Services/FfmpegLocator.php',
+        __DIR__.'/app/Slate/Driver/Binary/FfmpegLocator.php',
         __DIR__.'/app/Services/FfmpegDiagnostics.php',
         __DIR__.'/app/Services/FfmpegBenchmark.php',
         __DIR__.'/config/slate.php',
         __DIR__.'/config/cache.php',
+        __DIR__.'/tests/Fixtures/Boundary/Processes/Deeply/Nested/LiteralCallable.php',
+        __DIR__.'/tests/Fixtures/Boundary/Processes/Deeply/Nested/QualifiedLiteralCallable.php',
+        __DIR__.'/tests/Fixtures/Boundary/Processes/Deeply/Nested/DoubleQuotedLiteralCallable.php',
+        __DIR__.'/tests/Fixtures/Boundary/Processes/Deeply/Nested/HexLiteralCallable.php',
+        __DIR__.'/tests/Fixtures/Boundary/Processes/Deeply/Nested/OctalLiteralCallable.php',
     ])
     ->withPhpSets(php83: true)
     ->withSets([
