@@ -95,7 +95,10 @@ test('recursive process scan catches every enumerated execution primitive', func
             'Deeply/Nested/Backtick.php',
         ],
         'literal process callable' => [
+            'Deeply/Nested/DoubleQuotedLiteralCallable.php',
+            'Deeply/Nested/HexLiteralCallable.php',
             'Deeply/Nested/LiteralCallable.php',
+            'Deeply/Nested/OctalLiteralCallable.php',
             'Deeply/Nested/QualifiedLiteralCallable.php',
         ],
         'process class reference' => [

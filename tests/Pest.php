@@ -172,11 +172,12 @@ function binaryAuthorityLocations(string $root): array
  * Finds the enumerated process-execution primitives above the driver boundary.
  *
  * This token scan detects proc_open, exec, shell_exec, passthru, popen, system, pcntl_exec, pcntl_fork,
- * backticks, Symfony Process, Laravel's Process facade, and literal process callables passed to
- * call_user_func. Dynamically assembled function, class, or callable names remain undetectable. These
- * scans are defence in depth against careless code and copied patterns. The primary containment combines
- * Driver::run's CompiledRecipe type with source enforcement that confines recipe creation to compilers;
- * a rogue primitive is a separate invocation rather than argv slipping through the driver.
+ * backticks, Symfony Process, Laravel's Process facade, and constant-string process callables passed to
+ * call_user_func. Constant-string callees are evaluated and normalized before comparison, regardless of
+ * their PHP escape spelling. A callee assembled at runtime remains undetectable. These scans are defence
+ * in depth against careless code and copied patterns. The primary containment combines Driver::run's
+ * CompiledRecipe type with source enforcement that confines recipe creation to compilers; a rogue
+ * primitive is a separate invocation rather than argv slipping through the driver.
  *
  * @return array<string, list<string>>
  */
@@ -210,7 +211,9 @@ function processPrimitiveLocations(string $root): array
             throw new RuntimeException("Unable to scan source file: {$file->getPathname()}");
         }
 
-        foreach (token_get_all($contents) as $token) {
+        $tokens = token_get_all($contents);
+
+        foreach ($tokens as $index => $token) {
             if ($token === '`') {
                 $locations['backtick operator'][] = $relativePath;
 
@@ -237,13 +240,14 @@ function processPrimitiveLocations(string $root): array
             if (in_array($unqualifiedName, $processFunctions, true)) {
                 $locations['process function'][] = $relativePath;
             }
-        }
 
-        if (preg_match(
-            '/\bcall_user_func\s*\(\s*[\'\"]\\\\?(?:exec|passthru|pcntl_exec|pcntl_fork|popen|proc_open|shell_exec|system)[\'\"]\s*,/i',
-            $contents,
-        ) === 1) {
-            $locations['literal process callable'][] = $relativePath;
+            if ($unqualifiedName === 'call_user_func') {
+                $literalCallable = constantStringCallableAfter($tokens, $index);
+
+                if ($literalCallable !== null && in_array($literalCallable, $processFunctions, true)) {
+                    $locations['literal process callable'][] = $relativePath;
+                }
+            }
         }
     }
 
@@ -256,6 +260,42 @@ function processPrimitiveLocations(string $root): array
     }
 
     return $locations;
+}
+
+/**
+ * @param  list<array{int, string, int}|string>  $tokens
+ */
+function constantStringCallableAfter(array $tokens, int $functionIndex): ?string
+{
+    $foundOpeningParenthesis = false;
+
+    for ($index = $functionIndex + 1; $index < count($tokens); $index++) {
+        $token = $tokens[$index];
+
+        if (is_array($token) && in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
+            continue;
+        }
+
+        if (! $foundOpeningParenthesis) {
+            if ($token !== '(') {
+                return null;
+            }
+
+            $foundOpeningParenthesis = true;
+
+            continue;
+        }
+
+        if (! is_array($token) || $token[0] !== T_CONSTANT_ENCAPSED_STRING) {
+            return null;
+        }
+
+        $value = eval('return '.$token[1].';');
+
+        return is_string($value) ? strtolower(ltrim($value, '\\')) : null;
+    }
+
+    return null;
 }
 
 /**

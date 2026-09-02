@@ -28,6 +28,9 @@ return RectorConfig::configure()
         __DIR__.'/config/cache.php',
         __DIR__.'/tests/Fixtures/Boundary/Processes/Deeply/Nested/LiteralCallable.php',
         __DIR__.'/tests/Fixtures/Boundary/Processes/Deeply/Nested/QualifiedLiteralCallable.php',
+        __DIR__.'/tests/Fixtures/Boundary/Processes/Deeply/Nested/DoubleQuotedLiteralCallable.php',
+        __DIR__.'/tests/Fixtures/Boundary/Processes/Deeply/Nested/HexLiteralCallable.php',
+        __DIR__.'/tests/Fixtures/Boundary/Processes/Deeply/Nested/OctalLiteralCallable.php',
     ])
     ->withPhpSets(php83: true)
     ->withSets([
