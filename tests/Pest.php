@@ -475,7 +475,7 @@ function drawtextEmitterLocations(string $root): array
 }
 
 /**
- * Finds drawtext expression-option emitters so their provenance cannot spread to a caller-facing class.
+ * Finds expression-option emitters so their provenance cannot spread to a caller-facing class.
  *
  * @return array<string, array<string, int>>
  */
@@ -498,8 +498,7 @@ function drawtextExpressionEmitterLocations(string $root): array
             throw new RuntimeException("Unable to scan source file: {$file->getPathname()}");
         }
 
-        if (! str_contains($contents, 'drawtext')
-            || preg_match_all('/\b(alpha|enable|x|y)=/', $contents, $matches) < 1) {
+        if (preg_match_all('/\b(alpha|enable|x|y)=/', $contents, $matches) < 1) {
             continue;
         }
 

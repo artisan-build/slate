@@ -158,13 +158,23 @@ test('recursive compiler emission scan catches a second drawtext text emitter', 
     ]);
 });
 
-test('keeps every drawtext expression emitter in the typed compiler output class', function (): void {
+test('keeps every expression emitter at its approved compiler location', function (): void {
     expect(drawtextExpressionEmitterLocations(base_path('app/Slate/Driver')))->toBe([
         'Binary/CompiledDrawtextOptions.php' => [
             'alpha' => 1,
             'enable' => 1,
             'x' => 2,
             'y' => 2,
+        ],
+        'Binary/Operation/OverlayImageCompiler.php' => [
+            'alpha' => 1,
+            'enable' => 1,
+            'x' => 1,
+            'y' => 1,
+        ],
+        'Binary/Operation/VideoStillClipCompiler.php' => [
+            'x' => 1,
+            'y' => 1,
         ],
     ]);
 });
@@ -174,6 +184,12 @@ test('recursive expression scan catches caller strings in every evaluated drawte
 
     expect(drawtextExpressionEmitterLocations($fixtureDirectory))->toBe([
         'Deeply/Nested/RogueExpressionEmitter.php' => [
+            'alpha' => 1,
+            'enable' => 1,
+            'x' => 1,
+            'y' => 1,
+        ],
+        'Deeply/Nested/RogueUngatedExpressionEmitter.php' => [
             'alpha' => 1,
             'enable' => 1,
             'x' => 1,
