@@ -2,6 +2,9 @@
 
 namespace App\Providers;
 
+use App\Slate\Storage\ObjectStorage;
+use App\Slate\Storage\S3ObjectStorage;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -11,7 +14,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(
+            ObjectStorage::class,
+            fn (): ObjectStorage => new S3ObjectStorage(Storage::disk('s3')),
+        );
     }
 
     /**
