@@ -21,6 +21,6 @@ final class DriverServiceProvider extends ServiceProvider
         $this->app->singleton(fn (): RecipeCompiler => RecipeCompiler::fromSystem());
         $this->app->when(FfmpegBenchmark::class)
             ->needs(Driver::class)
-            ->give(fn (): Driver => new BinaryDriver((int) config('slate.benchmark.operation_timeout_seconds')));
+            ->give(fn (): Driver => new BinaryDriver((int) config('slate.benchmark.instrument_operation_timeout_seconds')));
     }
 }

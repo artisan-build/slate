@@ -51,6 +51,14 @@ class FfmpegBenchmark
 
     private const float TransitionDurationSeconds = 0.75;
 
+    private const int PublishedTargetDurationSeconds = 540;
+
+    private const int PublishedSegmentDurationSeconds = 40;
+
+    private const int PublishedOutputDurationMs = 550250;
+
+    private const int PublishedOutputFrameCount = 13206;
+
     public function __construct(
         private readonly JobScratch $jobScratch,
         private readonly RecipeCompiler $compiler,
@@ -74,15 +82,15 @@ class FfmpegBenchmark
             $targetDurationSeconds,
             $segmentDurationSeconds,
         ): array {
-            $assetStartedAtMs = $this->milliseconds();
+            $assetStartedAtMs = $this->monotonicMilliseconds();
             $illustration = $scratch->file('illustration.ppm');
             $badge = $scratch->file('badge.ppm');
             $font = $scratch->file('caption-font.ttf');
             $this->writeIllustration($illustration);
             $this->writeBadge($badge);
             $this->stageFont($font);
-            $assetPreparationMs = $this->milliseconds() - $assetStartedAtMs;
-            $startedAtMs = $this->milliseconds();
+            $assetPreparationMs = $this->monotonicMilliseconds() - $assetStartedAtMs;
+            $startedAtMs = $this->monotonicMilliseconds();
             $measurements = [];
 
             $audio = $scratch->file('segment.mp3');
@@ -94,7 +102,7 @@ class FfmpegBenchmark
                 AudioFormat::Mp3,
                 AudioBitrate::Kbps192,
             );
-            $audioStartedAtMs = $this->milliseconds();
+            $audioStartedAtMs = $this->monotonicMilliseconds();
             $audioResult = $this->driver->run($this->compiler->compile($audioOperation));
 
             if ($audioResult->failed()) {
@@ -104,7 +112,7 @@ class FfmpegBenchmark
             $measurements[] = $this->measurement(
                 $audioOperation,
                 (float) $segmentDurationSeconds,
-                $this->milliseconds() - $audioStartedAtMs,
+                $this->monotonicMilliseconds() - $audioStartedAtMs,
                 $audio,
             );
 
@@ -125,7 +133,7 @@ class FfmpegBenchmark
             ));
             $measurements[] = $stillMeasurement;
             $words = $this->timedWords((float) $segmentDurationSeconds);
-            [$captionedVideo, $captionMeasurement] = $this->renderVideo(new TimedWords(
+            $captionOperation = new TimedWords(
                 $stillVideo,
                 $font,
                 $scratch->file('captioned.mp4'),
@@ -136,7 +144,21 @@ class FfmpegBenchmark
                 CaptionEntryEase::OutBack,
                 CaptionExitEase::InOutQuad,
                 new CaptionDim(0.6, 0.07),
-            ));
+            );
+            $compiledDrawtextCount = $this->outputVerifier->compiledDrawtextCount(
+                $captionOperation,
+                $this->compiler,
+            );
+
+            if ($compiledDrawtextCount !== count($words)) {
+                throw new RuntimeException(sprintf(
+                    'Benchmark caption compiler emitted %d drawtext filters for %d timed words.',
+                    $compiledDrawtextCount,
+                    count($words),
+                ));
+            }
+
+            [$captionedVideo, $captionMeasurement] = $this->renderVideo($captionOperation);
             $measurements[] = $captionMeasurement;
             $firstWord = $words[0];
             $baselineLuma = $this->outputVerifier->captionRegionLuma(
@@ -185,8 +207,12 @@ class FfmpegBenchmark
                 $scratch->file('benchmark.mp4'),
             ));
             $measurements[] = $concatMeasurement;
-            $output = $this->assertFinalOutput($finalVideo);
-            $finishedAtMs = $this->milliseconds();
+            $output = $this->assertFinalOutput(
+                $finalVideo,
+                $targetDurationSeconds,
+                $segmentDurationSeconds,
+            );
+            $finishedAtMs = $this->monotonicMilliseconds();
             $summary = self::summarizeMeasurements(
                 $measurements,
                 $output['duration_ms'],
@@ -209,6 +235,8 @@ class FfmpegBenchmark
                     'caption_word_count' => count($words),
                     'intermediate_quality_tier' => QualityTier::Intermediate->value,
                     'final_quality_tier' => QualityTier::Delivery->value,
+                    'production_operation_timeout_seconds' => (int) config('slate.driver.timeout_seconds'),
+                    'instrument_operation_timeout_seconds' => (int) config('slate.benchmark.instrument_operation_timeout_seconds'),
                 ],
                 'asset_preparation_ms' => $assetPreparationMs,
                 'measurements' => $measurements,
@@ -217,6 +245,7 @@ class FfmpegBenchmark
                     'baseline_region_luma' => $baselineLuma,
                     'active_region_luma' => $activeLuma,
                     'luma_delta' => round($activeLuma - $baselineLuma, 4),
+                    'compiled_drawtext_count' => $compiledDrawtextCount,
                     'pixels_verified' => true,
                 ],
                 'summary' => $summary,
@@ -227,13 +256,14 @@ class FfmpegBenchmark
 
     /**
      * @param  list<array{operation: string, media_duration_ms: int, processing_duration_ms: int, output_size_bytes: int}>  $measurements
-     * @return array{operation_media_ms: int, operation_processing_ms: int, operation_realtime_factor: float, segment_media_ms: int, segment_processing_ms: int, segment_realtime_factor: float, caption_media_ms: int, caption_processing_ms: int, caption_realtime_factor: float, concat_media_ms: int, concat_processing_ms: int, concat_realtime_factor: float, output_duration_ms: int, total_wall_ms: int, end_to_end_realtime_factor: float, peak_operation: string, peak_operation_ms: int, visibility_timeout_ms: int, visibility_headroom_ms: int}
+     * @return array{operation_media_ms: int, operation_processing_ms: int, operation_realtime_factor: float, segment_media_ms: int, segment_processing_ms: int, segment_realtime_factor: float, caption_media_ms: int, caption_processing_ms: int, caption_realtime_factor: float, concat_media_ms: int, concat_processing_ms: int, concat_realtime_factor: float, output_duration_ms: int, total_wall_ms: int, end_to_end_realtime_factor: float, peak_operation: string, peak_operation_ms: int, driver_timeout_ms: int, driver_headroom_ms: int, visibility_timeout_ms: int, visibility_headroom_ms: int}
      */
     public static function summarizeMeasurements(
         array $measurements,
         int $outputDurationMs,
         int $totalWallMs,
         int $visibilityTimeoutSeconds,
+        ?int $driverTimeoutSeconds = null,
     ): array {
         $operationMediaMs = array_sum(array_column($measurements, 'media_duration_ms'));
         $operationProcessingMs = array_sum(array_column($measurements, 'processing_duration_ms'));
@@ -268,6 +298,7 @@ class FfmpegBenchmark
         }
 
         $visibilityTimeoutMs = $visibilityTimeoutSeconds * 1000;
+        $driverTimeoutMs = ($driverTimeoutSeconds ?? (int) config('slate.driver.timeout_seconds')) * 1000;
 
         return [
             'operation_media_ms' => $operationMediaMs,
@@ -287,6 +318,8 @@ class FfmpegBenchmark
             'end_to_end_realtime_factor' => round($outputDurationMs / max(1, $totalWallMs), 3),
             'peak_operation' => $peak['operation'],
             'peak_operation_ms' => $peak['processing_duration_ms'],
+            'driver_timeout_ms' => $driverTimeoutMs,
+            'driver_headroom_ms' => $driverTimeoutMs - $peak['processing_duration_ms'],
             'visibility_timeout_ms' => $visibilityTimeoutMs,
             'visibility_headroom_ms' => $visibilityTimeoutMs - $peak['processing_duration_ms'],
         ];
@@ -320,7 +353,7 @@ class FfmpegBenchmark
      */
     private function renderVideo(VideoStillClip|VideoConcat|OverlayImage|TimedWords $operation): array
     {
-        $startedAtMs = $this->milliseconds();
+        $startedAtMs = $this->monotonicMilliseconds();
         $video = SlateVideo::render($operation, $this->compiler, $this->driver);
 
         return [
@@ -328,7 +361,7 @@ class FfmpegBenchmark
             $this->measurement(
                 $operation,
                 $video->durationSeconds,
-                $this->milliseconds() - $startedAtMs,
+                $this->monotonicMilliseconds() - $startedAtMs,
                 $video->path,
             ),
         ];
@@ -398,10 +431,13 @@ class FfmpegBenchmark
     }
 
     /**
-     * @return array{duration_ms: int, frame_count: int, expected_frame_count: int, width: int, height: int, frames_per_second: int, output_size_bytes: int}
+     * @return array{duration_ms: int, frame_count: int, expected_frame_count: int, published_shape_verified: bool, width: int, height: int, frames_per_second: int, output_size_bytes: int}
      */
-    private function assertFinalOutput(SlateVideo $video): array
-    {
+    private function assertFinalOutput(
+        SlateVideo $video,
+        int $targetDurationSeconds,
+        int $segmentDurationSeconds,
+    ): array {
         $result = $this->driver->run($this->compiler->compile(new Probe($video->path)));
 
         if ($result->failed()) {
@@ -435,6 +471,7 @@ class FfmpegBenchmark
             ? (int) $videoStream['nb_frames']
             : null;
         $expectedFrameCount = (int) round($video->durationSeconds * $video->framesPerSecond);
+        $durationMs = (int) round($video->durationSeconds * 1000);
 
         if ($frameCount === null || abs($frameCount - $expectedFrameCount) > 1) {
             throw new RuntimeException(sprintf(
@@ -444,10 +481,26 @@ class FfmpegBenchmark
             ));
         }
 
+        $publishedWorkload = $targetDurationSeconds === self::PublishedTargetDurationSeconds
+            && $segmentDurationSeconds === self::PublishedSegmentDurationSeconds;
+
+        if ($publishedWorkload
+            && ($durationMs !== self::PublishedOutputDurationMs
+                || $frameCount !== self::PublishedOutputFrameCount)) {
+            throw new RuntimeException(sprintf(
+                'Benchmark default output must be exactly %dms and %d frames; probed %dms and %d frames.',
+                self::PublishedOutputDurationMs,
+                self::PublishedOutputFrameCount,
+                $durationMs,
+                $frameCount,
+            ));
+        }
+
         return [
-            'duration_ms' => (int) round($video->durationSeconds * 1000),
+            'duration_ms' => $durationMs,
             'frame_count' => $frameCount,
             'expected_frame_count' => $expectedFrameCount,
+            'published_shape_verified' => $publishedWorkload,
             'width' => $video->width,
             'height' => $video->height,
             'frames_per_second' => $video->framesPerSecond,
@@ -546,8 +599,8 @@ class FfmpegBenchmark
         return is_string($value) ? trim($value) : 'unavailable';
     }
 
-    private function milliseconds(): int
+    private function monotonicMilliseconds(): int
     {
-        return (int) round(microtime(true) * 1000);
+        return intdiv((int) hrtime(true), 1_000_000);
     }
 }

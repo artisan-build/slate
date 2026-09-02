@@ -7,6 +7,7 @@ namespace App\Slate\Driver\Binary;
 use App\Services\FfmpegDiagnostics;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Driver\Driver;
+use App\Slate\Recipe\Caption\TimedWords;
 use App\Slate\Storage\ScratchPath;
 use RuntimeException;
 
@@ -16,6 +17,14 @@ final readonly class BenchmarkOutputVerifier
         private Driver $driver,
         private FfmpegDiagnostics $diagnostics,
     ) {}
+
+    public function compiledDrawtextCount(TimedWords $operation, RecipeCompiler $compiler): int
+    {
+        return array_sum(array_map(
+            static fn (string $argument): int => substr_count($argument, 'drawtext='),
+            $compiler->compile($operation)->command(),
+        ));
+    }
 
     public function captionRegionLuma(ScratchPath $video, float $seconds): float
     {

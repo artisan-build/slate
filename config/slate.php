@@ -19,7 +19,8 @@ return [
         'duration_seconds' => 540,
         'segment_seconds' => 40,
         'visibility_timeout_seconds' => 180,
-        'operation_timeout_seconds' => 600,
+        // The instrument must outlive production's kill point to measure the uncensored operation.
+        'instrument_operation_timeout_seconds' => 600,
         'font_path' => resource_path('fonts/NotoSans[wdth,wght].ttf'),
     ],
     'driver' => [
