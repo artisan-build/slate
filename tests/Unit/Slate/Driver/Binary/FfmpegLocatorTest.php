@@ -1,6 +1,6 @@
 <?php
 
-use App\Services\FfmpegLocator;
+use App\Slate\Driver\Binary\FfmpegLocator;
 use Tests\TestCase;
 
 uses(TestCase::class);

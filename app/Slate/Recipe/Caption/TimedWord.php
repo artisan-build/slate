@@ -29,7 +29,7 @@ final readonly class TimedWord
         float $clearSeconds,
         float $exitDurationSeconds,
     ): self {
-        if (trim($text) === '' || preg_match('/[\x00-\x1F\x7F]/', $text) === 1) {
+        if (trim($text) === '' || preg_match('/[\x00-\x1F\x7F]/u', $text) !== 0) {
             throw new InvalidArgumentException('Timed word text must be non-empty and contain no control characters.');
         }
 

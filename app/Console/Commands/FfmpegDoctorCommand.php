@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Services\FfmpegDiagnostics;
-use App\Services\FfmpegLocator;
 use App\Slate\Driver\Binary\BinaryDriver;
 use App\Slate\Driver\Binary\DiagnosticRecipeCompiler;
+use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\Binary\FilterGraphCompiler;
 use App\Slate\Driver\DriverResult;
 use Illuminate\Console\Attributes\Description;

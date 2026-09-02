@@ -1,3 +1,7 @@
 {
-    "preset": "laravel"
+    "preset": "laravel",
+    "notPath": [
+        "tests/Fixtures/Boundary/Arguments/Deeply/Nested/CompiledRecipeSmuggling.php",
+        "tests/Fixtures/Boundary/Storage/Deeply/Nested/RogueStorageFullyQualifiedClient.php"
+    ]
 }

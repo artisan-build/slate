@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Slate\Driver\Binary;
 
+use InvalidArgumentException;
+
 final class FilterGraphCompiler
 {
     /**
@@ -31,7 +33,10 @@ final class FilterGraphCompiler
 
     public function escapeOptionValue(string $value): string
     {
-        $value = str_replace(["\r\n", "\r", "\n"], '\\n', $value);
+        if (str_contains($value, "\r") || str_contains($value, "\n")) {
+            throw new InvalidArgumentException('Drawtext option values cannot contain line breaks.');
+        }
+
         $value = str_replace(['\\', "'", ':'], ['\\\\', "\\'", '\\:'], $value);
 
         return str_replace(

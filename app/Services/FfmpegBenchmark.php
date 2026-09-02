@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\Binary\H264OutputContract;
 use Illuminate\Support\Facades\Process;
 use JsonException;

@@ -1,6 +1,6 @@
 <?php
 
-use App\Services\FfmpegLocator;
+use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\Binary\FilterGraphCompiler;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
@@ -29,7 +29,12 @@ test('renders an apostrophe identically to a known-good textfile reference', fun
     $generatedFilterPath = $directory.'/generated.filter';
     $referenceFilterPath = $directory.'/reference.filter';
     $plainFilterPath = $directory.'/plain.filter';
+    $expressionTextPath = $directory.'/expression.txt';
+    $generatedExpressionFilterPath = $directory.'/generated-expression.filter';
+    $referenceExpressionFilterPath = $directory.'/reference-expression.filter';
+    $expandedExpressionFilterPath = $directory.'/expanded-expression.filter';
     $options = ':expansion=none:fontcolor=white:fontsize=48:x=20:y=60';
+    $expandedOptions = ':fontcolor=white:fontsize=48:x=20:y=60';
 
     copy($locator->fontPath(), $fontPath);
     file_put_contents($textPath, "it's");
@@ -44,6 +49,19 @@ test('renders an apostrophe identically to a known-good textfile reference', fun
     file_put_contents(
         $plainFilterPath,
         "drawtext=fontfile={$fontPath}:text=its{$options}",
+    );
+    file_put_contents($expressionTextPath, '%{pts}');
+    file_put_contents(
+        $generatedExpressionFilterPath,
+        (new FilterGraphCompiler)->compileDrawtext($fontPath, '%{pts}'),
+    );
+    file_put_contents(
+        $referenceExpressionFilterPath,
+        "drawtext=fontfile={$fontPath}:textfile={$expressionTextPath}{$options}",
+    );
+    file_put_contents(
+        $expandedExpressionFilterPath,
+        "drawtext=fontfile={$fontPath}:text=%{pts}{$expandedOptions}",
     );
 
     $render = static function (string $filterPath) use ($locator): string {
@@ -77,6 +95,13 @@ test('renders an apostrophe identically to a known-good textfile reference', fun
 
         expect($referenceHash)->not->toBe($plainHash)
             ->and($generatedHash)->toBe($referenceHash);
+
+        $generatedExpressionHash = $render($generatedExpressionFilterPath);
+        $referenceExpressionHash = $render($referenceExpressionFilterPath);
+        $expandedExpressionHash = $render($expandedExpressionFilterPath);
+
+        expect($referenceExpressionHash)->not->toBe($expandedExpressionHash)
+            ->and($generatedExpressionHash)->toBe($referenceExpressionHash);
     } finally {
         File::deleteDirectory($directory);
     }

@@ -1,0 +1,3 @@
+<?php
+
+$filter = "concat={$callerPath}";

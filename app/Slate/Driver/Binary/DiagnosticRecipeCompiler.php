@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Slate\Driver\Binary;
 
-use App\Services\FfmpegLocator;
 use App\Slate\Driver\CompiledRecipe;
 
 final readonly class DiagnosticRecipeCompiler

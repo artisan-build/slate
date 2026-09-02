@@ -90,31 +90,87 @@ function legacyFfmpegBoundaryExceptions(): array
 }
 
 /**
- * Finds detectable ffmpeg command construction above the driver boundary.
+ * Finds binary authority above the driver boundary without depending on process-call shape.
  *
- * This source-text scan catches array commands whose first expression resolves an ffmpeg/ffprobe path,
- * plus direct CompiledRecipe construction. It cannot detect aliases, runtime method names, or commands
- * assembled indirectly; review and the typed public API cover that residue.
+ * PHP has no namespace-private visibility, so this token scan enforces placement: it finds any
+ * FfmpegLocator/path-accessor or CompiledRecipe reference and any string literal containing `ffmpeg`
+ * or `ffprobe`. It ignores comments, but cannot detect names assembled from split strings at runtime.
+ * Existing provisioning, diagnostics, and PR 7 benchmark residue are held to an exact location map.
  *
- * @param  list<string>  $exceptions
- * @return list<string>
+ * @return array<string, list<string>>
  */
-function ffmpegArgumentLocations(string $root, array $exceptions = []): array
+function binaryAuthorityLocations(string $root): array
 {
-    return sourcePatternLocations(
+    $locations = [];
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
         $root,
-        '/\b(?:run|start)\s*\(\s*\[\s*[^\r\n]*(?:ffmpegPath|ffprobePath)\s*\(|new\s+CompiledRecipe\s*\(/',
-        $exceptions,
-        ['Slate/Driver/'],
-    );
+        FilesystemIterator::SKIP_DOTS,
+    ));
+
+    foreach ($iterator as $file) {
+        if (! $file->isFile() || $file->getExtension() !== 'php') {
+            continue;
+        }
+
+        $relativePath = str_replace(
+            DIRECTORY_SEPARATOR,
+            '/',
+            substr($file->getPathname(), strlen($root) + 1),
+        );
+
+        if (str_starts_with($relativePath, 'Slate/Driver/')) {
+            continue;
+        }
+
+        $contents = file_get_contents($file->getPathname());
+
+        if (! is_string($contents)) {
+            throw new RuntimeException("Unable to scan source file: {$file->getPathname()}");
+        }
+
+        foreach (token_get_all($contents) as $token) {
+            if (! is_array($token)) {
+                continue;
+            }
+
+            [$tokenType, $text] = $token;
+
+            if (in_array($tokenType, [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED], true)) {
+                if (in_array($text, ['FfmpegLocator', 'ffmpegPath', 'ffprobePath'], true)
+                    || str_ends_with($text, '\\FfmpegLocator')) {
+                    $locations['locator or path accessor'][] = $relativePath;
+                }
+
+                if ($text === 'CompiledRecipe' || str_ends_with($text, '\\CompiledRecipe')) {
+                    $locations['compiled recipe reference'][] = $relativePath;
+                }
+            }
+
+            if (in_array($tokenType, [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE], true)
+                && preg_match('/ffmpeg|ffprobe/i', $text) === 1) {
+                $locations['binary string literal'][] = $relativePath;
+            }
+        }
+    }
+
+    ksort($locations);
+
+    foreach ($locations as $kind => $paths) {
+        $paths = array_values(array_unique($paths));
+        sort($paths);
+        $locations[$kind] = $paths;
+    }
+
+    return $locations;
 }
 
 /**
  * Finds known v1 ffmpeg filter fragments above the driver boundary.
  *
- * This source-text scan recognizes assignments for Slate's documented v1 filter vocabulary. It cannot
- * detect unknown filter names or fragments assembled from split strings at runtime; typed operations,
- * compiler review, and the argv scan remain necessary alongside it.
+ * This source-text scan recognizes assignments for Slate's documented v1 filter vocabulary, including
+ * the `movie=` and `concat=` protocol-bearing disclosure vectors. An unknown filter name or a fragment
+ * assembled from split strings is not detectable here. The real containment is that Driver::run accepts
+ * only a CompiledRecipe and the binary-authority scan confines recipe construction to the compiler.
  *
  * @param  list<string>  $exceptions
  * @return list<string>
@@ -123,18 +179,32 @@ function ffmpegFilterFragmentLocations(string $root, array $exceptions = []): ar
 {
     return sourcePatternLocations(
         $root,
-        '/(?<=[\'",])(?:acrossfade|adelay|anullsrc|apad|drawtext|fade|format|metadata|overlay|scale|xfade|zoompan)\s*=/',
+        '/(?<=[\'",])(?:acrossfade|adelay|anullsrc|apad|concat|drawtext|fade|format|metadata|movie|overlay|scale|xfade|zoompan)\s*=/',
         $exceptions,
         ['Slate/Driver/'],
     );
 }
 
 /**
+ * Finds drawtext `text=` emitters inside the compiler boundary.
+ *
+ * The caller-layer filter scan deliberately excludes Slate/Driver, so this exact-location scan ensures
+ * a second compiler emitter cannot omit the escaping and `expansion=none` contract unnoticed. It is a
+ * source-text scan and cannot detect an emitter assembled from split strings at runtime.
+ *
+ * @return list<string>
+ */
+function drawtextEmitterLocations(string $root): array
+{
+    return sourcePatternLocations($root, '/[\'"].*?text\s*=/');
+}
+
+/**
  * Finds direct S3 client, disk, or object-URL construction above Slate's storage boundary.
  *
- * This source-text scan recognizes the AWS S3 client, S3ObjectStorage construction, and Laravel Storage
- * facade disk/build/URL calls. It cannot detect aliased classes or dynamic method names; the storage
- * interface and code review cover that residue.
+ * This source-text scan recognizes fully qualified and imported AWS S3 clients, direct or configured
+ * S3ObjectStorage construction, and Laravel Storage facade disk/build/drive/cloud/URL calls. It cannot
+ * detect aliased classes or dynamic method names; the storage interface and code review cover that residue.
  *
  * @return list<string>
  */
@@ -142,7 +212,7 @@ function storageBoundaryLocations(string $root): array
 {
     return sourcePatternLocations(
         $root,
-        '/(?:new\s+(?:\\?Aws\\S3\\S3Client|S3Client|S3ObjectStorage)\s*\(|Storage::(?:build|disk|temporaryUrl|url)\s*\()/',
+        '/(?:new\s+(?:\\\\?Aws\\\\S3\\\\S3Client|S3Client|S3ObjectStorage)\s*\(|S3ObjectStorage::fromConfiguredDisk\s*\(|Storage::(?:build|cloud|disk|drive|temporaryUrl|url)\s*\()/',
         excludedPrefixes: ['Slate/Storage/'],
     );
 }

@@ -19,9 +19,17 @@ final readonly class CompiledRecipe
             throw new InvalidArgumentException('A compiled recipe command cannot be empty.');
         }
 
+        if (! in_array(basename($command[0]), ['ffmpeg', 'ffprobe'], true)) {
+            throw new InvalidArgumentException('A compiled recipe must execute the pinned ffmpeg or ffprobe binary.');
+        }
+
         foreach ($command as $argument) {
             if ($argument === '' || str_contains($argument, "\0")) {
                 throw new InvalidArgumentException('Compiled recipe arguments must be non-empty strings without null bytes.');
+            }
+
+            if (preg_match('/^(?:(?:async|cache|concat|crypto|data|file|https?|pipe):|subfile(?:,|:))/i', $argument) === 1) {
+                throw new InvalidArgumentException('Compiled recipe arguments cannot use protocol handlers.');
             }
         }
 
