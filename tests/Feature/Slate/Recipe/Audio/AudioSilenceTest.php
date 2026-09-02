@@ -49,5 +49,23 @@ test('rejects silence durations the compiler cannot preserve', function (float $
     });
 })->with([
     'below microsecond precision' => 0.0000001,
+    'half-microsecond boundary' => 0.0000005,
     'largest finite float' => PHP_FLOAT_MAX,
 ]);
+
+test('accepts caller arithmetic within microsecond precision', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $duration = 0.1 + 0.2;
+
+        $operation = new AudioSilence(
+            $scratch->file('silence.mp3'),
+            $duration,
+            AudioSampleRate::Hz44100,
+            AudioChannelLayout::Mono,
+            AudioFormat::Mp3,
+            AudioBitrate::Kbps128,
+        );
+
+        expect($operation->durationSeconds)->toBe($duration);
+    });
+});

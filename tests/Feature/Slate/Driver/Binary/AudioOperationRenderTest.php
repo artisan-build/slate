@@ -143,6 +143,7 @@ test('renders reencode and copy concat modes through the pinned ffmpeg binary', 
         $copyDuration = probeRenderedDuration($copied, $compiler, $driver);
 
         expect(probeRenderedDuration($reencoded, $compiler, $driver))->toBe('2.500000')
-            ->and((float) $copyDuration)->toBeGreaterThan(0.0);
+            ->and((float) $copyDuration)->toBeGreaterThan(1.9)
+            ->and((float) $copyDuration)->toBeLessThan(2.2);
     });
 })->group('ffmpeg-render');

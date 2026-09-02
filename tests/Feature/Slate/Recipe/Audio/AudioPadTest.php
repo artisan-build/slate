@@ -41,7 +41,9 @@ test('rejects padding durations the compiler cannot preserve', function (float $
     });
 })->with([
     'lead below millisecond precision' => [0.0000001, 0.0],
+    'lead half-millisecond boundary' => [0.0005, 0.0],
     'lead largest finite float' => [PHP_FLOAT_MAX, 0.0],
     'trail below microsecond precision' => [0.0, 0.0000001],
+    'trail half-microsecond boundary' => [0.0, 0.0000005],
     'trail largest finite float' => [0.0, PHP_FLOAT_MAX],
 ]);

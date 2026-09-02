@@ -56,8 +56,13 @@ test('rejects positive durations outside compiler precision and range', function
         ->toThrow(InvalidArgumentException::class);
 })->with([
     'below microsecond precision' => 0.0000001,
+    'half-microsecond boundary' => 0.0000005,
     'largest finite float' => PHP_FLOAT_MAX,
 ]);
+
+test('accepts caller arithmetic within microsecond precision', function (): void {
+    expect(CompiledArgument::seconds(0.1 + 0.2)->value())->toBe('0.3');
+});
 
 test('rejects URLs embedded in filtergraphs', function (string $filterGraph): void {
     expect(fn (): CompiledFilterGraph => CompiledFilterGraph::fromCompiler($filterGraph))

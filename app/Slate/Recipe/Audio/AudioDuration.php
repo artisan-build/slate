@@ -11,21 +11,25 @@ final class AudioDuration
 {
     public const float MaxSeconds = 86400.0;
 
+    private const float Microsecond = 0.000001;
+
+    private const float Millisecond = 0.001;
+
     public static function isPositiveMicrosecondDuration(float $seconds): bool
     {
-        return $seconds > 0
+        return $seconds >= self::Microsecond
             && self::isMicrosecondDuration($seconds);
     }
 
     public static function isNonNegativeMicrosecondDuration(float $seconds): bool
     {
-        return $seconds >= 0
+        return ($seconds === 0.0 || $seconds >= self::Microsecond)
             && self::isMicrosecondDuration($seconds);
     }
 
     public static function isNonNegativeMillisecondDuration(float $seconds): bool
     {
-        return $seconds >= 0
+        return ($seconds === 0.0 || $seconds >= self::Millisecond)
             && self::isRepresentable($seconds, 3);
     }
 
@@ -40,6 +44,9 @@ final class AudioDuration
             return false;
         }
 
-        return (float) number_format($seconds, $precision, '.', '') === $seconds;
+        $rounded = (float) number_format($seconds, $precision, '.', '');
+        $halfQuantum = 0.5 * 10 ** -$precision;
+
+        return abs($rounded - $seconds) < $halfQuantum;
     }
 }

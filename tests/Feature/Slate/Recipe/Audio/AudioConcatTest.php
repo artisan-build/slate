@@ -34,6 +34,8 @@ test('accepts inline silence gaps only within the customer range', function (): 
 });
 
 test('rejects inline silence below compiler precision', function (): void {
-    expect(fn (): AudioConcatSilence => new AudioConcatSilence(0.0000001))
-        ->toThrow(InvalidArgumentException::class);
+    foreach ([0.0000001, 0.0000005] as $duration) {
+        expect(fn (): AudioConcatSilence => new AudioConcatSilence($duration))
+            ->toThrow(InvalidArgumentException::class);
+    }
 });
