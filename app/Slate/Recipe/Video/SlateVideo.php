@@ -8,6 +8,7 @@ use App\Slate\Driver\Binary\H264OutputContract;
 use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\Driver;
 use App\Slate\Recipe\Audio\AudioDuration;
+use App\Slate\Recipe\Caption\TimedWords;
 use App\Slate\Recipe\Probe;
 use App\Slate\Recipe\QualityTier;
 use App\Slate\Storage\ScratchPath;
@@ -31,7 +32,7 @@ final readonly class SlateVideo
     ) {}
 
     public static function render(
-        VideoStillClip|VideoConcat|OverlayImage $operation,
+        VideoStillClip|VideoConcat|OverlayImage|TimedWords $operation,
         RecipeCompiler $compiler,
         Driver $driver,
     ): self {
@@ -82,6 +83,13 @@ final readonly class SlateVideo
                 $operation->qualityTier,
             ],
             $operation instanceof OverlayImage => [
+                $operation->input->width,
+                $operation->input->height,
+                $operation->input->framesPerSecond,
+                $operation->input->durationSeconds,
+                $operation->input->qualityTier,
+            ],
+            $operation instanceof TimedWords => [
                 $operation->input->width,
                 $operation->input->height,
                 $operation->input->framesPerSecond,

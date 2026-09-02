@@ -1,0 +1,3 @@
+<?php
+
+$filter = "amovie={$callerPath}";

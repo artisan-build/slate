@@ -1,5 +1,8 @@
 <?php
 
+use App\Slate\Driver\Binary\CompiledDrawtextOptions;
+use App\Slate\Recipe\OperationName;
+
 /**
  * FfmpegDiagnostics legitimately names alternate encoders because the doctor inspects `ffmpeg -encoders`
  * output. The primary H.264 and AAC output contract belongs only to the binary driver.
@@ -131,10 +134,26 @@ test('recursive filter scan catches a nested rogue fragment', function (): void 
     $fixtureDirectory = base_path('tests/Fixtures/Boundary/Filters');
 
     expect(ffmpegFilterFragmentLocations($fixtureDirectory))->toBe([
+        'Deeply/Nested/AmovieFilter.php',
         'Deeply/Nested/ConcatFilter.php',
         'Deeply/Nested/IndentedHeredocFilter.php',
         'Deeply/Nested/MovieFilter.php',
         'Deeply/Nested/RogueFilter.php',
+    ]);
+});
+
+test('keeps input-bearing filter sources out of every driver compiler', function (): void {
+    expect(ffmpegDriverInputFilterFragmentLocations(base_path('app/Slate/Driver')))->toBe([]);
+});
+
+test('recursive driver filter scan catches every input-bearing filter source', function (): void {
+    $fixtureDirectory = base_path('tests/Fixtures/Boundary/Filters');
+
+    expect(ffmpegDriverInputFilterFragmentLocations($fixtureDirectory))->toBe([
+        'Deeply/Nested/AmovieFilter.php',
+        'Deeply/Nested/ConcatFilter.php',
+        'Deeply/Nested/IndentedHeredocFilter.php',
+        'Deeply/Nested/MovieFilter.php',
     ]);
 });
 
@@ -150,6 +169,88 @@ test('recursive compiler emission scan catches a second drawtext text emitter', 
     expect(drawtextEmitterLocations($fixtureDirectory))->toBe([
         'Deeply/Nested/RogueTextEmitter.php' => 2,
     ]);
+});
+
+test('keeps every expression emitter at its approved compiler location', function (): void {
+    expect(drawtextExpressionEmitterLocations(base_path('app/Slate/Driver')))->toBe([
+        'Binary/CompiledDrawtextOptions.php' => [
+            'alpha' => 1,
+            'enable' => 1,
+            'x' => 2,
+            'y' => 2,
+        ],
+        'Binary/Operation/OverlayImageCompiler.php' => [
+            'alpha' => 1,
+            'enable' => 1,
+            'x' => 1,
+            'y' => 1,
+        ],
+        'Binary/Operation/VideoStillClipCompiler.php' => [
+            'x' => 1,
+            'y' => 1,
+        ],
+    ]);
+});
+
+test('recursive expression scan catches caller strings in every evaluated drawtext option', function (): void {
+    $fixtureDirectory = base_path('tests/Fixtures/Boundary/CompilerExpressions');
+
+    expect(drawtextExpressionEmitterLocations($fixtureDirectory))->toBe([
+        'Deeply/Nested/RogueExpressionEmitter.php' => [
+            'alpha' => 1,
+            'enable' => 1,
+            'x' => 1,
+            'y' => 1,
+        ],
+        'Deeply/Nested/RogueUngatedExpressionEmitter.php' => [
+            'alpha' => 1,
+            'enable' => 1,
+            'x' => 1,
+            'y' => 1,
+        ],
+    ]);
+});
+
+test('keeps compiler options and every operation implementation final', function (): void {
+    $operationClasses = operationImplementationClasses(base_path('app/Slate/Recipe'));
+    $classes = [CompiledDrawtextOptions::class, ...$operationClasses];
+    $nonFinalClasses = array_values(array_filter(
+        $classes,
+        static fn (string $class): bool => ! (new ReflectionClass($class))->isFinal(),
+    ));
+
+    expect($operationClasses)->toHaveCount(count(OperationName::cases()))
+        ->and($nonFinalClasses)->toBe([]);
+});
+
+test('exposes no public string property on any operation implementation', function (): void {
+    $publicStringProperties = [];
+
+    foreach (operationImplementationClasses(base_path('app/Slate/Recipe')) as $operationClass) {
+        foreach ((new ReflectionClass($operationClass))->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+            if ($property->getType() instanceof ReflectionNamedType && $property->getType()->getName() === 'string') {
+                $publicStringProperties[] = $operationClass.'::$'.$property->getName();
+            }
+        }
+    }
+
+    expect($publicStringProperties)->toBe(allowedOperationPublicStringProperties());
+});
+
+test('exposes no public expression-string collection factory', function (): void {
+    $compiledOptions = new ReflectionClass(CompiledDrawtextOptions::class);
+    $timedFactory = $compiledOptions->getMethod('timed');
+    $timedFactoryTypes = array_map(
+        static fn (ReflectionParameter $parameter): ?string => $parameter->getType() instanceof ReflectionNamedType
+            ? $parameter->getType()->getName()
+            : null,
+        $timedFactory->getParameters(),
+    );
+
+    expect($compiledOptions->getConstructor()?->isPrivate())->toBeTrue();
+    expect($timedFactoryTypes)->not->toContain('string');
+    expect($timedFactoryTypes)->not->toContain('array');
+    expect($timedFactoryTypes)->not->toContain('mixed');
 });
 
 /**

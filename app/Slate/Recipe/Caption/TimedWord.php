@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Slate\Recipe\Caption;
 
+use App\Slate\Recipe\Audio\AudioDuration;
 use InvalidArgumentException;
 
 final readonly class TimedWord
@@ -29,28 +30,30 @@ final readonly class TimedWord
         float $clearSeconds,
         float $exitDurationSeconds,
     ): self {
-        if (trim($text) === '' || preg_match('/[\x00-\x1F\x7F]/u', $text) !== 0) {
-            throw new InvalidArgumentException('Timed word text must be non-empty and contain no control characters.');
+        if (trim($text) === '' || preg_match('/[\x00-\x1F\x7F]/u', $text) !== 0 || mb_strlen($text) > 128) {
+            throw new InvalidArgumentException('Timed word text must contain 1 to 128 characters and no control characters.');
         }
 
-        if ($xPixels < 0 || $yPixels < 0) {
-            throw new InvalidArgumentException('Timed word pixel coordinates must be non-negative.');
+        if ($xPixels < 0 || $xPixels > 1535 || $yPixels < 0 || $yPixels > 1535) {
+            throw new InvalidArgumentException('Timed word pixel coordinates must be within the audited canvas bounds.');
         }
 
-        $timelineValues = [
+        $nonNegativeTimelineValues = [
             $enterSeconds,
-            $enterDurationSeconds,
             $spokenEndSeconds,
             $clearSeconds,
-            $exitDurationSeconds,
         ];
 
-        if (array_any($timelineValues, static fn (float $value): bool => ! is_finite($value) || $value < 0)) {
-            throw new InvalidArgumentException('Timed word timeline values must be finite and non-negative.');
+        if (array_any(
+            $nonNegativeTimelineValues,
+            static fn (float $value): bool => ! AudioDuration::isNonNegativeMicrosecondDuration($value),
+        )) {
+            throw new InvalidArgumentException('Timed word timeline values must be non-negative microsecond-precision durations.');
         }
 
-        if ($enterDurationSeconds === 0.0 || $exitDurationSeconds === 0.0) {
-            throw new InvalidArgumentException('Timed word transition durations must be greater than zero.');
+        if (! AudioDuration::isPositiveMicrosecondDuration($enterDurationSeconds)
+            || ! AudioDuration::isPositiveMicrosecondDuration($exitDurationSeconds)) {
+            throw new InvalidArgumentException('Timed word transition durations must be positive microsecond-precision durations.');
         }
 
         if ($enterSeconds + $enterDurationSeconds > $spokenEndSeconds || $spokenEndSeconds > $clearSeconds) {

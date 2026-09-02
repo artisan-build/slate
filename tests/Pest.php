@@ -4,6 +4,8 @@ use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Driver\Driver;
 use App\Slate\Driver\DriverResult;
+use App\Slate\Recipe\Caption\TimedWords;
+use App\Slate\Recipe\Operation;
 use App\Slate\Recipe\Video\OverlayImage;
 use App\Slate\Recipe\Video\SlateVideo;
 use App\Slate\Recipe\Video\VideoConcat;
@@ -27,7 +29,7 @@ function ffmpegFixture(string $name): string
 
 /** @param  array<string, mixed>  $videoStreamOverrides */
 function fakeRenderedSlateVideo(
-    VideoStillClip|VideoConcat|OverlayImage $operation,
+    VideoStillClip|VideoConcat|OverlayImage|TimedWords $operation,
     ?float $durationSeconds = null,
     array $videoStreamOverrides = [],
     bool $includeVideo = true,
@@ -46,8 +48,13 @@ function fakeRenderedSlateVideo(
         $height = $operation->height();
         $framesPerSecond = $operation->framesPerSecond;
         $durationSeconds ??= $operation->outputDurationSeconds();
-    } else {
+    } elseif ($operation instanceof OverlayImage) {
         file_put_contents($operation->image->writablePath(), 'image');
+        $width = $operation->input->width;
+        $height = $operation->input->height;
+        $framesPerSecond = $operation->input->framesPerSecond;
+        $durationSeconds ??= $operation->input->durationSeconds;
+    } else {
         $width = $operation->input->width;
         $height = $operation->input->height;
         $framesPerSecond = $operation->input->framesPerSecond;
@@ -421,6 +428,21 @@ function ffmpegFilterFragmentLocations(string $root, array $exceptions = []): ar
 }
 
 /**
+ * Finds input-bearing filter sources inside the trusted driver compiler boundary.
+ *
+ * The concat filter's compiler-owned `n=` form joins already-typed inputs and is not an input source.
+ *
+ * @return list<string>
+ */
+function ffmpegDriverInputFilterFragmentLocations(string $root): array
+{
+    return sourcePatternLocations(
+        $root,
+        '/(?:(?<=[\'",])|(?<=\n)\h*)(?:(?:amovie|movie)\s*=|concat\s*=(?!n\s*=))/',
+    );
+}
+
+/**
  * Finds drawtext `text=` emitters inside the compiler boundary.
  *
  * The caller-layer filter scan deliberately excludes Slate/Driver, so this exact-location scan ensures
@@ -465,6 +487,85 @@ function drawtextEmitterLocations(string $root): array
     ksort($locations);
 
     return $locations;
+}
+
+/**
+ * Finds expression-option emitters so their provenance cannot spread to a caller-facing class.
+ *
+ * @return array<string, array<string, int>>
+ */
+function drawtextExpressionEmitterLocations(string $root): array
+{
+    $locations = [];
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
+        $root,
+        FilesystemIterator::SKIP_DOTS,
+    ));
+
+    foreach ($iterator as $file) {
+        if (! $file->isFile() || $file->getExtension() !== 'php') {
+            continue;
+        }
+
+        $contents = file_get_contents($file->getPathname());
+
+        if (! is_string($contents)) {
+            throw new RuntimeException("Unable to scan source file: {$file->getPathname()}");
+        }
+
+        if (preg_match_all('/\b(alpha|enable|x|y)=/', $contents, $matches) < 1) {
+            continue;
+        }
+
+        $relativePath = str_replace(
+            DIRECTORY_SEPARATOR,
+            '/',
+            substr($file->getPathname(), strlen($root) + 1),
+        );
+
+        foreach ($matches[1] as $option) {
+            $locations[$relativePath][$option] = ($locations[$relativePath][$option] ?? 0) + 1;
+        }
+
+        ksort($locations[$relativePath]);
+    }
+
+    ksort($locations);
+
+    return $locations;
+}
+
+/** @return list<class-string<Operation>> */
+function operationImplementationClasses(string $root): array
+{
+    $classes = [];
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
+        $root,
+        FilesystemIterator::SKIP_DOTS,
+    ));
+
+    foreach ($iterator as $file) {
+        if (! $file->isFile() || $file->getExtension() !== 'php') {
+            continue;
+        }
+
+        $relativePath = substr($file->getPathname(), strlen($root) + 1, -4);
+        $class = 'App\\Slate\\Recipe\\'.str_replace(DIRECTORY_SEPARATOR, '\\', $relativePath);
+
+        if (class_exists($class) && is_subclass_of($class, Operation::class)) {
+            $classes[] = $class;
+        }
+    }
+
+    sort($classes);
+
+    return $classes;
+}
+
+/** @return list<string> */
+function allowedOperationPublicStringProperties(): array
+{
+    return [];
 }
 
 /**

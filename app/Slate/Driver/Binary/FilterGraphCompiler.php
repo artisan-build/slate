@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace App\Slate\Driver\Binary;
 
+use App\Slate\Recipe\Caption\TimedWords;
 use InvalidArgumentException;
 
 final class FilterGraphCompiler
 {
+    private const int MaxFilterGraphBytes = 120000;
+
     /**
      * @param  list<string>  $operationFilters
      */
@@ -31,9 +34,39 @@ final class FilterGraphCompiler
 
     public function compileDrawtext(string $fontPath, string $text): CompiledFilterGraph
     {
-        return CompiledFilterGraph::fromCompiler('drawtext=fontfile='.$this->escapeOptionValue($fontPath)
-            .':text='.$this->escapeOptionValue($text)
-            .':expansion=none:fontcolor=white:fontsize=48:x=20:y=60');
+        return CompiledFilterGraph::fromCompiler($this->drawtext(
+            $fontPath,
+            $text,
+            CompiledDrawtextOptions::diagnostic(),
+        ));
+    }
+
+    public function compileTimedWords(TimedWords $operation): CompiledH264FilterGraph
+    {
+        $fontPath = $operation->font->readablePath();
+        $filters = [];
+
+        foreach ($operation->words as $word) {
+            $filters[] = $this->drawtext(
+                $fontPath,
+                $word->text,
+                CompiledDrawtextOptions::timed(
+                    $word,
+                    $operation->fontSize,
+                    $operation->color,
+                    $operation->shadow,
+                    $operation->entryEase,
+                    $operation->exitEase,
+                    $operation->dim,
+                ),
+            );
+        }
+
+        if (strlen(implode(',', $filters)) > self::MaxFilterGraphBytes) {
+            throw new InvalidArgumentException('Compiled caption filtergraph exceeds the safe process argument size.');
+        }
+
+        return $this->compileH264Video($filters);
     }
 
     public function escapeOptionValue(string $value): string
@@ -49,5 +82,12 @@ final class FilterGraphCompiler
             ['\\\\', "\\'", '\\,', '\\;', '\\[', '\\]'],
             $value,
         );
+    }
+
+    private function drawtext(string $fontPath, string $text, CompiledDrawtextOptions $options): string
+    {
+        return 'drawtext=fontfile='.$this->escapeOptionValue($fontPath)
+            .':text='.$this->escapeOptionValue($text)
+            .':expansion=none:'.$options->value();
     }
 }

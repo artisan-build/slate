@@ -21,7 +21,11 @@ final readonly class BinaryDriver implements Driver
 
     public function run(CompiledRecipe $recipe): DriverResult
     {
-        $process = Process::timeout($this->timeoutSeconds);
+        $fontconfigPath = resource_path('fontconfig');
+        $process = Process::timeout($this->timeoutSeconds)->env([
+            'FONTCONFIG_FILE' => $fontconfigPath.'/fonts.conf',
+            'FONTCONFIG_PATH' => $fontconfigPath,
+        ]);
 
         if ($recipe->workingDirectory() !== null) {
             $process = $process->path($recipe->workingDirectory());
