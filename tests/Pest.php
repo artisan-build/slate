@@ -95,6 +95,7 @@ function legacyFfmpegBoundaryExceptions(): array
  * PHP has no namespace-private visibility, so this token scan enforces placement: it finds any
  * FfmpegLocator/path-accessor or CompiledRecipe reference and any string literal containing `ffmpeg`
  * or `ffprobe`. It ignores comments, but cannot detect names assembled from split strings at runtime.
+ * A binary path assembled from concatenated fragments is undetectable by source scan, full stop.
  * Existing provisioning, diagnostics, and PR 7 benchmark residue are held to an exact location map.
  *
  * @return array<string, list<string>>
@@ -165,12 +166,87 @@ function binaryAuthorityLocations(string $root): array
 }
 
 /**
+ * Finds the closed set of process-execution primitives above the driver boundary.
+ *
+ * This token scan detects proc_open, exec, shell_exec, passthru, popen, system, Symfony Process, and
+ * Laravel's Process facade without depending on command construction shape. Dynamically assembled
+ * function or class names remain undetectable. These scans are defence in depth against careless code
+ * and copied patterns. The real containment is architectural: Driver::run accepts only a CompiledRecipe
+ * produced inside the compiler boundary, so a rogue primitive is a separate invocation rather than argv
+ * slipping through the driver.
+ *
+ * @return array<string, list<string>>
+ */
+function processPrimitiveLocations(string $root): array
+{
+    $locations = [];
+    $processFunctions = ['exec', 'passthru', 'popen', 'proc_open', 'shell_exec', 'system'];
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
+        $root,
+        FilesystemIterator::SKIP_DOTS,
+    ));
+
+    foreach ($iterator as $file) {
+        if (! $file->isFile() || $file->getExtension() !== 'php') {
+            continue;
+        }
+
+        $relativePath = str_replace(
+            DIRECTORY_SEPARATOR,
+            '/',
+            substr($file->getPathname(), strlen($root) + 1),
+        );
+
+        if (str_starts_with($relativePath, 'Slate/Driver/')) {
+            continue;
+        }
+
+        $contents = file_get_contents($file->getPathname());
+
+        if (! is_string($contents)) {
+            throw new RuntimeException("Unable to scan source file: {$file->getPathname()}");
+        }
+
+        foreach (token_get_all($contents) as $token) {
+            if (! is_array($token)) {
+                continue;
+            }
+
+            [$tokenType, $text] = $token;
+
+            if (! in_array($tokenType, [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED], true)) {
+                continue;
+            }
+
+            if ($text === 'Process' || str_ends_with($text, '\\Process')) {
+                $locations['process class reference'][] = $relativePath;
+            }
+
+            if (in_array(strtolower($text), $processFunctions, true)) {
+                $locations['process function'][] = $relativePath;
+            }
+        }
+    }
+
+    ksort($locations);
+
+    foreach ($locations as $kind => $paths) {
+        $paths = array_values(array_unique($paths));
+        sort($paths);
+        $locations[$kind] = $paths;
+    }
+
+    return $locations;
+}
+
+/**
  * Finds known v1 ffmpeg filter fragments above the driver boundary.
  *
  * This source-text scan recognizes assignments for Slate's documented v1 filter vocabulary, including
  * the `movie=` and `concat=` protocol-bearing disclosure vectors. An unknown filter name or a fragment
- * assembled from split strings is not detectable here. The real containment is that Driver::run accepts
- * only a CompiledRecipe and the binary-authority scan confines recipe construction to the compiler.
+ * assembled from concatenated strings is undetectable by source scan, full stop. This is defence in depth;
+ * the real containment is that Driver::run accepts only a CompiledRecipe and the binary-reference scan
+ * confines recipe construction to the compiler.
  *
  * @param  list<string>  $exceptions
  * @return list<string>

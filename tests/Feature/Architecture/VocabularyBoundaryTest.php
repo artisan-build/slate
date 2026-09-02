@@ -37,7 +37,7 @@ test('keeps the pre-vocabulary benchmark residue in an exact PR 7 exception list
  * Provisioning and diagnostics still name the binary, while the four benchmark files remain the exact
  * PR 7 exception. New binary authority above Slate/Driver changes this map and fails the test.
  */
-test('keeps binary path and compiled recipe authority at approved class locations', function (): void {
+test('keeps detectable binary references at approved class locations', function (): void {
     expect(binaryAuthorityLocations(base_path('app')))->toBe([
         'binary string literal' => [
             'Console/Commands/DispatchFfmpegBenchmarkCommand.php',
@@ -56,7 +56,7 @@ test('keeps binary path and compiled recipe authority at approved class location
     ]);
 });
 
-test('recursive authority scan catches indirect literal and compiled recipe bypasses', function (): void {
+test('recursive binary scan catches locator hardcoded literal and compiled recipe references', function (): void {
     $fixtureDirectory = base_path('tests/Fixtures/Boundary/Arguments');
 
     expect(binaryAuthorityLocations($fixtureDirectory))->toBe([
@@ -66,6 +66,34 @@ test('recursive authority scan catches indirect literal and compiled recipe bypa
         ],
         'compiled recipe reference' => ['Deeply/Nested/CompiledRecipeSmuggling.php'],
         'locator or path accessor' => ['Deeply/Nested/TwoStepArguments.php'],
+    ]);
+});
+
+test('keeps process execution primitives at approved infrastructure and legacy locations', function (): void {
+    expect(processPrimitiveLocations(base_path('app')))->toBe([
+        'process class reference' => [
+            'Console/Commands/ProvisionFfmpegCommand.php',
+            'Services/FfmpegBenchmark.php',
+        ],
+    ]);
+});
+
+test('recursive process scan catches every supported execution primitive', function (): void {
+    $fixtureDirectory = base_path('tests/Fixtures/Boundary/Processes');
+
+    expect(processPrimitiveLocations($fixtureDirectory))->toBe([
+        'process class reference' => [
+            'Deeply/Nested/LaravelProcess.php',
+            'Deeply/Nested/SymfonyProcess.php',
+        ],
+        'process function' => [
+            'Deeply/Nested/Exec.php',
+            'Deeply/Nested/Passthru.php',
+            'Deeply/Nested/Popen.php',
+            'Deeply/Nested/ProcOpen.php',
+            'Deeply/Nested/ShellExec.php',
+            'Deeply/Nested/System.php',
+        ],
     ]);
 });
 
