@@ -28,7 +28,7 @@ use Throwable;
 #[Description('Round-trip an object through the resolved storage seam and report memory usage as JSON.')]
 final class VerifyObjectStorageCommand extends Command
 {
-    private const MaxRssGrowthRatio = 0.10;
+    private const float MaxRssGrowthRatio = 0.10;
 
     public function handle(ObjectStorage $objectStorage, JobScratch $jobScratch): int
     {
