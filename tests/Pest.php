@@ -4,6 +4,7 @@ use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Driver\Driver;
 use App\Slate\Driver\DriverResult;
+use App\Slate\Recipe\Caption\TimedWords;
 use App\Slate\Recipe\Video\OverlayImage;
 use App\Slate\Recipe\Video\SlateVideo;
 use App\Slate\Recipe\Video\VideoConcat;
@@ -27,7 +28,7 @@ function ffmpegFixture(string $name): string
 
 /** @param  array<string, mixed>  $videoStreamOverrides */
 function fakeRenderedSlateVideo(
-    VideoStillClip|VideoConcat|OverlayImage $operation,
+    VideoStillClip|VideoConcat|OverlayImage|TimedWords $operation,
     ?float $durationSeconds = null,
     array $videoStreamOverrides = [],
     bool $includeVideo = true,
@@ -46,8 +47,14 @@ function fakeRenderedSlateVideo(
         $height = $operation->height();
         $framesPerSecond = $operation->framesPerSecond;
         $durationSeconds ??= $operation->outputDurationSeconds();
-    } else {
+    } elseif ($operation instanceof OverlayImage) {
         file_put_contents($operation->image->writablePath(), 'image');
+        $width = $operation->input->width;
+        $height = $operation->input->height;
+        $framesPerSecond = $operation->input->framesPerSecond;
+        $durationSeconds ??= $operation->input->durationSeconds;
+    } else {
+        file_put_contents($operation->font->writablePath(), 'font');
         $width = $operation->input->width;
         $height = $operation->input->height;
         $framesPerSecond = $operation->input->framesPerSecond;
@@ -460,6 +467,53 @@ function drawtextEmitterLocations(string $root): array
             substr($file->getPathname(), strlen($root) + 1),
         );
         $locations[$relativePath] = $count;
+    }
+
+    ksort($locations);
+
+    return $locations;
+}
+
+/**
+ * Finds drawtext expression-option emitters so their provenance cannot spread to a caller-facing class.
+ *
+ * @return array<string, array<string, int>>
+ */
+function drawtextExpressionEmitterLocations(string $root): array
+{
+    $locations = [];
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
+        $root,
+        FilesystemIterator::SKIP_DOTS,
+    ));
+
+    foreach ($iterator as $file) {
+        if (! $file->isFile() || $file->getExtension() !== 'php') {
+            continue;
+        }
+
+        $contents = file_get_contents($file->getPathname());
+
+        if (! is_string($contents)) {
+            throw new RuntimeException("Unable to scan source file: {$file->getPathname()}");
+        }
+
+        if (! str_contains($contents, 'drawtext')
+            || preg_match_all('/\b(alpha|enable|x|y)=/', $contents, $matches) < 1) {
+            continue;
+        }
+
+        $relativePath = str_replace(
+            DIRECTORY_SEPARATOR,
+            '/',
+            substr($file->getPathname(), strlen($root) + 1),
+        );
+
+        foreach ($matches[1] as $option) {
+            $locations[$relativePath][$option] = ($locations[$relativePath][$option] ?? 0) + 1;
+        }
+
+        ksort($locations[$relativePath]);
     }
 
     ksort($locations);

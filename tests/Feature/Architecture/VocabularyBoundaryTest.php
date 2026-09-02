@@ -1,5 +1,11 @@
 <?php
 
+use App\Slate\Driver\Binary\CompiledDrawtextOptions;
+use App\Slate\Recipe\Caption\CaptionDim;
+use App\Slate\Recipe\Caption\CaptionShadow;
+use App\Slate\Recipe\Caption\TimedWord;
+use App\Slate\Recipe\Caption\TimedWords;
+
 /**
  * FfmpegDiagnostics legitimately names alternate encoders because the doctor inspects `ffmpeg -encoders`
  * output. The primary H.264 and AAC output contract belongs only to the binary driver.
@@ -150,6 +156,62 @@ test('recursive compiler emission scan catches a second drawtext text emitter', 
     expect(drawtextEmitterLocations($fixtureDirectory))->toBe([
         'Deeply/Nested/RogueTextEmitter.php' => 2,
     ]);
+});
+
+test('keeps every drawtext expression emitter in the typed compiler output class', function (): void {
+    expect(drawtextExpressionEmitterLocations(base_path('app/Slate/Driver')))->toBe([
+        'Binary/CompiledDrawtextOptions.php' => [
+            'alpha' => 1,
+            'enable' => 1,
+            'x' => 2,
+            'y' => 2,
+        ],
+    ]);
+});
+
+test('recursive expression scan catches caller strings in every evaluated drawtext option', function (): void {
+    $fixtureDirectory = base_path('tests/Fixtures/Boundary/CompilerExpressions');
+
+    expect(drawtextExpressionEmitterLocations($fixtureDirectory))->toBe([
+        'Deeply/Nested/RogueExpressionEmitter.php' => [
+            'alpha' => 1,
+            'enable' => 1,
+            'x' => 1,
+            'y' => 1,
+        ],
+    ]);
+});
+
+test('exposes caption text as the only caller string and no public expression-string factory', function (): void {
+    $captionClasses = [
+        CaptionDim::class,
+        CaptionShadow::class,
+        TimedWord::class,
+        TimedWords::class,
+    ];
+    $publicStringProperties = [];
+
+    foreach ($captionClasses as $captionClass) {
+        foreach ((new ReflectionClass($captionClass))->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+            if ($property->getType() instanceof ReflectionNamedType && $property->getType()->getName() === 'string') {
+                $publicStringProperties[] = $captionClass.'::$'.$property->getName();
+            }
+        }
+    }
+
+    $compiledOptions = new ReflectionClass(CompiledDrawtextOptions::class);
+    $timedFactory = $compiledOptions->getMethod('timed');
+    $timedFactoryTypes = array_map(
+        static fn (ReflectionParameter $parameter): ?string => $parameter->getType() instanceof ReflectionNamedType
+            ? $parameter->getType()->getName()
+            : null,
+        $timedFactory->getParameters(),
+    );
+
+    expect($publicStringProperties)->toBe([
+        TimedWord::class.'::$text',
+    ])->and($compiledOptions->getConstructor()?->isPrivate())->toBeTrue()
+        ->and($timedFactoryTypes)->not->toContain('string', 'array', 'mixed');
 });
 
 /**

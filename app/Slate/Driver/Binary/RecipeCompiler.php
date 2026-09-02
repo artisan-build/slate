@@ -9,6 +9,7 @@ use App\Slate\Driver\Binary\Operation\AudioPadCompiler;
 use App\Slate\Driver\Binary\Operation\AudioSilenceCompiler;
 use App\Slate\Driver\Binary\Operation\OverlayImageCompiler;
 use App\Slate\Driver\Binary\Operation\ProbeCompiler;
+use App\Slate\Driver\Binary\Operation\TimedWordsCompiler;
 use App\Slate\Driver\Binary\Operation\VideoConcatCompiler;
 use App\Slate\Driver\Binary\Operation\VideoStillClipCompiler;
 use App\Slate\Driver\Binary\Operation\VideoThumbnailCompiler;
@@ -42,6 +43,7 @@ final readonly class RecipeCompiler
             new VideoStillClipCompiler($locator, $filterGraphCompiler),
             new VideoConcatCompiler($locator, $filterGraphCompiler),
             new OverlayImageCompiler($locator, $filterGraphCompiler),
+            new TimedWordsCompiler($locator, $filterGraphCompiler),
             new VideoThumbnailCompiler($locator),
         );
     }

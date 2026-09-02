@@ -12,6 +12,14 @@ use App\Slate\Recipe\Audio\AudioFormat;
 use App\Slate\Recipe\Audio\AudioPad;
 use App\Slate\Recipe\Audio\AudioSampleRate;
 use App\Slate\Recipe\Audio\AudioSilence;
+use App\Slate\Recipe\Caption\CaptionColor;
+use App\Slate\Recipe\Caption\CaptionDim;
+use App\Slate\Recipe\Caption\CaptionEntryEase;
+use App\Slate\Recipe\Caption\CaptionExitEase;
+use App\Slate\Recipe\Caption\CaptionShadow;
+use App\Slate\Recipe\Caption\CaptionShadowColor;
+use App\Slate\Recipe\Caption\TimedWord;
+use App\Slate\Recipe\Caption\TimedWords;
 use App\Slate\Recipe\Operation;
 use App\Slate\Recipe\Probe;
 use App\Slate\Recipe\QualityTier;
@@ -50,6 +58,8 @@ test('registers production compilers for every shipped operation', function (): 
         );
         $video = fakeRenderedSlateVideo($stillClip);
         $secondVideo = fakeRenderedSlateVideo($secondStillClip);
+        $font = $scratch->file('font.ttf');
+        file_put_contents($font->writablePath(), 'font');
         $compiler = resolve(RecipeCompiler::class);
         $operations = [
             new Probe($input),
@@ -78,6 +88,12 @@ test('registers production compilers for every shipped operation', function (): 
                 $video, $image, $scratch->file('overlay.mp4'), 0, 0,
                 new OverlayFadeIn(0.5, 0.5), 0.5,
             ),
+            new TimedWords(
+                $video, $font, $scratch->file('captioned.mp4'), 64, CaptionColor::WarmCream,
+                new CaptionShadow(CaptionShadowColor::Black70, 2, 2),
+                [TimedWord::fromValues('story', 128, 720, 0.1, 0.2, 0.5, 0.8, 0.2)],
+                CaptionEntryEase::OutBack, CaptionExitEase::InOutQuad, new CaptionDim(0.6, 0.1),
+            ),
             new VideoThumbnail($video, $scratch->file('poster.jpg')),
         ];
 
@@ -88,6 +104,8 @@ test('registers production compilers for every shipped operation', function (): 
 
         expect(app()->getProviders(DriverServiceProvider::class))->toHaveCount(1)
             ->and($compiler)->toBeInstanceOf(RecipeCompiler::class)
-            ->and($executables)->toBe(['ffprobe', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg']);
+            ->and($executables)->toBe([
+                'ffprobe', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg',
+            ]);
     });
 });
