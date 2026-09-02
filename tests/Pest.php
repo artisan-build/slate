@@ -173,8 +173,9 @@ function binaryAuthorityLocations(string $root): array
  *
  * This token scan detects proc_open, exec, shell_exec, passthru, popen, system, pcntl_exec, pcntl_fork,
  * backticks, Symfony Process, Laravel's Process facade, and constant-string process callables passed to
- * call_user_func. Constant-string callees are evaluated and normalized before comparison, regardless of
- * their PHP escape spelling. A callee assembled at runtime remains undetectable. These scans are defence
+ * call_user_func. A callee written as a quoted string literal is evaluated and normalized before
+ * comparison, regardless of its escape spelling; a callee written as a heredoc or nowdoc, or assembled
+ * at runtime, remains undetectable. The host function list is call_user_func only. These scans are defence
  * in depth against careless code and copied patterns. The primary containment combines Driver::run's
  * CompiledRecipe type with source enforcement that confines recipe creation to compilers; a rogue
  * primitive is a separate invocation rather than argv slipping through the driver.
