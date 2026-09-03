@@ -109,6 +109,23 @@ final readonly class CompiledOutput
         ]);
     }
 
+    public static function pcmS16leMono44100(): self
+    {
+        return new self([
+            '-map',
+            CompiledLiteral::AudioInputZero->value,
+            '-f',
+            's16le',
+            '-acodec',
+            CompiledLiteral::PcmS16le->value,
+            '-ac',
+            CompiledLiteral::One->value,
+            '-ar',
+            '44100',
+            CompiledLiteral::StandardStream->value,
+        ]);
+    }
+
     public static function null(): self
     {
         return new self(['-f', CompiledLiteral::NullMuxer->value, CompiledLiteral::StandardStream->value]);

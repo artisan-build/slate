@@ -41,25 +41,48 @@ function requireHybridVideoRuntime(): void
     test()->markTestSkipped($message);
 }
 
+function writeHybridTone(ScratchPath $path, int $frequency): void
+{
+    $sampleRate = 44100;
+    $sampleCount = $sampleRate * 3;
+    $samples = '';
+
+    for ($index = 0; $index < $sampleCount; $index++) {
+        $sample = (int) round(12000 * sin(2 * pi() * $frequency * $index / $sampleRate));
+        $samples .= pack('v', $sample & 0xFFFF);
+    }
+
+    $wave = 'RIFF'.pack('V', 36 + strlen($samples)).'WAVEfmt '
+        .pack('VvvVVvv', 16, 1, 1, $sampleRate, $sampleRate * 2, 2, 16)
+        .'data'.pack('V', strlen($samples)).$samples;
+    file_put_contents($path->writablePath(), $wave);
+}
+
 function renderSolidHybridVideo(
     ScratchDirectory $scratch,
     RecipeCompiler $compiler,
     Driver $driver,
     string $name,
     string $pixel,
+    ?int $toneFrequency = null,
 ): SlateVideo {
     $image = $scratch->file($name.'.ppm');
-    $audio = $scratch->file($name.'.mp3');
+    $audio = $scratch->file($name.($toneFrequency === null ? '.mp3' : '.wav'));
     file_put_contents($image->writablePath(), "P3\n3 2\n255\n".implode('  ', array_fill(0, 6, $pixel))."\n");
-    $audioResult = $driver->run($compiler->compile(new AudioSilence(
-        $audio,
-        3.0,
-        AudioSampleRate::Hz44100,
-        AudioChannelLayout::Mono,
-        AudioFormat::Mp3,
-        AudioBitrate::Kbps192,
-    )));
-    expect($audioResult->successful())->toBeTrue($audioResult->errorOutput);
+
+    if ($toneFrequency === null) {
+        $audioResult = $driver->run($compiler->compile(new AudioSilence(
+            $audio,
+            3.0,
+            AudioSampleRate::Hz44100,
+            AudioChannelLayout::Mono,
+            AudioFormat::Mp3,
+            AudioBitrate::Kbps192,
+        )));
+        expect($audioResult->successful())->toBeTrue($audioResult->errorOutput);
+    } else {
+        writeHybridTone($audio, $toneFrequency);
+    }
 
     return SlateVideo::render(new VideoStillClip(
         $image,
@@ -83,12 +106,17 @@ function renderTemporalHybridVideo(
     RecipeCompiler $compiler,
     Driver $driver,
     string $name,
+    string $basePixel = '255 0 0',
+    int $overlayRed = 255,
+    int $overlayGreen = 255,
+    int $overlayBlue = 255,
+    ?int $toneFrequency = null,
 ): SlateVideo {
-    $base = renderSolidHybridVideo($scratch, $compiler, $driver, $name.'-base', '255 0 0');
+    $base = renderSolidHybridVideo($scratch, $compiler, $driver, $name.'-base', $basePixel, $toneFrequency);
     $overlay = $scratch->file($name.'-overlay.ppm');
     file_put_contents(
         $overlay->writablePath(),
-        "P6\n1536 1024\n255\n".str_repeat("\xFF\xFF\xFF", 1536 * 1024),
+        "P6\n1536 1024\n255\n".str_repeat(pack('CCC', $overlayRed, $overlayGreen, $overlayBlue), 1536 * 1024),
     );
 
     return SlateVideo::render(new OverlayImage(
@@ -151,6 +179,26 @@ function expectHybridFrameSequence(array $actual, array $expected, string $conte
     }
 }
 
+/** @param  list<int>  $samples */
+function hybridToneAmplitude(array $samples, int $frequency, int $offset, int $sampleCount): float
+{
+    if (count($samples) < $offset + $sampleCount) {
+        throw new RuntimeException('Decoded audio is too short for the requested tone window.');
+    }
+
+    $real = 0.0;
+    $imaginary = 0.0;
+
+    for ($index = 0; $index < $sampleCount; $index++) {
+        $angle = 2 * pi() * $frequency * $index / 44100;
+        $sample = $samples[$offset + $index];
+        $real += $sample * cos($angle);
+        $imaginary += $sample * sin($angle);
+    }
+
+    return 2 * hypot($real, $imaginary) / $sampleCount;
+}
+
 /**
  * Pinned-runtime controls: shifting the second source slice back one frame failed at output frame 0;
  * replaying the duplicated 0-23 + 0-47 hazard sequence failed reconstruction at output frame 24.
@@ -202,15 +250,20 @@ test('stream-copy trim preserves requested frames and copy concat reconstructs t
     });
 })->group('ffmpeg-render');
 
-test('transition segment cross-fades the clip tail and head in rendered pixels', function (): void {
+/**
+ * Pinned-runtime controls: substituting A's head missed its tail by 148.4688 luma; substituting B's
+ * tail left only 9.0 luma from that tail; hard-cut audio left 440 Hz amplitude 32.12498369377418
+ * against the cross-fade floor of 1799.5175558009753.
+ */
+test('transition segment uses the clip tail and head and cross-fades pixels and audio', function (): void {
     requireHybridVideoRuntime();
 
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
         $compiler = resolve(RecipeCompiler::class);
         $driver = resolve(Driver::class);
         $verifier = resolve(BenchmarkOutputVerifier::class);
-        $from = renderSolidHybridVideo($scratch, $compiler, $driver, 'from', '255 0 0');
-        $to = renderSolidHybridVideo($scratch, $compiler, $driver, 'to', '0 0 255');
+        $from = renderTemporalHybridVideo($scratch, $compiler, $driver, 'from', '0 0 0', 255, 255, 255, 440);
+        $to = renderTemporalHybridVideo($scratch, $compiler, $driver, 'to', '0 0 255', 0, 0, 0, 880);
         $transition = SlateVideo::render(new VideoTransitionSegment(
             $from,
             $to,
@@ -219,12 +272,40 @@ test('transition segment cross-fades the clip tail and head in rendered pixels',
             $scratch->file('transition.mp4'),
         ), $compiler, $driver);
         $properties = probeHybridVideo($transition->path, $compiler, $driver);
-        $fromLuma = $verifier->frameLuma($from->path, 2.5);
-        $toLuma = $verifier->frameLuma($to->path, 0.5);
-        $transitionLuma = $verifier->frameLuma($transition->path, 0.5);
+        $fromHeadLuma = $verifier->frameLuma($from->path, 0.001);
+        $fromTailLuma = $verifier->frameLuma($from->path, 2.001);
+        $toHeadLuma = $verifier->frameLuma($to->path, 0.958);
+        $toTailLuma = $verifier->frameLuma($to->path, 2.958);
+        $transitionFirstLuma = $verifier->frameLuma($transition->path, 0.001);
+        $transitionLastLuma = $verifier->frameLuma($transition->path, 0.958);
+        $fromSamples = $verifier->audioSamples($from->path);
+        $toSamples = $verifier->audioSamples($to->path);
+        $transitionSamples = $verifier->audioSamples($transition->path);
+        $windowOffset = 22050;
+        $windowSamples = 4410;
+        $from440 = hybridToneAmplitude($fromSamples, 440, $windowOffset, $windowSamples);
+        $from880 = hybridToneAmplitude($fromSamples, 880, $windowOffset, $windowSamples);
+        $to440 = hybridToneAmplitude($toSamples, 440, $windowOffset, $windowSamples);
+        $to880 = hybridToneAmplitude($toSamples, 880, $windowOffset, $windowSamples);
+        $transition440 = hybridToneAmplitude($transitionSamples, 440, $windowOffset, $windowSamples);
+        $transition880 = hybridToneAmplitude($transitionSamples, 880, $windowOffset, $windowSamples);
 
         expect(hybridVideoFrameCount($properties))->toBe(24)
-            ->and((float) data_get($properties, 'format.duration'))->toBe(1.0);
-        expectMeasurableHybridBlend($transitionLuma, $fromLuma, $toLuma);
+            ->and((float) data_get($properties, 'format.duration'))->toBe(1.0)
+            ->and(abs($fromTailLuma - $fromHeadLuma))->toBeGreaterThan(50.0)
+            ->and(abs($toHeadLuma - $toTailLuma))->toBeGreaterThan(10.0)
+            ->and(abs($transitionFirstLuma - $fromTailLuma))->toBeLessThan(10.0)
+            ->and(abs($transitionFirstLuma - $fromHeadLuma))->toBeGreaterThan(50.0)
+            ->and(abs($transitionLastLuma - $toHeadLuma))->toBeLessThan(15.0)
+            ->and(abs($transitionLastLuma - $toTailLuma))->toBeGreaterThan(15.0)
+            ->and($from440)->toBeGreaterThan($from880 * 5)
+            ->and($to880)->toBeGreaterThan($to440 * 5)
+            ->and($transition440)->toBeGreaterThan($from440 * 0.15)
+            ->and($transition880)->toBeGreaterThan($to880 * 0.15);
+        expectMeasurableHybridBlend(
+            $verifier->frameLuma($transition->path, 0.5),
+            $verifier->frameLuma($from->path, 2.5),
+            $verifier->frameLuma($to->path, 0.5),
+        );
     });
 })->group('ffmpeg-render');

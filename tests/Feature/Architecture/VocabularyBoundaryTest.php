@@ -18,6 +18,7 @@ test('keeps documented encoder literals at their approved source locations', fun
         'libsvtav1' => ['Services/FfmpegDiagnostics.php'],
         'libvpx-vp9' => ['Services/FfmpegDiagnostics.php'],
         'mjpeg' => ['Slate/Driver/Binary/CompiledLiteral.php'],
+        'pcm_s16le' => ['Slate/Driver/Binary/CompiledLiteral.php'],
     ]);
 });
 

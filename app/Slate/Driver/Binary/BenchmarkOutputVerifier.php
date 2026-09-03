@@ -66,6 +66,34 @@ final readonly class BenchmarkOutputVerifier
         return $hashes;
     }
 
+    /** @return non-empty-list<int> */
+    public function audioSamples(ScratchPath $video): array
+    {
+        $recipe = new CompiledRecipe(FfmpegLocator::fromSystem(), BinaryExecutable::Ffmpeg, [
+            CompiledArgument::option(CompiledOption::HideBanner),
+            CompiledArgument::option(CompiledOption::LogLevel),
+            CompiledArgument::literal(CompiledLiteral::Error),
+            CompiledInput::ffmpeg($video),
+            CompiledOutput::pcmS16leMono44100(),
+        ]);
+        $result = $this->driver->run($recipe);
+
+        if ($result->failed() || $result->output === '' || strlen($result->output) % 2 !== 0) {
+            throw new RuntimeException('Unable to decode video audio samples: '.$result->errorOutput);
+        }
+
+        $unsignedSamples = unpack('v*', $result->output);
+
+        if (! is_array($unsignedSamples) || $unsignedSamples === []) {
+            throw new RuntimeException('Decoded video audio contained no samples.');
+        }
+
+        return array_values(array_map(
+            static fn (int $sample): int => $sample >= 32768 ? $sample - 65536 : $sample,
+            $unsignedSamples,
+        ));
+    }
+
     private function luma(ScratchPath $video, float $seconds, string $filterGraph): float
     {
         $recipe = new CompiledRecipe(FfmpegLocator::fromSystem(), BinaryExecutable::Ffmpeg, [

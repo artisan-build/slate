@@ -22,6 +22,7 @@ enum CompiledLiteral: string
     case Mjpeg = 'mjpeg';
     case One = '1';
     case NullMuxer = 'null';
+    case PcmS16le = 'pcm_s16le';
     case StandardStream = '-';
     case StereoChannelCount = '2';
     case VideoInputZero = '0:v:0';
