@@ -21,6 +21,7 @@ use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\ScratchDirectory;
 use Aws\S3\S3Client;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Sleep;
 
@@ -106,20 +107,18 @@ test('records the real hostnames used by a bucket-backed worker pool', function 
         $synchronousWallMs = intdiv((int) hrtime(true), 1_000_000) - $synchronousStartedAtMs;
         $fanout = resolve(FanoutHybridDelivery::class);
         $runs = [];
-
-        for ($index = 0; $index < $videoCount; $index++) {
-            $runs[] = $fanout->prepare($inputs, 24, QualityTier::Delivery);
-        }
-
         $fanoutStartedAtMs = intdiv((int) hrtime(true), 1_000_000);
 
-        foreach ($runs as $run) {
-            $fanout->dispatch($run);
+        for ($index = 0; $index < $videoCount; $index++) {
+            $runs[] = $fanout->queue($inputs, 24, QualityTier::Delivery);
         }
+
+        $prepareAndDispatchMs = intdiv((int) hrtime(true), 1_000_000) - $fanoutStartedAtMs;
 
         $objectStorage = resolve(ObjectStorage::class);
         $deadline = microtime(true) + 180;
         $completionMs = [];
+        $queueDrained = false;
 
         do {
             foreach ($runs as $index => $run) {
@@ -128,7 +127,9 @@ test('records the real hostnames used by a bucket-backed worker pool', function 
                 }
             }
 
-            if (count($completionMs) === count($runs)) {
+            if (count($completionMs) === count($runs) && Queue::size() === 0) {
+                $queueDrained = true;
+
                 break;
             }
 
@@ -136,7 +137,9 @@ test('records the real hostnames used by a bucket-backed worker pool', function 
         } while (microtime(true) < $deadline);
 
         expect($completionMs)->toHaveCount(count($runs));
-        $poolDrainMs = intdiv((int) hrtime(true), 1_000_000) - $fanoutStartedAtMs;
+        expect($queueDrained)->toBeTrue()
+            ->and(Queue::size())->toBe(0);
+        $queueEmptyMs = intdiv((int) hrtime(true), 1_000_000) - $fanoutStartedAtMs;
         $results = [];
 
         foreach ($runs as $index => $run) {
@@ -162,9 +165,11 @@ test('records the real hostnames used by a bucket-backed worker pool', function 
             'video_count' => $videoCount,
             'operation_count_per_video' => count($runs[0]->operations),
             'synchronous_wall_ms' => $synchronousWallMs,
-            'fanout_pool_drain_ms' => $poolDrainMs,
+            'fanout_prepare_and_dispatch_ms' => $prepareAndDispatchMs,
             'fanout_completion_ms' => array_values($completionMs),
             'fanout_mean_completion_ms' => (int) round(array_sum($completionMs) / count($completionMs)),
+            'fanout_all_results_visible_ms' => max($completionMs),
+            'fanout_queue_empty_ms' => $queueEmptyMs,
             'worker_hostnames' => array_values(array_unique(array_merge(...array_map(
                 static fn (array $result): array => $result['worker_hostnames'],
                 $results,

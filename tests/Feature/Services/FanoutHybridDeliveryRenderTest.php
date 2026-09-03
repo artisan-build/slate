@@ -27,6 +27,7 @@ use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\ScratchDirectory;
 use App\Slate\Storage\ScratchPath;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
 
 function requireFanoutDeliveryRuntime(): void
@@ -115,6 +116,8 @@ function probeFanoutOutput(ScratchPath $output, RecipeCompiler $compiler, Driver
 test('queued segment jobs match synchronous hybrid output through one final copy concat', function (): void {
     requireFanoutDeliveryRuntime();
     Storage::fake();
+    Bus::fake();
+    config()->set('slate.storage.allow_host_local_fanout', true);
 
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
         $compiler = resolve(RecipeCompiler::class);
@@ -130,7 +133,7 @@ test('queued segment jobs match synchronous hybrid output through one final copy
             QualityTier::Delivery,
             $scratch->file('synchronous.mp4'),
         );
-        $run = resolve(FanoutHybridDelivery::class)->prepare(
+        $run = resolve(FanoutHybridDelivery::class)->queue(
             [$first, $second],
             24,
             QualityTier::Delivery,

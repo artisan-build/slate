@@ -28,5 +28,6 @@ return [
     ],
     'storage' => [
         'scratch_path' => storage_path('app/slate-jobs'),
+        'allow_host_local_fanout' => env('SLATE_ALLOW_HOST_LOCAL_FANOUT', false),
     ],
 ];

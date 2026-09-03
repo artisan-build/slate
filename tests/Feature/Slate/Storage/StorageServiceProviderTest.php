@@ -1,5 +1,6 @@
 <?php
 
+use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\S3ObjectStorage;
 use App\Slate\Storage\StorageServiceProvider;
@@ -143,13 +144,14 @@ test('a cycle in scoped default disks terminates without changing either disk', 
         ->and(config('filesystems.disks.second-scope'))->not->toHaveKey('stream_reads');
 });
 
-test('a non-S3 default disk is left unchanged', function (): void {
+test('a non-S3 default disk is not mutated and fails the fan-out guard', function (): void {
     config()->set('filesystems.default', 'cloud-injected');
     config()->set('filesystems.disks.cloud-injected', [
         'driver' => 'local',
         'root' => storage_path('framework/testing/cloud-injected'),
     ]);
     Storage::forgetDisk('cloud-injected');
+    config()->set('slate.storage.allow_host_local_fanout', false);
 
     (new StorageServiceProvider(app()))->register();
 
@@ -157,4 +159,6 @@ test('a non-S3 default disk is left unchanged', function (): void {
 
     expect($defaultDisk->getAdapter())->toBeInstanceOf(LocalFilesystemAdapter::class)
         ->and($defaultDisk->getConfig())->not->toHaveKey('stream_reads');
+    expect(fn () => resolve(FanoutStorageGuard::class)->assertSafe())
+        ->toThrow(RuntimeException::class, 'Slate fan-out requires an S3-backed default filesystem');
 });

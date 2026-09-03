@@ -670,12 +670,13 @@ function sourcePatternLocations(
 }
 
 /**
- * Inspects the object graph Laravel serializes for a queued job. A local path or scratch object in
- * that graph is an inter-host handoff even when a single-host run happens to make it work.
+ * Inspects the object graph Laravel serializes for a queued job and rejects scratch objects plus
+ * recognizable absolute filesystem paths. Relative path strings are intentionally outside this
+ * detector; typed payload construction and the resolved-adapter guard cover that residue.
  *
  * @return list<string>
  */
-function queuedJobLocalHandoffViolations(object $job): array
+function queuedJobAbsolutePathViolations(object $job): array
 {
     $violations = [];
     $seen = [];
@@ -730,12 +731,13 @@ function queuedJobLocalHandoffViolations(object $job): array
 }
 
 /**
- * Rejects compiler products and detectable command vocabulary from Laravel's serialized job graph.
- * Typed recipes contain domain values and bucket descriptors instead.
+ * Rejects compiler products and selected binary, encoder, and filter vocabulary from Laravel's
+ * serialized job graph. A filterless argv made entirely from relative strings is not detectable by
+ * this vocabulary scan; typed job properties and review cover that residue.
  *
  * @return list<string>
  */
-function queuedJobCompiledPayloadViolations(object $job): array
+function queuedJobKnownCompiledVocabularyViolations(object $job): array
 {
     $violations = [];
     $seen = [];

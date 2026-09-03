@@ -43,6 +43,7 @@ function fanoutDispatchSource(ScratchDirectory $scratch, string $name): VideoSti
 test('stages every source and dispatches one typed bucket operation per hybrid segment', function (): void {
     Storage::fake();
     Bus::fake();
+    config()->set('slate.storage.allow_host_local_fanout', true);
     $runId = FanoutRunId::fromString('11111111-1111-4111-8111-111111111111');
 
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch) use ($runId): void {
@@ -84,6 +85,8 @@ test('stages every source and dispatches one typed bucket operation per hybrid s
 
 test('uses deterministic run and operation indexes for every transient object', function (): void {
     Storage::fake();
+    Bus::fake();
+    config()->set('slate.storage.allow_host_local_fanout', true);
     $runId = FanoutRunId::fromString('22222222-2222-4222-8222-222222222222');
 
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch) use ($runId): void {
@@ -91,7 +94,7 @@ test('uses deterministic run and operation indexes for every transient object', 
             fakeRenderedSlateVideo(fanoutDispatchSource($scratch, 'first')),
             fakeRenderedSlateVideo(fanoutDispatchSource($scratch, 'second')),
         ];
-        $run = resolve(FanoutHybridDelivery::class)->prepare(
+        $run = resolve(FanoutHybridDelivery::class)->queue(
             $inputs,
             24,
             QualityTier::Delivery,
@@ -112,6 +115,28 @@ test('uses deterministic run and operation indexes for every transient object', 
             'slate-fanout/22222222-2222-4222-8222-222222222222/work/receipts/0002.json',
         ]);
     });
+});
+
+test('refuses to stage or dispatch fan-out work on a host-local default disk', function (): void {
+    Storage::fake();
+    Bus::fake();
+    config()->set('slate.storage.allow_host_local_fanout', false);
+
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $inputs = [
+            fakeRenderedSlateVideo(fanoutDispatchSource($scratch, 'first')),
+            fakeRenderedSlateVideo(fanoutDispatchSource($scratch, 'second')),
+        ];
+
+        expect(fn (): FanoutRun => resolve(FanoutHybridDelivery::class)->queue(
+            $inputs,
+            24,
+            QualityTier::Delivery,
+        ))->toThrow(RuntimeException::class, 'Slate fan-out requires an S3-backed default filesystem');
+    });
+
+    Bus::assertNothingBatched();
+    expect(Storage::disk()->allFiles())->toBe([]);
 });
 
 test('rejects a run recipe whose input key is not derived from its run and index', function (): void {
@@ -137,4 +162,47 @@ test('rejects a run recipe whose input key is not derived from its run and index
 
     expect(fn (): FanoutRun => new FanoutRun($runId, [$wrongInput], [$operation]))
         ->toThrow(InvalidArgumentException::class, 'derive from the run ID and input index');
+});
+
+test('rejects an operation that references a stored video outside the run inputs', function (): void {
+    $runId = FanoutRunId::fromString('88888888-8888-4888-8888-888888888888');
+    $prefix = $runId->prefix();
+    $input = new StoredVideo(
+        ObjectKey::withinPrefix($prefix, $prefix.'/work/inputs/0000.mp4'),
+        1536,
+        1024,
+        24,
+        72,
+        3.0,
+        QualityTier::Delivery,
+        24,
+    );
+    $foreignPrefix = 'slate-fanout/99999999-9999-4999-8999-999999999999';
+    $foreignInput = new StoredVideo(
+        ObjectKey::withinPrefix($foreignPrefix, $foreignPrefix.'/work/inputs/0000.mp4'),
+        1536,
+        1024,
+        24,
+        72,
+        3.0,
+        QualityTier::Delivery,
+        24,
+    );
+    $operation = new BucketVideoTrim(
+        0,
+        $foreignInput,
+        0,
+        48,
+        ObjectKey::withinPrefix($prefix, $prefix.'/work/operations/0000.mp4'),
+    );
+
+    expect(fn (): FanoutRun => new FanoutRun($runId, [$input], [$operation]))
+        ->toThrow(InvalidArgumentException::class, 'only the run input descriptors');
+});
+
+test('does not expose staging-only or dispatch-only entry points', function (): void {
+    $service = new ReflectionClass(FanoutHybridDelivery::class);
+
+    expect($service->getMethod('prepare')->isPrivate())->toBeTrue()
+        ->and($service->getMethod('dispatch')->isPrivate())->toBeTrue();
 });

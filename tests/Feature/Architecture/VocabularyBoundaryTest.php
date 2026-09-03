@@ -336,7 +336,7 @@ test('recursive storage scan catches a nested rogue disk construction', function
     ]);
 });
 
-test('serialized fan-out jobs contain no host-local inter-job handoff', function (): void {
+test('serialized fan-out jobs contain no scratch objects or recognizable absolute paths', function (): void {
     $run = fanoutBoundaryRun();
     $jobs = [
         ...array_map(
@@ -347,12 +347,12 @@ test('serialized fan-out jobs contain no host-local inter-job handoff', function
     ];
 
     foreach ($jobs as $job) {
-        expect(queuedJobLocalHandoffViolations($job))->toBe([], $job::class.' handed off a local path.');
+        expect(queuedJobAbsolutePathViolations($job))->toBe([], $job::class.' carried scratch or an absolute path.');
     }
 });
 
-test('recursive queue handoff guard goes red for a nested local-path job', function (): void {
-    $violations = queuedJobLocalHandoffViolations(new RogueLocalPathJob('/tmp/host-a/chunk-0001.mp4'));
+test('recursive queue path guard goes red for a nested absolute-path job', function (): void {
+    $violations = queuedJobAbsolutePathViolations(new RogueLocalPathJob('/tmp/host-a/chunk-0001.mp4'));
 
     if (filter_var(getenv('SLATE_DEMONSTRATE_LOCAL_HANDOFF_GUARD'), FILTER_VALIDATE_BOOL)) {
         expect($violations)->toBe([]);
@@ -363,7 +363,7 @@ test('recursive queue handoff guard goes red for a nested local-path job', funct
     ]);
 });
 
-test('serialized fan-out jobs contain typed operations rather than compiled commands', function (): void {
+test('serialized fan-out jobs contain no compiler objects or known compiled vocabulary', function (): void {
     $run = fanoutBoundaryRun();
     $jobs = [
         ...array_map(
@@ -374,12 +374,12 @@ test('serialized fan-out jobs contain typed operations rather than compiled comm
     ];
 
     foreach ($jobs as $job) {
-        expect(queuedJobCompiledPayloadViolations($job))->toBe([], $job::class.' carried compiled command data.');
+        expect(queuedJobKnownCompiledVocabularyViolations($job))->toBe([], $job::class.' carried known compiled vocabulary.');
     }
 });
 
-test('recursive queue payload guard goes red for a nested compiled-command job', function (): void {
-    $violations = queuedJobCompiledPayloadViolations(new RogueCompiledCommandJob([
+test('recursive known-vocabulary guard goes red for a nested compiled-command job', function (): void {
+    $violations = queuedJobKnownCompiledVocabularyViolations(new RogueCompiledCommandJob([
         '/runtime/ffmpeg/bin/ffmpeg',
         '-filter_complex',
         '[0:v][1:v]xfade=transition=fade',

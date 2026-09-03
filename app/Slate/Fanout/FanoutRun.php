@@ -45,6 +45,12 @@ final readonly class FanoutRun
                 throw new InvalidArgumentException('Fan-out operations must use contiguous indexes in splice order.');
             }
 
+            foreach ($operation->inputs() as $operationInput) {
+                if (! in_array($operationInput, $inputs, true)) {
+                    throw new InvalidArgumentException('Fan-out operations must reference only the run input descriptors.');
+                }
+            }
+
             if ($operation->output()->objectKey->value() !== $this->operationKey($index)->value()) {
                 throw new InvalidArgumentException('Fan-out output object keys must derive from the run ID and operation index.');
             }

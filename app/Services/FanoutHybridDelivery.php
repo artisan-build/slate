@@ -14,13 +14,16 @@ use App\Slate\Fanout\FanoutRunId;
 use App\Slate\Fanout\StoredVideo;
 use App\Slate\Recipe\QualityTier;
 use App\Slate\Recipe\Video\SlateVideo;
+use App\Slate\Recipe\Video\VideoTransitionSegment;
 use App\Slate\Recipe\Video\VideoTrim;
+use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\ScratchDirectory;
 use Illuminate\Bus\Batch;
 use Illuminate\Support\Facades\Bus;
+use LogicException;
 use Throwable;
 
 final readonly class FanoutHybridDelivery
@@ -30,6 +33,7 @@ final readonly class FanoutHybridDelivery
         private JobScratch $jobScratch,
         private ObjectStorage $objectStorage,
         private FanoutRunCleanup $cleanup,
+        private FanoutStorageGuard $storageGuard,
     ) {}
 
     /** @param non-empty-list<SlateVideo> $inputs */
@@ -39,6 +43,7 @@ final readonly class FanoutHybridDelivery
         QualityTier $qualityTier,
         ?FanoutRunId $runId = null,
     ): FanoutRun {
+        $this->storageGuard->assertSafe();
         $run = $this->prepare($inputs, $transitionFrameCount, $qualityTier, $runId);
 
         $this->dispatch($run);
@@ -51,7 +56,7 @@ final readonly class FanoutHybridDelivery
      *
      * @param  non-empty-list<SlateVideo>  $inputs
      */
-    public function prepare(
+    private function prepare(
         array $inputs,
         int $transitionFrameCount,
         QualityTier $qualityTier,
@@ -90,27 +95,33 @@ final readonly class FanoutHybridDelivery
                     sprintf('%s/work/operations/%04d.mp4', $prefix, $operationIndex),
                 );
 
-                if ($operation instanceof VideoTrim) {
-                    $operations[] = new BucketVideoTrim(
+                $bucketOperation = match (true) {
+                    $operation instanceof VideoTrim => new BucketVideoTrim(
                         $operationIndex,
                         $storedInputs[$inputIndex],
                         $operation->startFrame,
                         $operation->frameCount,
                         $outputKey,
-                    );
+                    ),
+                    $operation instanceof VideoTransitionSegment => new BucketVideoTransitionSegment(
+                        $operationIndex,
+                        $storedInputs[$inputIndex - 1],
+                        $storedInputs[$inputIndex],
+                        $operation->frameCount,
+                        $operation->qualityTier,
+                        $outputKey,
+                    ),
+                    default => throw new LogicException(sprintf(
+                        'Hybrid fan-out cannot map operation type %s.',
+                        $operation::class,
+                    )),
+                };
+
+                $operations[] = $bucketOperation;
+
+                if ($operation instanceof VideoTrim) {
                     $inputIndex++;
-
-                    continue;
                 }
-
-                $operations[] = new BucketVideoTransitionSegment(
-                    $operationIndex,
-                    $storedInputs[$inputIndex - 1],
-                    $storedInputs[$inputIndex],
-                    $operation->frameCount,
-                    $operation->qualityTier,
-                    $outputKey,
-                );
             }
 
             return $operations;
@@ -132,7 +143,7 @@ final readonly class FanoutHybridDelivery
         return $run;
     }
 
-    public function dispatch(FanoutRun $run): Batch
+    private function dispatch(FanoutRun $run): Batch
     {
         $jobs = array_map(
             static fn (BucketOperation $operation): RenderFanoutOperation => new RenderFanoutOperation(
