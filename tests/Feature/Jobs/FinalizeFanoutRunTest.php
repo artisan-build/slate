@@ -60,10 +60,10 @@ function finalizerRun(): FanoutRun
 /** @param array<string, int> $frameCountsByBasename */
 function finalizerDriver(array $frameCountsByBasename): Driver
 {
-    return new class($frameCountsByBasename) implements Driver
+    return new readonly class($frameCountsByBasename) implements Driver
     {
         /** @param array<string, int> $frameCountsByBasename */
-        public function __construct(private readonly array $frameCountsByBasename) {}
+        public function __construct(private array $frameCountsByBasename) {}
 
         public function run(CompiledRecipe $recipe): DriverResult
         {

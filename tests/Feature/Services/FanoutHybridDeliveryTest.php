@@ -76,12 +76,10 @@ test('stages every source and dispatches one typed bucket operation per hybrid s
         }
     });
 
-    Bus::assertBatched(function (PendingBatch $batch): bool {
-        return $batch->name === 'Slate fan-out 11111111-1111-4111-8111-111111111111'
-            && $batch->jobs->count() === 5
-            && $batch->jobs->every(static fn (object $job): bool => $job instanceof RenderFanoutOperation)
-            && count($batch->finallyCallbacks()) === 1;
-    });
+    Bus::assertBatched(fn (PendingBatch $batch): bool => $batch->name === 'Slate fan-out 11111111-1111-4111-8111-111111111111'
+        && $batch->jobs->count() === 5
+        && $batch->jobs->every(static fn (object $job): bool => $job instanceof RenderFanoutOperation)
+        && count($batch->finallyCallbacks()) === 1);
 });
 
 test('uses deterministic run and operation indexes for every transient object', function (): void {

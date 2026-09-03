@@ -146,7 +146,7 @@ final readonly class FanoutHybridDelivery
             return Bus::batch($jobs)
                 ->name('Slate fan-out '.$run->id->value())
                 ->finally(static function (Batch $batch) use ($run): void {
-                    FinalizeFanoutRun::dispatch($run, $batch->hasFailures());
+                    dispatch(new FinalizeFanoutRun($run, $batch->hasFailures()));
                 })
                 ->dispatch();
         } catch (Throwable $exception) {

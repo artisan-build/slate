@@ -22,6 +22,7 @@ use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\ScratchDirectory;
 use Aws\S3\S3Client;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Sleep;
 
 function requireMultiWorkerRuntime(): void
 {
@@ -131,7 +132,7 @@ test('records the real hostnames used by a bucket-backed worker pool', function 
                 break;
             }
 
-            usleep(100_000);
+            Sleep::usleep(100_000);
         } while (microtime(true) < $deadline);
 
         expect($completionMs)->toHaveCount(count($runs));
