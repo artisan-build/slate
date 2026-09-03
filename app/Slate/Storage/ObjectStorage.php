@@ -15,4 +15,8 @@ interface ObjectStorage
     public function stageIn(ObjectKey $objectKey, ScratchPath $localPath): void;
 
     public function stageOut(ScratchPath $localPath, ObjectKey $objectKey): void;
+
+    public function exists(ObjectKey $objectKey): bool;
+
+    public function delete(ObjectKey $objectKey): void;
 }

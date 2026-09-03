@@ -133,3 +133,23 @@ test('stage-out preserves the driver failure as the previous exception', functio
         }
     });
 });
+
+test('inspects and deletes an object through the configured filesystem', function (): void {
+    $objectKey = ObjectKey::withinPrefix('customers/customer-123', 'customers/customer-123/output.mp4');
+    $filesystem = Mockery::mock(Filesystem::class);
+    $filesystem->shouldReceive('exists')->once()->with($objectKey->value())->andReturnTrue();
+    $filesystem->shouldReceive('delete')->once()->with($objectKey->value())->andReturnTrue();
+    $storage = new S3ObjectStorage($filesystem);
+
+    expect($storage->exists($objectKey))->toBeTrue();
+    $storage->delete($objectKey);
+});
+
+test('reports a refused object deletion', function (): void {
+    $objectKey = ObjectKey::withinPrefix('customers/customer-123', 'customers/customer-123/output.mp4');
+    $filesystem = Mockery::mock(Filesystem::class);
+    $filesystem->shouldReceive('delete')->once()->with($objectKey->value())->andReturnFalse();
+
+    expect(fn () => (new S3ObjectStorage($filesystem))->delete($objectKey))
+        ->toThrow(RuntimeException::class, 'Unable to delete object');
+});

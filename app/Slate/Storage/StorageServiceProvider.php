@@ -15,6 +15,13 @@ final class StorageServiceProvider extends ServiceProvider
             ObjectStorage::class,
             fn (): ObjectStorage => new S3ObjectStorage(Storage::disk()),
         );
+        $this->app->bind(
+            FanoutStorageGuard::class,
+            fn (): FanoutStorageGuard => new FanoutStorageGuard(
+                Storage::disk(),
+                (bool) config('slate.storage.allow_host_local_fanout'),
+            ),
+        );
     }
 
     private function enableStreamReadsOnDefaultS3Disk(): void

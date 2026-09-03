@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\ObjectStorage;
@@ -32,8 +33,11 @@ final class VerifyObjectStorageCommand extends Command
 
     private const int MinimumObjectSizeBytes = 8 * 1024 * 1024;
 
-    public function handle(ObjectStorage $objectStorage, JobScratch $jobScratch): int
-    {
+    public function handle(
+        ObjectStorage $objectStorage,
+        JobScratch $jobScratch,
+        FanoutStorageGuard $storageGuard,
+    ): int {
         $objectKey = ObjectKey::withinPrefix(
             'live-verification',
             'live-verification/object-storage-'.Str::uuid()->toString().'.bin',
@@ -66,6 +70,7 @@ final class VerifyObjectStorageCommand extends Command
             $disk = Storage::disk();
             $result['object_size_bytes'] = $objectSize;
             $result = $this->withResolvedDiskDetails($result, $disk);
+            $storageGuard->assertSafe();
 
             if ($result['resolved_driver'] === 's3' && $result['resolved_stream_reads'] !== true) {
                 throw new RuntimeException('Resolved S3 disk does not have streamed reads enabled.');
