@@ -52,7 +52,8 @@ test('summarizes operation throughput against the configured visibility timeout'
 });
 
 test('pins the published default output duration and frame count', function (): void {
-    expect(FfmpegBenchmark::matchesPublishedOutputShape(550250, 13206))->toBeTrue()
-        ->and(FfmpegBenchmark::matchesPublishedOutputShape(546750, 13122))->toBeFalse()
-        ->and(FfmpegBenchmark::matchesPublishedOutputShape(550250, 13205))->toBeFalse();
+    expect(FfmpegBenchmark::matchesPublishedOutputShape(547000, 13128))->toBeTrue()
+        ->and(FfmpegBenchmark::matchesPublishedOutputShape(550250, 13206))->toBeFalse()
+        ->and(FfmpegBenchmark::matchesPublishedOutputShape(546000, 13128))->toBeFalse()
+        ->and(FfmpegBenchmark::matchesPublishedOutputShape(547000, 13127))->toBeFalse();
 });
