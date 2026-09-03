@@ -28,6 +28,16 @@ final readonly class BenchmarkOutputVerifier
 
     public function captionRegionLuma(ScratchPath $video, float $seconds): float
     {
+        return $this->luma($video, $seconds, 'crop=512:160:64:640,signalstats,metadata=print:key=lavfi.signalstats.YAVG');
+    }
+
+    public function frameLuma(ScratchPath $video, float $seconds): float
+    {
+        return $this->luma($video, $seconds, 'signalstats,metadata=print:key=lavfi.signalstats.YAVG');
+    }
+
+    private function luma(ScratchPath $video, float $seconds, string $filterGraph): float
+    {
         $recipe = new CompiledRecipe(FfmpegLocator::fromSystem(), BinaryExecutable::Ffmpeg, [
             CompiledArgument::option(CompiledOption::HideBanner),
             CompiledArgument::option(CompiledOption::LogLevel),
@@ -38,7 +48,7 @@ final readonly class BenchmarkOutputVerifier
             ...CompiledArgument::filter(
                 CompiledFilterType::Video,
                 CompiledFilterGraph::fromCompiler(
-                    'crop=512:160:64:640,signalstats,metadata=print:key=lavfi.signalstats.YAVG',
+                    $filterGraph,
                 ),
             ),
             CompiledArgument::option(CompiledOption::VideoFrames),
@@ -51,7 +61,7 @@ final readonly class BenchmarkOutputVerifier
             : null;
 
         if ($luma === null) {
-            throw new RuntimeException('Unable to measure the benchmark caption region: '.$result->errorOutput);
+            throw new RuntimeException('Unable to measure the video frame luma: '.$result->errorOutput);
         }
 
         return $luma;

@@ -124,6 +124,10 @@ test('rejects incomplete or contradictory probed media', function (
         ['avg_frame_rate' => '25/1'], true, true, 'aac', 12.0,
         'video.frames_per_second expected 24, probed 25 (avg_frame_rate "25/1")',
     ],
+    'fractional frame count' => [
+        ['nb_frames' => '288.5'], true, true, 'aac', 12.0,
+        'video.nb_frames expected a positive integer, probed "288.5"',
+    ],
     'missing video stream' => [
         [], false, true, 'aac', 12.0,
         'Slate video output probe did not contain a video stream.',

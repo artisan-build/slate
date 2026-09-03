@@ -46,7 +46,9 @@ final class H264OutputContract
             '-coder',
             'cabac',
             '-g',
-            (string) ($framesPerSecond * 2),
+            (string) self::keyframeIntervalFrames($framesPerSecond),
+            CompiledOption::ForceKeyFrames->value,
+            'expr:gte(t,n_forced*1)',
             '-rc_mode',
             'bitrate',
             '-pix_fmt',
@@ -83,6 +85,11 @@ final class H264OutputContract
     public static function audioEncoder(): string
     {
         return 'aac';
+    }
+
+    public static function keyframeIntervalFrames(int $framesPerSecond): int
+    {
+        return $framesPerSecond;
     }
 
     private static function bitsPerPixel(QualityTier $tier): float
