@@ -4,7 +4,7 @@ use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\H264OutputContract;
 use App\Slate\Recipe\QualityTier;
 
-test('computes measured rate control from tier resolution and frame rate', function (
+test('pins output arguments from tier resolution and frame rate', function (
     QualityTier $tier,
     int $width,
     int $height,

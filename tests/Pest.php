@@ -430,7 +430,7 @@ function ffmpegFilterFragmentLocations(string $root, array $exceptions = []): ar
 {
     return sourcePatternLocations(
         $root,
-        '/(?:(?<=[\'",])|(?<=\n)\h*)(?:acrossfade|adelay|amovie|anullsrc|apad|ass|concat|drawtext|fade|format|metadata|movie|overlay|scale|sendcmd|subtitles|xfade|zoompan)\s*=/',
+        '/(?:(?<=[\'",])|(?<=\n)\h*)(?:acrossfade|adelay|amovie|anullsrc|apad|ass|asetpts|atrim|concat|drawtext|fade|format|metadata|movie|overlay|scale|sendcmd|setpts|subtitles|trim|xfade|zoompan)\s*=/',
         $exceptions,
         ['Slate/Driver/'],
     );

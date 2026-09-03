@@ -36,6 +36,36 @@ final readonly class BenchmarkOutputVerifier
         return $this->luma($video, $seconds, 'signalstats,metadata=print:key=lavfi.signalstats.YAVG');
     }
 
+    /** @return non-empty-list<string> */
+    public function frameHashes(ScratchPath $video): array
+    {
+        $recipe = new CompiledRecipe(FfmpegLocator::fromSystem(), BinaryExecutable::Ffmpeg, [
+            CompiledArgument::option(CompiledOption::HideBanner),
+            CompiledArgument::option(CompiledOption::LogLevel),
+            CompiledArgument::literal(CompiledLiteral::Error),
+            CompiledInput::ffmpeg($video),
+            CompiledArgument::option(CompiledOption::Map),
+            CompiledArgument::literal(CompiledLiteral::VideoInputZero),
+            CompiledOutput::frameMd5(),
+        ]);
+        $result = $this->driver->run($recipe);
+        $hashes = [];
+
+        if ($result->successful()) {
+            foreach (preg_split('/\R/', $result->output) ?: [] as $line) {
+                if (preg_match('/,\s*([a-f0-9]{32})$/i', trim($line), $matches) === 1) {
+                    $hashes[] = strtolower($matches[1]);
+                }
+            }
+        }
+
+        if ($hashes === []) {
+            throw new RuntimeException('Unable to hash decoded video frames: '.$result->errorOutput);
+        }
+
+        return $hashes;
+    }
+
     private function luma(ScratchPath $video, float $seconds, string $filterGraph): float
     {
         $recipe = new CompiledRecipe(FfmpegLocator::fromSystem(), BinaryExecutable::Ffmpeg, [

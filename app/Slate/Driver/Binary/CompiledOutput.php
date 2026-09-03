@@ -100,6 +100,15 @@ final readonly class CompiledOutput
         ]);
     }
 
+    public static function frameMd5(): self
+    {
+        return new self([
+            '-f',
+            CompiledLiteral::FrameMd5->value,
+            CompiledLiteral::StandardStream->value,
+        ]);
+    }
+
     public static function null(): self
     {
         return new self(['-f', CompiledLiteral::NullMuxer->value, CompiledLiteral::StandardStream->value]);

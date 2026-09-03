@@ -11,6 +11,8 @@ use App\Slate\Recipe\Audio\AudioSampleRate;
 use App\Slate\Recipe\Audio\AudioSilence;
 use App\Slate\Recipe\Probe;
 use App\Slate\Recipe\QualityTier;
+use App\Slate\Recipe\Video\OverlayFadeIn;
+use App\Slate\Recipe\Video\OverlayImage;
 use App\Slate\Recipe\Video\SlateVideo;
 use App\Slate\Recipe\Video\StillMotion;
 use App\Slate\Recipe\Video\VideoColor;
@@ -76,6 +78,30 @@ function renderSolidHybridVideo(
     ), $compiler, $driver);
 }
 
+function renderTemporalHybridVideo(
+    ScratchDirectory $scratch,
+    RecipeCompiler $compiler,
+    Driver $driver,
+    string $name,
+): SlateVideo {
+    $base = renderSolidHybridVideo($scratch, $compiler, $driver, $name.'-base', '255 0 0');
+    $overlay = $scratch->file($name.'-overlay.ppm');
+    file_put_contents(
+        $overlay->writablePath(),
+        "P6\n1536 1024\n255\n".str_repeat("\xFF\xFF\xFF", 1536 * 1024),
+    );
+
+    return SlateVideo::render(new OverlayImage(
+        $base,
+        $overlay,
+        $scratch->file($name.'.mp4'),
+        0,
+        0,
+        new OverlayFadeIn(0.0, 3.0),
+        0.0,
+    ), $compiler, $driver);
+}
+
 /** @return array<string, mixed> */
 function probeHybridVideo(ScratchPath $path, RecipeCompiler $compiler, Driver $driver): array
 {
@@ -102,19 +128,41 @@ function hybridVideoFrameCount(array $properties): int
     return (int) $frameCount;
 }
 
+/**
+ * Pinned-runtime hard-cut control: substituting two copied half-segments failed on the clip-B check,
+ * where a 5.0 minimum difference received 0.9844000000000008.
+ */
 function expectMeasurableHybridBlend(float $blend, float $from, float $to): void
 {
     expect(abs($blend - $from))->toBeGreaterThan(5.0, 'Mid-transition frame matched the clip-A tail.')
         ->and(abs($blend - $to))->toBeGreaterThan(5.0, 'Mid-transition frame matched the clip-B head.');
 }
 
-test('stream-copy trim is frame-exact and round-trips through copy concat', function (): void {
+/**
+ * @param  list<string>  $actual
+ * @param  list<string>  $expected
+ */
+function expectHybridFrameSequence(array $actual, array $expected, string $context): void
+{
+    expect(count($actual))->toBe(count($expected), $context.' frame count differed.');
+
+    foreach ($expected as $index => $expectedHash) {
+        expect($actual[$index])->toBe($expectedHash, $context." differed at output frame {$index}.");
+    }
+}
+
+/**
+ * Pinned-runtime controls: shifting the second source slice back one frame failed at output frame 0;
+ * replaying the duplicated 0-23 + 0-47 hazard sequence failed reconstruction at output frame 24.
+ */
+test('stream-copy trim preserves requested frames and copy concat reconstructs the source', function (): void {
     requireHybridVideoRuntime();
 
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
         $compiler = resolve(RecipeCompiler::class);
         $driver = resolve(Driver::class);
-        $source = renderSolidHybridVideo($scratch, $compiler, $driver, 'source', '255 0 0');
+        $verifier = resolve(BenchmarkOutputVerifier::class);
+        $source = renderTemporalHybridVideo($scratch, $compiler, $driver, 'source');
         $first = SlateVideo::render(
             new VideoTrim($source, 0, 24, $scratch->file('first.mp4')),
             $compiler,
@@ -137,11 +185,20 @@ test('stream-copy trim is frame-exact and round-trips through copy concat', func
         ), $compiler, $driver);
         $secondProperties = probeHybridVideo($second->path, $compiler, $driver);
         $joinedProperties = probeHybridVideo($joined->path, $compiler, $driver);
+        $sourceHashes = $verifier->frameHashes($source->path);
+        $firstHashes = $verifier->frameHashes($first->path);
+        $secondHashes = $verifier->frameHashes($second->path);
+        $joinedHashes = $verifier->frameHashes($joined->path);
 
-        expect(hybridVideoFrameCount($secondProperties))->toBe(48)
+        // Counts are compiler-pinned; decoded hashes detect duplicated or displaced frame content.
+        expect($sourceHashes)->toHaveCount(72)
+            ->and(array_unique($sourceHashes))->toHaveCount(72)
+            ->and(hybridVideoFrameCount($secondProperties))->toBe(48)
             ->and(abs((float) data_get($secondProperties, 'format.duration') - 2.0))->toBeLessThanOrEqual(0.25)
-            ->and(hybridVideoFrameCount($joinedProperties))->toBe($source->frameCount)
-            ->and($joined->frameCount)->toBe($source->frameCount);
+            ->and(abs((float) data_get($joinedProperties, 'format.duration') - $source->durationSeconds))->toBeLessThanOrEqual(0.25);
+        expectHybridFrameSequence($firstHashes, array_slice($sourceHashes, 0, 24), 'First trim');
+        expectHybridFrameSequence($secondHashes, array_slice($sourceHashes, 24, 48), 'Second trim');
+        expectHybridFrameSequence($joinedHashes, $sourceHashes, 'Copy-concat reconstruction');
     });
 })->group('ffmpeg-render');
 

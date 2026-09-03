@@ -118,10 +118,14 @@ test('recursive filter scan catches a nested rogue fragment', function (): void 
 
     expect(ffmpegFilterFragmentLocations($fixtureDirectory))->toBe([
         'Deeply/Nested/AmovieFilter.php',
+        'Deeply/Nested/AsetptsFilter.php',
+        'Deeply/Nested/AtrimFilter.php',
         'Deeply/Nested/ConcatFilter.php',
         'Deeply/Nested/IndentedHeredocFilter.php',
         'Deeply/Nested/MovieFilter.php',
         'Deeply/Nested/RogueFilter.php',
+        'Deeply/Nested/SetptsFilter.php',
+        'Deeply/Nested/TrimFilter.php',
     ]);
 });
 

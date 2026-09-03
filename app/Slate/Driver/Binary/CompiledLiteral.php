@@ -12,6 +12,7 @@ enum CompiledLiteral: string
     case Concat = 'concat';
     case Copy = 'copy';
     case Error = 'error';
+    case FrameMd5 = 'framemd5';
     case Info = 'info';
     case Image2 = 'image2';
     case Json = 'json';
