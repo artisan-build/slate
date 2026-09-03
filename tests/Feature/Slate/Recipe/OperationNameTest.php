@@ -11,6 +11,8 @@ test('exposes only the named v1 operation allowlist', function (): void {
         'audio.concat',
         'audio.pad',
         'video.still_clip',
+        'video.trim',
+        'video.transition_segment',
         'video.concat',
         'overlay.image',
         'captions.timed_words',

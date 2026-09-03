@@ -10,6 +10,8 @@ use App\Slate\Recipe\Video\OverlayImage;
 use App\Slate\Recipe\Video\SlateVideo;
 use App\Slate\Recipe\Video\VideoConcat;
 use App\Slate\Recipe\Video\VideoStillClip;
+use App\Slate\Recipe\Video\VideoTransitionSegment;
+use App\Slate\Recipe\Video\VideoTrim;
 use App\Slate\Storage\ScratchPath;
 use Tests\TestCase;
 
@@ -29,7 +31,7 @@ function ffmpegFixture(string $name): string
 
 /** @param  array<string, mixed>  $videoStreamOverrides */
 function fakeRenderedSlateVideo(
-    VideoStillClip|VideoConcat|OverlayImage|TimedWords $operation,
+    VideoStillClip|VideoTrim|VideoTransitionSegment|VideoConcat|OverlayImage|TimedWords $operation,
     ?float $durationSeconds = null,
     array $videoStreamOverrides = [],
     bool $includeVideo = true,
@@ -48,6 +50,16 @@ function fakeRenderedSlateVideo(
         $height = $operation->height();
         $framesPerSecond = $operation->framesPerSecond;
         $durationSeconds ??= $operation->outputDurationSeconds();
+    } elseif ($operation instanceof VideoTrim) {
+        $width = $operation->input->width;
+        $height = $operation->input->height;
+        $framesPerSecond = $operation->input->framesPerSecond;
+        $durationSeconds ??= $operation->durationSeconds();
+    } elseif ($operation instanceof VideoTransitionSegment) {
+        $width = $operation->from->width;
+        $height = $operation->from->height;
+        $framesPerSecond = $operation->framesPerSecond();
+        $durationSeconds ??= $operation->durationSeconds();
     } elseif ($operation instanceof OverlayImage) {
         file_put_contents($operation->image->writablePath(), 'image');
         $width = $operation->input->width;
@@ -72,6 +84,7 @@ function fakeRenderedSlateVideo(
             'avg_frame_rate' => $framesPerSecond.'/1',
             'pix_fmt' => 'yuv420p',
             'color_range' => 'tv',
+            'nb_frames' => (string) round($durationSeconds * $framesPerSecond),
         ], $videoStreamOverrides);
     }
 
@@ -417,7 +430,7 @@ function ffmpegFilterFragmentLocations(string $root, array $exceptions = []): ar
 {
     return sourcePatternLocations(
         $root,
-        '/(?:(?<=[\'",])|(?<=\n)\h*)(?:acrossfade|adelay|amovie|anullsrc|apad|ass|concat|drawtext|fade|format|metadata|movie|overlay|scale|sendcmd|subtitles|xfade|zoompan)\s*=/',
+        '/(?:(?<=[\'",])|(?<=\n)\h*)(?:acrossfade|adelay|amovie|anullsrc|apad|ass|asetpts|atrim|concat|drawtext|fade|format|metadata|movie|overlay|scale|sendcmd|setpts|subtitles|trim|xfade|zoompan)\s*=/',
         $exceptions,
         ['Slate/Driver/'],
     );

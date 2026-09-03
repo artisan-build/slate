@@ -27,12 +27,14 @@ final readonly class SlateVideo
         public int $width,
         public int $height,
         public int $framesPerSecond,
+        public int $frameCount,
         public float $durationSeconds,
         public QualityTier $qualityTier,
+        public ?int $keyframeIntervalFrames,
     ) {}
 
     public static function render(
-        VideoStillClip|VideoConcat|OverlayImage|TimedWords $operation,
+        VideoStillClip|VideoTrim|VideoTransitionSegment|VideoConcat|OverlayImage|TimedWords $operation,
         RecipeCompiler $compiler,
         Driver $driver,
     ): self {
@@ -65,13 +67,16 @@ final readonly class SlateVideo
         $width = $videoStream['width'] ?? null;
         $height = $videoStream['height'] ?? null;
         $framesPerSecond = self::framesPerSecond($videoStream['avg_frame_rate'] ?? null);
+        $frameCountValue = $videoStream['nb_frames'] ?? null;
+        $frameCount = self::frameCount($frameCountValue);
         $durationValue = $properties['format']['duration'] ?? null;
         $durationSeconds = is_numeric($durationValue) ? (float) $durationValue : NAN;
-        [$expectedWidth, $expectedHeight, $expectedFramesPerSecond, $expectedDurationSeconds, $qualityTier] = match (true) {
+        [$expectedWidth, $expectedHeight, $expectedFramesPerSecond, $expectedFrameCount, $expectedDurationSeconds, $qualityTier] = match (true) {
             $operation instanceof VideoStillClip => [
                 $operation->width,
                 $operation->height,
                 $operation->framesPerSecond,
+                null,
                 $operation->durationSeconds,
                 $operation->qualityTier,
             ],
@@ -79,6 +84,9 @@ final readonly class SlateVideo
                 $operation->width(),
                 $operation->height(),
                 $operation->framesPerSecond,
+                $operation->mode === VideoConcatMode::Copy
+                    ? array_sum(array_map(static fn (self $input): int => $input->frameCount, $operation->inputs))
+                    : null,
                 $operation->outputDurationSeconds(),
                 $operation->qualityTier,
             ],
@@ -86,6 +94,7 @@ final readonly class SlateVideo
                 $operation->input->width,
                 $operation->input->height,
                 $operation->input->framesPerSecond,
+                null,
                 $operation->input->durationSeconds,
                 $operation->input->qualityTier,
             ],
@@ -93,8 +102,25 @@ final readonly class SlateVideo
                 $operation->input->width,
                 $operation->input->height,
                 $operation->input->framesPerSecond,
+                null,
                 $operation->input->durationSeconds,
                 $operation->input->qualityTier,
+            ],
+            $operation instanceof VideoTrim => [
+                $operation->input->width,
+                $operation->input->height,
+                $operation->input->framesPerSecond,
+                $operation->frameCount,
+                $operation->durationSeconds(),
+                $operation->input->qualityTier,
+            ],
+            $operation instanceof VideoTransitionSegment => [
+                $operation->from->width,
+                $operation->from->height,
+                $operation->framesPerSecond(),
+                $operation->frameCount,
+                $operation->durationSeconds(),
+                $operation->qualityTier,
             ],
         };
 
@@ -155,6 +181,19 @@ final readonly class SlateVideo
             );
         }
 
+        if ($frameCount < 1) {
+            $contractFailures[] = sprintf(
+                'video.nb_frames expected a positive integer, probed %s',
+                self::probeValue($frameCountValue),
+            );
+        } elseif ($expectedFrameCount !== null && $frameCount !== $expectedFrameCount) {
+            $contractFailures[] = sprintf(
+                'video.nb_frames expected %s, probed %s',
+                self::probeValue($expectedFrameCount),
+                self::probeValue($frameCount),
+            );
+        }
+
         if (! AudioDuration::isPositiveMicrosecondDuration($durationSeconds)) {
             $contractFailures[] = sprintf(
                 'format.duration expected a positive microsecond value, probed %s',
@@ -178,7 +217,43 @@ final readonly class SlateVideo
             );
         }
 
-        return new self($output, $width, $height, $framesPerSecond, $durationSeconds, $qualityTier);
+        $keyframeIntervalFrames = match (true) {
+            $operation instanceof VideoTrim => $operation->input->keyframeIntervalFrames,
+            $operation instanceof VideoConcat && $operation->mode === VideoConcatMode::Copy => self::copyKeyframeInterval($operation),
+            default => H264OutputContract::keyframeIntervalFrames($expectedFramesPerSecond),
+        };
+
+        return new self(
+            $output,
+            $width,
+            $height,
+            $framesPerSecond,
+            $frameCount,
+            $durationSeconds,
+            $qualityTier,
+            $keyframeIntervalFrames,
+        );
+    }
+
+    private static function copyKeyframeInterval(VideoConcat $operation): ?int
+    {
+        $interval = $operation->inputs[0]->keyframeIntervalFrames;
+
+        if ($interval === null) {
+            return null;
+        }
+
+        foreach ($operation->inputs as $index => $input) {
+            if ($input->keyframeIntervalFrames !== $interval) {
+                return null;
+            }
+
+            if ($index < count($operation->inputs) - 1 && $input->frameCount % $interval !== 0) {
+                return null;
+            }
+        }
+
+        return $interval;
     }
 
     /**
@@ -214,6 +289,16 @@ final readonly class SlateVideo
         }
 
         return intdiv($numerator, $denominator);
+    }
+
+    private static function frameCount(mixed $value): int
+    {
+        if ((! is_int($value) && ! is_string($value))
+            || preg_match('/^[1-9]\d*$/', (string) $value) !== 1) {
+            return 0;
+        }
+
+        return (int) $value;
     }
 
     /**

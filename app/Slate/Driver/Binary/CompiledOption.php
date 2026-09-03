@@ -36,6 +36,7 @@ enum CompiledOption: string
     case VideoFrames = '-frames:v';
     case VideoProfile = '-profile:v';
     case Filters = '-filters';
+    case ForceKeyFrames = '-force_key_frames';
 
     public function argumentKind(): CompiledArgumentKind
     {

@@ -49,6 +49,18 @@ final readonly class CompiledH264OutputOptions
         return new self(['-map', CompiledLiteral::AudioOutputLabel->value]);
     }
 
+    public static function transition(float $durationSeconds, int $frameCount): self
+    {
+        return new self([
+            '-map',
+            CompiledLiteral::AudioOutputLabel->value,
+            '-t',
+            CompiledArgument::seconds($durationSeconds)->value(),
+            '-frames:v',
+            CompiledArgument::unsignedInteger($frameCount)->value(),
+        ]);
+    }
+
     /** @return list<string> */
     public function commandValues(): array
     {

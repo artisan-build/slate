@@ -13,6 +13,8 @@ use App\Slate\Driver\Binary\Operation\TimedWordsCompiler;
 use App\Slate\Driver\Binary\Operation\VideoConcatCompiler;
 use App\Slate\Driver\Binary\Operation\VideoStillClipCompiler;
 use App\Slate\Driver\Binary\Operation\VideoThumbnailCompiler;
+use App\Slate\Driver\Binary\Operation\VideoTransitionSegmentCompiler;
+use App\Slate\Driver\Binary\Operation\VideoTrimCompiler;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Recipe\Operation;
 use InvalidArgumentException;
@@ -41,6 +43,8 @@ final readonly class RecipeCompiler
             new AudioConcatCompiler($locator),
             new AudioPadCompiler($locator),
             new VideoStillClipCompiler($locator, $filterGraphCompiler),
+            new VideoTrimCompiler($locator),
+            new VideoTransitionSegmentCompiler($locator, $filterGraphCompiler),
             new VideoConcatCompiler($locator, $filterGraphCompiler),
             new OverlayImageCompiler($locator, $filterGraphCompiler),
             new TimedWordsCompiler($locator, $filterGraphCompiler),

@@ -4,7 +4,7 @@ use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\H264OutputContract;
 use App\Slate\Recipe\QualityTier;
 
-test('computes measured rate control from tier resolution and frame rate', function (
+test('pins output arguments from tier resolution and frame rate', function (
     QualityTier $tier,
     int $width,
     int $height,
@@ -23,7 +23,9 @@ test('computes measured rate control from tier resolution and frame rate', funct
         '-coder',
         'cabac',
         '-g',
-        (string) ($framesPerSecond * 2),
+        (string) $framesPerSecond,
+        '-force_key_frames',
+        'expr:gte(t,n_forced*1)',
         '-rc_mode',
         'bitrate',
         '-pix_fmt',
@@ -69,6 +71,11 @@ test('keeps quality tiers distinct and excludes unsupported controls', function 
     }
 
     expect(array_unique(array_map(serialize(...), $outputs)))->toHaveCount(count(QualityTier::cases()));
+});
+
+test('publishes the forced one-second keyframe interval used by stream-copy trims', function (): void {
+    expect(H264OutputContract::keyframeIntervalFrames(24))->toBe(24)
+        ->and(H264OutputContract::keyframeIntervalFrames(30))->toBe(30);
 });
 
 test('provides normalization as an append-only filter fragment', function (): void {

@@ -33,6 +33,8 @@ use App\Slate\Recipe\Video\VideoFit;
 use App\Slate\Recipe\Video\VideoStillClip;
 use App\Slate\Recipe\Video\VideoThumbnail;
 use App\Slate\Recipe\Video\VideoTransition;
+use App\Slate\Recipe\Video\VideoTransitionSegment;
+use App\Slate\Recipe\Video\VideoTrim;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ScratchDirectory;
 
@@ -79,6 +81,10 @@ test('registers production compilers for every shipped operation', function (): 
             ),
             new AudioPad($input, $scratch->file('padded.mp3'), 0.25, 0.5, AudioBitrate::Kbps128),
             $stillClip,
+            new VideoTrim($video, 24, 24, $scratch->file('trimmed.mp4')),
+            new VideoTransitionSegment(
+                $video, $secondVideo, 24, QualityTier::Delivery, $scratch->file('transition.mp4'),
+            ),
             new VideoConcat(
                 [$video, $secondVideo], VideoConcatMode::Xfade,
                 VideoTransition::Fade, 0.5, true, QualityTier::Delivery, 24,
@@ -105,7 +111,8 @@ test('registers production compilers for every shipped operation', function (): 
         expect(app()->getProviders(DriverServiceProvider::class))->toHaveCount(1)
             ->and($compiler)->toBeInstanceOf(RecipeCompiler::class)
             ->and($executables)->toBe([
-                'ffprobe', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg',
+                'ffprobe', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg',
+                'ffmpeg', 'ffmpeg', 'ffmpeg',
             ]);
     });
 });

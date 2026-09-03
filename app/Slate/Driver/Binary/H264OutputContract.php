@@ -10,9 +10,13 @@ use App\Slate\Recipe\QualityTier;
  * Builds the complete H.264 and AAC output contract for video re-encode operations.
  *
  * Audio-copy operations must not use this contract because it intentionally emits AAC settings.
+ * The tier calibration and 204.6-second baseline used the former two-second GOP; both must be
+ * re-measured before comparing them with outputs from this one-second keyframe contract.
  */
 final class H264OutputContract
 {
+    private const int KeyframeIntervalSeconds = 1;
+
     /**
      * Returns output arguments without an operation filtergraph.
      *
@@ -46,7 +50,9 @@ final class H264OutputContract
             '-coder',
             'cabac',
             '-g',
-            (string) ($framesPerSecond * 2),
+            (string) self::keyframeIntervalFrames($framesPerSecond),
+            CompiledOption::ForceKeyFrames->value,
+            'expr:gte(t,n_forced*'.self::KeyframeIntervalSeconds.')',
             '-rc_mode',
             'bitrate',
             '-pix_fmt',
@@ -83,6 +89,11 @@ final class H264OutputContract
     public static function audioEncoder(): string
     {
         return 'aac';
+    }
+
+    public static function keyframeIntervalFrames(int $framesPerSecond): int
+    {
+        return $framesPerSecond * self::KeyframeIntervalSeconds;
     }
 
     private static function bitsPerPixel(QualityTier $tier): float

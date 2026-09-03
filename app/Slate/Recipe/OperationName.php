@@ -11,6 +11,8 @@ enum OperationName: string
     case AudioConcat = 'audio.concat';
     case AudioPad = 'audio.pad';
     case VideoStillClip = 'video.still_clip';
+    case VideoTrim = 'video.trim';
+    case VideoTransitionSegment = 'video.transition_segment';
     case VideoConcat = 'video.concat';
     case OverlayImage = 'overlay.image';
     case CaptionsTimedWords = 'captions.timed_words';
