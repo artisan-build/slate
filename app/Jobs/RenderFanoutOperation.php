@@ -10,6 +10,7 @@ use App\Slate\Fanout\BucketOperation;
 use App\Slate\Fanout\FanoutReceipt;
 use App\Slate\Fanout\FanoutRunId;
 use App\Slate\Recipe\Video\SlateVideo;
+use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\ObjectStorage;
@@ -47,7 +48,9 @@ final class RenderFanoutOperation implements ShouldQueue
         JobScratch $jobScratch,
         RecipeCompiler $compiler,
         Driver $driver,
+        FanoutStorageGuard $storageGuard,
     ): void {
+        $storageGuard->assertSafe();
         $startedAtMs = self::monotonicMilliseconds();
 
         $jobScratch->run(function (ScratchDirectory $scratch) use (

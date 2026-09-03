@@ -9,6 +9,7 @@ use App\Slate\Fanout\BucketVideoTrim;
 use App\Slate\Fanout\FanoutRunId;
 use App\Slate\Fanout\StoredVideo;
 use App\Slate\Recipe\QualityTier;
+use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\ObjectStorage;
@@ -212,6 +213,7 @@ test('moves a queued operation input and output through MinIO', function (): voi
             resolve(JobScratch::class),
             RecipeCompiler::fromSystem(),
             minioFanoutDriver(),
+            resolve(FanoutStorageGuard::class),
         );
 
         expect($objectStorage->exists($outputKey))->toBeTrue()

@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Sleep;
 use League\Flysystem\AwsS3V3\AwsS3V3Adapter;
+use League\Flysystem\Filesystem;
 
 function fakeRssSamples(int $beforeKilobytes, int $peakKilobytes): void
 {
@@ -22,7 +23,6 @@ function fakeRssSamples(int $beforeKilobytes, int $peakKilobytes): void
 
 function fakeResolvedS3Disk(bool $streamReads): FilesystemAdapter
 {
-    $localDisk = Storage::fake('object-storage-verifier-s3', ['driver' => 'local']);
     $adapter = new AwsS3V3Adapter(
         new S3Client([
             'version' => 'latest',
@@ -32,7 +32,7 @@ function fakeResolvedS3Disk(bool $streamReads): FilesystemAdapter
         'test-bucket',
         streamReads: $streamReads,
     );
-    $disk = new FilesystemAdapter($localDisk->getDriver(), $adapter, ['driver' => 's3']);
+    $disk = new FilesystemAdapter(new Filesystem($adapter), $adapter, ['driver' => 's3']);
 
     config()->set('filesystems.default', 'resolved-s3');
     Storage::set('resolved-s3', $disk);
@@ -83,7 +83,7 @@ test('fails closed when the resolved default adapter is host-local', function ()
 });
 
 test('fails when the resolved S3 adapter has streamed reads disabled', function (): void {
-    $disk = fakeResolvedS3Disk(false);
+    fakeResolvedS3Disk(false);
 
     $exitCode = Artisan::call('slate:verify-object-storage', ['--bytes' => '8388608']);
     $result = json_decode(trim(Artisan::output()), true, flags: JSON_THROW_ON_ERROR);
@@ -91,8 +91,9 @@ test('fails when the resolved S3 adapter has streamed reads disabled', function 
     expect($exitCode)->toBe(1)
         ->and($result['resolved_driver'])->toBe('s3')
         ->and($result['resolved_stream_reads'])->toBeFalse()
+        ->and($result['exists_after_stage_out'])->toBeFalse()
+        ->and($result['deleted'])->toBeTrue()
         ->and($result['error'])->toContain('Resolved S3 disk does not have streamed reads enabled.');
-    $disk->assertMissing($result['object_key']);
 });
 
 test('fails when RSS growth exceeds ten percent of the object size', function (): void {

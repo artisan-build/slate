@@ -12,6 +12,7 @@ use App\Slate\Fanout\FanoutRun;
 use App\Slate\Recipe\Video\SlateVideo;
 use App\Slate\Recipe\Video\VideoConcat;
 use App\Slate\Recipe\Video\VideoConcatMode;
+use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\ScratchDirectory;
@@ -43,7 +44,10 @@ final class FinalizeFanoutRun implements ShouldQueue
         RecipeCompiler $compiler,
         Driver $driver,
         FanoutRunCleanup $cleanup,
+        FanoutStorageGuard $storageGuard,
     ): void {
+        $storageGuard->assertSafe();
+
         if ($this->batchFailed) {
             $cleanup->allObjects($this->run);
 

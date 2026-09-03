@@ -13,6 +13,7 @@ use App\Slate\Fanout\FanoutRun;
 use App\Slate\Fanout\FanoutRunId;
 use App\Slate\Fanout\StoredVideo;
 use App\Slate\Recipe\QualityTier;
+use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\ObjectStorage;
@@ -126,6 +127,7 @@ function stageFinalizerWork(FanoutRun $run, ObjectStorage $objectStorage, JobScr
 
 test('copy-concatenates staged operation outputs and records host evidence before cleaning work objects', function (): void {
     Storage::fake();
+    config()->set('slate.storage.allow_host_local_fanout', true);
     $run = finalizerRun();
     $objectStorage = resolve(ObjectStorage::class);
     $jobScratch = resolve(JobScratch::class);
@@ -139,7 +141,14 @@ test('copy-concatenates staged operation outputs and records host evidence befor
     ]);
     $job = new FinalizeFanoutRun($run, false);
 
-    $job->handle($objectStorage, $jobScratch, RecipeCompiler::fromSystem(), $driver, $cleanup);
+    $job->handle(
+        $objectStorage,
+        $jobScratch,
+        RecipeCompiler::fromSystem(),
+        $driver,
+        $cleanup,
+        resolve(FanoutStorageGuard::class),
+    );
 
     Storage::disk()->assertExists($run->outputKey()->value());
     Storage::disk()->assertExists($run->resultKey()->value());
@@ -162,6 +171,7 @@ test('copy-concatenates staged operation outputs and records host evidence befor
 
 test('treats a completed output and result as an idempotent finalizer redelivery', function (): void {
     Storage::fake();
+    config()->set('slate.storage.allow_host_local_fanout', true);
     $run = finalizerRun();
     Storage::disk()->put($run->outputKey()->value(), 'completed output');
     Storage::disk()->put($run->resultKey()->value(), '{"status":"completed"}');
@@ -174,6 +184,7 @@ test('treats a completed output and result as an idempotent finalizer redelivery
         RecipeCompiler::fromSystem(),
         $driver,
         resolve(FanoutRunCleanup::class),
+        resolve(FanoutStorageGuard::class),
     );
 
     expect(Storage::disk()->get($run->outputKey()->value()))->toBe('completed output')
@@ -182,6 +193,7 @@ test('treats a completed output and result as an idempotent finalizer redelivery
 
 test('removes every run object when an operation batch fails', function (): void {
     Storage::fake();
+    config()->set('slate.storage.allow_host_local_fanout', true);
     $run = finalizerRun();
 
     foreach ($run->allObjectKeys() as $key) {
@@ -196,6 +208,7 @@ test('removes every run object when an operation batch fails', function (): void
         RecipeCompiler::fromSystem(),
         $driver,
         resolve(FanoutRunCleanup::class),
+        resolve(FanoutStorageGuard::class),
     );
 
     expect(Storage::disk()->allFiles($run->id->prefix()))->toBe([]);

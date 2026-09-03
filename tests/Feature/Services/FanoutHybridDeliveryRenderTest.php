@@ -23,6 +23,7 @@ use App\Slate\Recipe\Video\StillMotion;
 use App\Slate\Recipe\Video\VideoColor;
 use App\Slate\Recipe\Video\VideoFit;
 use App\Slate\Recipe\Video\VideoStillClip;
+use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\ScratchDirectory;
@@ -145,6 +146,7 @@ test('queued segment jobs match synchronous hybrid output through one final copy
                 $jobScratch,
                 $compiler,
                 $driver,
+                resolve(FanoutStorageGuard::class),
             );
         }
 
@@ -154,6 +156,7 @@ test('queued segment jobs match synchronous hybrid output through one final copy
             $compiler,
             $driver,
             $cleanup,
+            resolve(FanoutStorageGuard::class),
         );
         $fanoutOutput = $scratch->file('fanout.mp4');
         $resultPath = $scratch->file('result.json');

@@ -10,6 +10,7 @@ use App\Slate\Fanout\FanoutReceipt;
 use App\Slate\Fanout\FanoutRunId;
 use App\Slate\Fanout\StoredVideo;
 use App\Slate\Recipe\QualityTier;
+use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\ObjectStorage;
@@ -68,6 +69,7 @@ function fanoutJobDriver(array $frameCountsByBasename): Driver
 
 test('stages bucket inputs into invocation scratch and overwrites deterministic outputs on redelivery', function (): void {
     Storage::fake();
+    config()->set('slate.storage.allow_host_local_fanout', true);
     $runId = FanoutRunId::fromString('33333333-3333-4333-8333-333333333333');
     $prefix = $runId->prefix();
     $inputKey = ObjectKey::withinPrefix($prefix, $prefix.'/work/inputs/0000.mp4');
@@ -90,9 +92,10 @@ test('stages bucket inputs into invocation scratch and overwrites deterministic 
     $driver = fanoutJobDriver(['input-00.mp4' => 72, 'output.mp4' => 48]);
     Storage::disk()->put($inputKey->value(), 'bucket source');
 
-    $job->handle($objectStorage, $jobScratch, $compiler, $driver);
+    $storageGuard = resolve(FanoutStorageGuard::class);
+    $job->handle($objectStorage, $jobScratch, $compiler, $driver, $storageGuard);
     $firstOutput = Storage::disk()->get($outputKey->value());
-    $job->handle($objectStorage, $jobScratch, $compiler, $driver);
+    $job->handle($objectStorage, $jobScratch, $compiler, $driver, $storageGuard);
 
     Storage::disk()->assertExists($outputKey->value());
     Storage::disk()->assertExists($prefix.'/work/receipts/0000.json');
