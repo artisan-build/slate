@@ -35,6 +35,7 @@ use App\Slate\Recipe\Video\VideoConcatMode;
 use App\Slate\Recipe\Video\VideoFit;
 use App\Slate\Recipe\Video\VideoStillClip;
 use App\Slate\Recipe\Video\VideoTransition;
+use App\Slate\Recipe\Video\VideoTransitionSegment;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ScratchDirectory;
 use App\Slate\Storage\ScratchPath;
@@ -49,15 +50,28 @@ class FfmpegBenchmark
 
     private const int FramesPerSecond = 24;
 
-    private const float TransitionDurationSeconds = 0.75;
+    /**
+     * One second, aligned to the 24-frame keyframe grid the trim vocabulary enforces: a 0.75-second
+     * transition is 18 frames and cannot begin on a guaranteed keyframe boundary. The published
+     * 547000 ms / 13128-frame shape below is this transition on the 540/40 default workload
+     * (14 x 40s - 13 x 1s), replacing the 550250 ms / 13206-frame shape of the 0.75s era.
+     */
+    private const float TransitionDurationSeconds = 1.0;
 
     private const int PublishedTargetDurationSeconds = 540;
 
     private const int PublishedSegmentDurationSeconds = 40;
 
-    private const int PublishedOutputDurationMs = 550250;
+    private const int PublishedOutputDurationMs = 547000;
 
-    private const int PublishedOutputFrameCount = 13206;
+    private const int PublishedOutputFrameCount = 13128;
+
+    /**
+     * Copy-concatenated AAC audio may overshoot the exact video stream by one codec frame per input,
+     * so the hybrid strategy's duration check tolerates container slop. Its frame count stays exact:
+     * a mis-spliced junction always shows up as a frame-count drift.
+     */
+    private const int PublishedOutputDurationToleranceMs = 1000;
 
     public function __construct(
         private readonly JobScratch $jobScratch,
@@ -67,20 +81,49 @@ class FfmpegBenchmark
     ) {}
 
     /**
+     * Middle segments keep a positive-length body only above two transitions plus one frame, so the
+     * friendly harness guard is derived from the transition instead of hardcoded against it.
+     */
+    private static function minimumHybridSegmentDurationSeconds(): int
+    {
+        $requiredSeconds = self::TransitionDurationSeconds * 2 + 1 / self::FramesPerSecond;
+
+        return (int) $requiredSeconds + 1;
+    }
+
+    /**
      * @return array<string, mixed>
      */
-    public function run(string $runId, int $targetDurationSeconds, int $segmentDurationSeconds): array
-    {
+    public function run(
+        string $runId,
+        int $targetDurationSeconds,
+        int $segmentDurationSeconds,
+        BenchmarkStrategy $strategy = BenchmarkStrategy::Both,
+    ): array {
         if ($targetDurationSeconds < 1
             || $segmentDurationSeconds < 1
             || $segmentDurationSeconds > $targetDurationSeconds) {
             throw new RuntimeException('Benchmark durations must be positive and the segment cannot exceed the target.');
         }
 
+        if ($strategy->includesHybrid() && $segmentDurationSeconds < self::minimumHybridSegmentDurationSeconds()) {
+            throw new RuntimeException(sprintf(
+                'Benchmark hybrid assembly requires segments of at least %d seconds; %d requested.',
+                self::minimumHybridSegmentDurationSeconds(),
+                $segmentDurationSeconds,
+            ));
+        }
+
+        $transitionDuration = self::TransitionDurationSeconds;
+        $transitionFrameCount = (int) round($transitionDuration * self::FramesPerSecond);
+
         return $this->jobScratch->run(function (ScratchDirectory $scratch) use (
             $runId,
             $targetDurationSeconds,
             $segmentDurationSeconds,
+            $strategy,
+            $transitionDuration,
+            $transitionFrameCount,
         ): array {
             $assetStartedAtMs = $this->monotonicMilliseconds();
             $illustration = $scratch->file('illustration.ppm');
@@ -190,57 +233,160 @@ class FfmpegBenchmark
                 $overlayStart,
             ));
             $measurements[] = $overlayMeasurement;
-            $transitionDuration = min(self::TransitionDurationSeconds, $segmentDurationSeconds / 4);
             $concatInputCount = $this->concatInputCount(
                 $targetDurationSeconds,
                 $segmentDurationSeconds,
                 $transitionDuration,
             );
-            [$finalVideo, $concatMeasurement] = $this->renderVideo(new VideoConcat(
-                array_fill(0, $concatInputCount, $overlaidVideo),
-                VideoConcatMode::Xfade,
-                VideoTransition::Fade,
-                $transitionDuration,
-                true,
-                QualityTier::Delivery,
-                self::FramesPerSecond,
-                $scratch->file('benchmark.mp4'),
-            ));
-            $measurements[] = $concatMeasurement;
-            $output = $this->assertFinalOutput(
-                $finalVideo,
-                $targetDurationSeconds,
-                $segmentDurationSeconds,
-            );
+            $concatInputs = array_fill(0, $concatInputCount, $overlaidVideo);
+            $strategies = [];
+            $xfadeVideo = null;
+
+            if ($strategy->includesXfade()) {
+                $xfadeTier = QualityTier::Delivery;
+                $strategyStartedAtMs = $this->monotonicMilliseconds();
+                [$xfadeVideo, $xfadeMeasurement] = $this->renderVideo(new VideoConcat(
+                    $concatInputs,
+                    VideoConcatMode::Xfade,
+                    VideoTransition::Fade,
+                    $transitionDuration,
+                    true,
+                    $xfadeTier,
+                    self::FramesPerSecond,
+                    $scratch->file('benchmark.mp4'),
+                ));
+                $xfadeOutput = $this->assertFinalOutput(
+                    $xfadeVideo,
+                    $targetDurationSeconds,
+                    $segmentDurationSeconds,
+                );
+                $strategies['xfade'] = [
+                    'measurements' => [$xfadeMeasurement],
+                    'output_quality_tier' => $xfadeTier->value,
+                    'summary' => self::summarizeStrategy(
+                        [$xfadeMeasurement],
+                        $this->monotonicMilliseconds() - $strategyStartedAtMs,
+                        (int) config('slate.benchmark.visibility_timeout_seconds'),
+                    ),
+                    'output' => $xfadeOutput,
+                ];
+            }
+
+            if ($strategy->includesHybrid()) {
+                $strategyStartedAtMs = $this->monotonicMilliseconds();
+                $hybrid = (new HybridDeliveryAssembly($this->compiler, $this->driver))->assemble(
+                    $concatInputs,
+                    $transitionFrameCount,
+                    $overlaidVideo->qualityTier,
+                    $scratch->file('benchmark-hybrid.mp4'),
+                );
+                $verifiedCopyOperations = 0;
+                $reEncodeOperations = 0;
+
+                foreach ($hybrid['operations'] as $index => $operation) {
+                    if ($operation instanceof VideoTransitionSegment) {
+                        $reEncodeOperations++;
+
+                        continue;
+                    }
+
+                    $violations = $this->outputVerifier->streamCopyViolations($this->compiler->compile($operation));
+
+                    if ($violations !== []) {
+                        throw new RuntimeException(sprintf(
+                            'Benchmark hybrid step %d (%s) would re-encode: %s. Stream-copy numbers are meaningless for a re-encoding path.',
+                            $index + 1,
+                            $operation->name()->value,
+                            implode('; ', $violations),
+                        ));
+                    }
+
+                    $verifiedCopyOperations++;
+                }
+
+                if ($verifiedCopyOperations < 1) {
+                    throw new RuntimeException('Benchmark hybrid assembly verified no stream-copy operations; the instrument cannot prove the lever.');
+                }
+
+                if ($xfadeVideo !== null && $hybrid['output']->frameCount !== $xfadeVideo->frameCount) {
+                    throw new RuntimeException(sprintf(
+                        'Benchmark hybrid output frame count %d does not equal the xfade output frame count %d for identical inputs.',
+                        $hybrid['output']->frameCount,
+                        $xfadeVideo->frameCount,
+                    ));
+                }
+
+                $hybridOutput = $this->assertFinalOutput(
+                    $hybrid['output'],
+                    $targetDurationSeconds,
+                    $segmentDurationSeconds,
+                    array_sum(array_map(
+                        static fn (SlateVideo $input): int => $input->frameCount,
+                        $concatInputs,
+                    )) - $transitionFrameCount * ($concatInputCount - 1),
+                );
+
+                if ($xfadeVideo !== null
+                    && abs($hybridOutput['duration_ms'] - $strategies['xfade']['output']['duration_ms']) > self::PublishedOutputDurationToleranceMs) {
+                    throw new RuntimeException(sprintf(
+                        'Benchmark hybrid output duration %dms drifted from the xfade output duration %dms.',
+                        $hybridOutput['duration_ms'],
+                        $strategies['xfade']['output']['duration_ms'],
+                    ));
+                }
+
+                $strategies['hybrid'] = [
+                    'measurements' => $hybrid['measurements'],
+                    'output_quality_tier' => $overlaidVideo->qualityTier->value,
+                    'summary' => self::summarizeStrategy(
+                        $hybrid['measurements'],
+                        $this->monotonicMilliseconds() - $strategyStartedAtMs,
+                        (int) config('slate.benchmark.visibility_timeout_seconds'),
+                    ),
+                    'output' => $hybridOutput,
+                    'stream_copy' => [
+                        'verified' => true,
+                        'verified_copy_operations' => $verifiedCopyOperations,
+                        're_encode_operations' => $reEncodeOperations,
+                    ],
+                ];
+            }
+
+            $referenceOutput = $strategies[$strategy->includesXfade() ? 'xfade' : 'hybrid']['output'];
+            $allMeasurements = [...$measurements];
+
+            foreach ($strategies as $strategyResult) {
+                array_push($allMeasurements, ...$strategyResult['measurements']);
+            }
+
             $finishedAtMs = $this->monotonicMilliseconds();
-            $summary = self::summarizeMeasurements(
-                $measurements,
-                $output['duration_ms'],
-                $finishedAtMs - $startedAtMs,
-                (int) config('slate.benchmark.visibility_timeout_seconds'),
-            );
+            $summary = $this->summarizeOverall($allMeasurements, $referenceOutput['duration_ms'], $finishedAtMs - $startedAtMs);
 
             return [
                 'run_id' => $runId,
                 'workload' => [
                     'source_type' => 'procedural_illustration',
                     'real_footage_throughput' => 'UNVERIFIED',
+                    'real_footage_output_size' => 'UNVERIFIED',
                     'width' => self::Width,
                     'height' => self::Height,
                     'frames_per_second' => self::FramesPerSecond,
                     'still_supersample' => 2,
                     'segment_duration_seconds' => $segmentDurationSeconds,
                     'target_duration_seconds' => $targetDurationSeconds,
+                    'transition_duration_seconds' => $transitionDuration,
+                    'transition_frame_count' => $transitionFrameCount,
                     'concat_input_count' => $concatInputCount,
                     'caption_word_count' => count($words),
                     'intermediate_quality_tier' => QualityTier::Intermediate->value,
-                    'final_quality_tier' => QualityTier::Delivery->value,
+                    'hybrid_quality_tier' => $overlaidVideo->qualityTier->value,
+                    'strategy' => $strategy->value,
                     'production_operation_timeout_seconds' => (int) config('slate.driver.timeout_seconds'),
                     'instrument_operation_timeout_seconds' => (int) config('slate.benchmark.instrument_operation_timeout_seconds'),
                 ],
                 'asset_preparation_ms' => $assetPreparationMs,
                 'measurements' => $measurements,
-                'output' => $output,
+                'strategies' => $strategies,
                 'captions' => [
                     'baseline_region_luma' => $baselineLuma,
                     'active_region_luma' => $activeLuma,
@@ -255,40 +401,21 @@ class FfmpegBenchmark
     }
 
     /**
-     * @param  list<array{operation: string, media_duration_ms: int, processing_duration_ms: int, output_size_bytes: int}>  $measurements
-     * @return array{operation_media_ms: int, operation_processing_ms: int, operation_realtime_factor: float, segment_media_ms: int, segment_processing_ms: int, segment_realtime_factor: float, caption_media_ms: int, caption_processing_ms: int, caption_realtime_factor: float, concat_media_ms: int, concat_processing_ms: int, concat_realtime_factor: float, output_duration_ms: int, total_wall_ms: int, end_to_end_realtime_factor: float, peak_operation: string, peak_operation_ms: int, driver_timeout_ms: int, driver_headroom_ms: int, visibility_timeout_ms: int, visibility_headroom_ms: int}
+     * Summary of one strategy's own operations only. Every field is true of the assembly alone, so
+     * no peak can sit next to a wall that excludes it: shared asset preparation belongs to the
+     * run-level summary, and an end-to-end realtime factor over a partial wall has no honest
+     * reading and is deliberately not emitted. strategy_realtime_factor divides the strategy's
+     * media sum by its processing sum over the same operation set.
+     *
+     * @param  non-empty-list<array{operation: string, media_duration_ms: int, processing_duration_ms: int, output_size_bytes: int}>  $measurements
+     * @return array{assembly_wall_ms: int, strategy_media_ms: int, strategy_processing_ms: int, strategy_realtime_factor: float, peak_operation: string, peak_operation_ms: int, driver_timeout_ms: int, driver_headroom_ms: int, visibility_timeout_ms: int, visibility_headroom_ms: int}
      */
-    public static function summarizeMeasurements(
+    public static function summarizeStrategy(
         array $measurements,
-        int $outputDurationMs,
-        int $totalWallMs,
+        int $assemblyWallMs,
         int $visibilityTimeoutSeconds,
         ?int $driverTimeoutSeconds = null,
     ): array {
-        $operationMediaMs = array_sum(array_column($measurements, 'media_duration_ms'));
-        $operationProcessingMs = array_sum(array_column($measurements, 'processing_duration_ms'));
-        $captionMeasurements = array_values(array_filter(
-            $measurements,
-            static fn (array $measurement): bool => $measurement['operation'] === 'captions.timed_words',
-        ));
-        $segmentMeasurements = array_values(array_filter(
-            $measurements,
-            static fn (array $measurement): bool => $measurement['operation'] !== 'video.concat',
-        ));
-        $concatMeasurements = array_values(array_filter(
-            $measurements,
-            static fn (array $measurement): bool => $measurement['operation'] === 'video.concat',
-        ));
-
-        if ($captionMeasurements === [] || $segmentMeasurements === [] || $concatMeasurements === []) {
-            throw new RuntimeException('Benchmark measurements must include segment, caption, and concat operations.');
-        }
-        $captionMediaMs = array_sum(array_column($captionMeasurements, 'media_duration_ms'));
-        $captionProcessingMs = array_sum(array_column($captionMeasurements, 'processing_duration_ms'));
-        $segmentMediaMs = max(array_column($segmentMeasurements, 'media_duration_ms'));
-        $segmentProcessingMs = array_sum(array_column($segmentMeasurements, 'processing_duration_ms'));
-        $concatMediaMs = array_sum(array_column($concatMeasurements, 'media_duration_ms'));
-        $concatProcessingMs = array_sum(array_column($concatMeasurements, 'processing_duration_ms'));
         $peak = $measurements[0];
 
         foreach ($measurements as $measurement) {
@@ -297,25 +424,16 @@ class FfmpegBenchmark
             }
         }
 
+        $strategyMediaMs = array_sum(array_column($measurements, 'media_duration_ms'));
+        $strategyProcessingMs = array_sum(array_column($measurements, 'processing_duration_ms'));
         $visibilityTimeoutMs = $visibilityTimeoutSeconds * 1000;
         $driverTimeoutMs = ($driverTimeoutSeconds ?? (int) config('slate.driver.timeout_seconds')) * 1000;
 
         return [
-            'operation_media_ms' => $operationMediaMs,
-            'operation_processing_ms' => $operationProcessingMs,
-            'operation_realtime_factor' => round($operationMediaMs / max(1, $operationProcessingMs), 3),
-            'segment_media_ms' => $segmentMediaMs,
-            'segment_processing_ms' => $segmentProcessingMs,
-            'segment_realtime_factor' => round($segmentMediaMs / max(1, $segmentProcessingMs), 3),
-            'caption_media_ms' => $captionMediaMs,
-            'caption_processing_ms' => $captionProcessingMs,
-            'caption_realtime_factor' => round($captionMediaMs / max(1, $captionProcessingMs), 3),
-            'concat_media_ms' => $concatMediaMs,
-            'concat_processing_ms' => $concatProcessingMs,
-            'concat_realtime_factor' => round($concatMediaMs / max(1, $concatProcessingMs), 3),
-            'output_duration_ms' => $outputDurationMs,
-            'total_wall_ms' => max(1, $totalWallMs),
-            'end_to_end_realtime_factor' => round($outputDurationMs / max(1, $totalWallMs), 3),
+            'assembly_wall_ms' => max(1, $assemblyWallMs),
+            'strategy_media_ms' => $strategyMediaMs,
+            'strategy_processing_ms' => $strategyProcessingMs,
+            'strategy_realtime_factor' => round($strategyMediaMs / max(1, $strategyProcessingMs), 3),
             'peak_operation' => $peak['operation'],
             'peak_operation_ms' => $peak['processing_duration_ms'],
             'driver_timeout_ms' => $driverTimeoutMs,
@@ -329,6 +447,39 @@ class FfmpegBenchmark
     {
         return $durationMs === self::PublishedOutputDurationMs
             && $frameCount === self::PublishedOutputFrameCount;
+    }
+
+    /**
+     * Run-wide summary across every measured operation of both strategies: the worst single
+     * operation observed anywhere, against both production walls.
+     *
+     * @param  non-empty-list<array{operation: string, media_duration_ms: int, processing_duration_ms: int, output_size_bytes: int}>  $measurements
+     * @return array{output_duration_ms: int, total_wall_ms: int, end_to_end_realtime_factor: float, peak_operation: string, peak_operation_ms: int, driver_timeout_ms: int, driver_headroom_ms: int, visibility_timeout_ms: int, visibility_headroom_ms: int}
+     */
+    private function summarizeOverall(array $measurements, int $outputDurationMs, int $totalWallMs): array
+    {
+        $peak = $measurements[0];
+
+        foreach ($measurements as $measurement) {
+            if ($measurement['processing_duration_ms'] > $peak['processing_duration_ms']) {
+                $peak = $measurement;
+            }
+        }
+
+        $driverTimeoutMs = (int) config('slate.driver.timeout_seconds') * 1000;
+        $visibilityTimeoutMs = (int) config('slate.benchmark.visibility_timeout_seconds') * 1000;
+
+        return [
+            'output_duration_ms' => $outputDurationMs,
+            'total_wall_ms' => max(1, $totalWallMs),
+            'end_to_end_realtime_factor' => round($outputDurationMs / max(1, $totalWallMs), 3),
+            'peak_operation' => $peak['operation'],
+            'peak_operation_ms' => $peak['processing_duration_ms'],
+            'driver_timeout_ms' => $driverTimeoutMs,
+            'driver_headroom_ms' => $driverTimeoutMs - $peak['processing_duration_ms'],
+            'visibility_timeout_ms' => $visibilityTimeoutMs,
+            'visibility_headroom_ms' => $visibilityTimeoutMs - $peak['processing_duration_ms'],
+        ];
     }
 
     /**
@@ -437,12 +588,18 @@ class FfmpegBenchmark
     }
 
     /**
+     * Probes the final output of one strategy. The duration-derived frame expectation applies to
+     * re-encoded timelines; a copy-concatenated timeline instead carries an explicit exact frame
+     * count, because concatenated AAC can drift the container duration while the video stream stays
+     * frame-exact, and a mis-spliced junction always surfaces as a frame-count drift.
+     *
      * @return array{duration_ms: int, frame_count: int, expected_frame_count: int, published_shape_verified: bool, width: int, height: int, frames_per_second: int, output_size_bytes: int}
      */
     private function assertFinalOutput(
         SlateVideo $video,
         int $targetDurationSeconds,
         int $segmentDurationSeconds,
+        ?int $expectedFrameCount = null,
     ): array {
         $result = $this->driver->run($this->compiler->compile(new Probe($video->path)));
 
@@ -476,29 +633,43 @@ class FfmpegBenchmark
         $frameCount = is_array($videoStream) && is_numeric($videoStream['nb_frames'] ?? null)
             ? (int) $videoStream['nb_frames']
             : null;
-        $expectedFrameCount = (int) round($video->durationSeconds * $video->framesPerSecond);
+        $durationDerivedFrameCount = (int) round($video->durationSeconds * $video->framesPerSecond);
+        $isDurationDerivedExpectation = $expectedFrameCount === null;
+        $expectedFrameCount ??= $durationDerivedFrameCount;
         $durationMs = (int) round($video->durationSeconds * 1000);
 
-        if ($frameCount === null || abs($frameCount - $expectedFrameCount) > 1) {
+        if ($frameCount === null) {
+            throw new RuntimeException('Benchmark final frame count is unavailable from the probe.');
+        }
+
+        $frameCountTolerance = $isDurationDerivedExpectation ? 1 : 0;
+
+        if (abs($frameCount - $expectedFrameCount) > $frameCountTolerance) {
             throw new RuntimeException(sprintf(
-                'Benchmark final frame count does not match its probed duration (expected %d, probed %s).',
+                'Benchmark final frame count does not match its expectation (expected %d +/- %d, probed %d).',
                 $expectedFrameCount,
-                $frameCount === null ? 'unavailable' : (string) $frameCount,
+                $frameCountTolerance,
+                $frameCount,
             ));
         }
 
         $publishedWorkload = $targetDurationSeconds === self::PublishedTargetDurationSeconds
             && $segmentDurationSeconds === self::PublishedSegmentDurationSeconds;
 
-        if ($publishedWorkload
-            && ! self::matchesPublishedOutputShape($durationMs, $frameCount)) {
-            throw new RuntimeException(sprintf(
-                'Benchmark default output must be exactly %dms and %d frames; probed %dms and %d frames.',
-                self::PublishedOutputDurationMs,
-                self::PublishedOutputFrameCount,
-                $durationMs,
-                $frameCount,
-            ));
+        if ($publishedWorkload) {
+            $durationToleranceMs = $isDurationDerivedExpectation ? 0 : self::PublishedOutputDurationToleranceMs;
+
+            if ($frameCount !== self::PublishedOutputFrameCount
+                || abs($durationMs - self::PublishedOutputDurationMs) > $durationToleranceMs) {
+                throw new RuntimeException(sprintf(
+                    'Benchmark default output must be %d frames and %dms +/-%dms; probed %d frames and %dms.',
+                    self::PublishedOutputFrameCount,
+                    self::PublishedOutputDurationMs,
+                    $durationToleranceMs,
+                    $frameCount,
+                    $durationMs,
+                ));
+            }
         }
 
         return [

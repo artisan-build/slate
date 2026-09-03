@@ -26,6 +26,48 @@ final readonly class BenchmarkOutputVerifier
         ));
     }
 
+    /**
+     * Structural stream-copy proof for a compiled recipe: returns human-readable violations when the
+     * recipe would re-encode its output instead of copying it.
+     *
+     * Decoded frame hashes are content-only and cannot distinguish a stream copy from a re-encode that
+     * happens to reproduce the same pixels, so the recipe's own codec selection is asserted directly.
+     * An empty list means the recipe both requests codec copy and selects no encoder.
+     *
+     * @return list<string>
+     */
+    public function streamCopyViolations(CompiledRecipe $recipe): array
+    {
+        $command = $recipe->command();
+        $violations = [];
+
+        if (in_array(H264OutputContract::encoder(), $command, true)) {
+            $violations[] = sprintf(
+                'recipe selects the %s encoder instead of stream copy',
+                H264OutputContract::encoder(),
+            );
+        }
+
+        if (! $this->requestsCodecCopy($command)) {
+            $violations[] = 'recipe does not select codec copy for any output stream';
+        }
+
+        return $violations;
+    }
+
+    /** @param  non-empty-list<string>  $command */
+    private function requestsCodecCopy(array $command): bool
+    {
+        foreach ($command as $index => $argument) {
+            if (in_array($argument, ['-c', '-c:v', '-c:a'], true)
+                && ($command[$index + 1] ?? null) === CompiledLiteral::Copy->value) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function captionRegionLuma(ScratchPath $video, float $seconds): float
     {
         return $this->luma($video, $seconds, 'crop=512:160:64:640,signalstats,metadata=print:key=lavfi.signalstats.YAVG');
