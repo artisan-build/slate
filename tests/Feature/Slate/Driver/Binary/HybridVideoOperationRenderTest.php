@@ -253,7 +253,8 @@ test('stream-copy trim preserves requested frames and copy concat reconstructs t
 /**
  * Pinned-runtime controls: substituting A's head missed its tail by 148.4688 luma; substituting B's
  * tail left only 9.0 luma from that tail; hard-cut audio left 440 Hz amplitude 32.12498369377418
- * against the cross-fade floor of 1799.5175558009753.
+ * against the cross-fade floor of 1799.5175558009753. Reversing the audio fade left early 440 Hz
+ * amplitude 857.0769689072769 against its directional floor of 21550.862300306817.
  */
 test('transition segment uses the clip tail and head and cross-fades pixels and audio', function (): void {
     requireHybridVideoRuntime();
@@ -281,14 +282,20 @@ test('transition segment uses the clip tail and head and cross-fades pixels and 
         $fromSamples = $verifier->audioSamples($from->path);
         $toSamples = $verifier->audioSamples($to->path);
         $transitionSamples = $verifier->audioSamples($transition->path);
-        $windowOffset = 22050;
+        $earlyWindowOffset = 882;
+        $midpointWindowOffset = 22050;
+        $lateWindowOffset = 36603;
         $windowSamples = 4410;
-        $from440 = hybridToneAmplitude($fromSamples, 440, $windowOffset, $windowSamples);
-        $from880 = hybridToneAmplitude($fromSamples, 880, $windowOffset, $windowSamples);
-        $to440 = hybridToneAmplitude($toSamples, 440, $windowOffset, $windowSamples);
-        $to880 = hybridToneAmplitude($toSamples, 880, $windowOffset, $windowSamples);
-        $transition440 = hybridToneAmplitude($transitionSamples, 440, $windowOffset, $windowSamples);
-        $transition880 = hybridToneAmplitude($transitionSamples, 880, $windowOffset, $windowSamples);
+        $from440 = hybridToneAmplitude($fromSamples, 440, $midpointWindowOffset, $windowSamples);
+        $from880 = hybridToneAmplitude($fromSamples, 880, $midpointWindowOffset, $windowSamples);
+        $to440 = hybridToneAmplitude($toSamples, 440, $midpointWindowOffset, $windowSamples);
+        $to880 = hybridToneAmplitude($toSamples, 880, $midpointWindowOffset, $windowSamples);
+        $transition440 = hybridToneAmplitude($transitionSamples, 440, $midpointWindowOffset, $windowSamples);
+        $transition880 = hybridToneAmplitude($transitionSamples, 880, $midpointWindowOffset, $windowSamples);
+        $early440 = hybridToneAmplitude($transitionSamples, 440, $earlyWindowOffset, $windowSamples);
+        $early880 = hybridToneAmplitude($transitionSamples, 880, $earlyWindowOffset, $windowSamples);
+        $late440 = hybridToneAmplitude($transitionSamples, 440, $lateWindowOffset, $windowSamples);
+        $late880 = hybridToneAmplitude($transitionSamples, 880, $lateWindowOffset, $windowSamples);
 
         expect(hybridVideoFrameCount($properties))->toBe(24)
             ->and((float) data_get($properties, 'format.duration'))->toBe(1.0)
@@ -301,7 +308,9 @@ test('transition segment uses the clip tail and head and cross-fades pixels and 
             ->and($from440)->toBeGreaterThan($from880 * 5)
             ->and($to880)->toBeGreaterThan($to440 * 5)
             ->and($transition440)->toBeGreaterThan($from440 * 0.15)
-            ->and($transition880)->toBeGreaterThan($to880 * 0.15);
+            ->and($transition880)->toBeGreaterThan($to880 * 0.15)
+            ->and($early440)->toBeGreaterThan($late440 * 2)
+            ->and($late880)->toBeGreaterThan($early880 * 2);
         expectMeasurableHybridBlend(
             $verifier->frameLuma($transition->path, 0.5),
             $verifier->frameLuma($from->path, 2.5),
