@@ -171,6 +171,8 @@ test('records the real hostnames used by a bucket-backed worker pool', function 
             )))),
         ];
         sort($measurement['worker_hostnames']);
+        $measurement['distinct_worker_count'] = count($measurement['worker_hostnames']);
+        $measurement['multi_host_observed'] = $measurement['distinct_worker_count'] > 1;
         expect($measurement['worker_hostnames'])->toHaveCount($expectedDistinctWorkers);
         fwrite(STDOUT, 'FANOUT_MULTI_WORKER_RESULT='.json_encode($measurement, JSON_THROW_ON_ERROR).PHP_EOL);
 
