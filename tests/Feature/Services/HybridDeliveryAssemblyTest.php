@@ -48,10 +48,10 @@ function hybridAssemblySourceClip(ScratchDirectory $scratch, string $name, float
  */
 function hybridAssemblyFakeDriver(array $propertiesByFile): Driver
 {
-    return new class($propertiesByFile) implements Driver
+    return new readonly class($propertiesByFile) implements Driver
     {
         /** @param array<string, array<string, mixed>> $propertiesByFile */
-        public function __construct(private readonly array $propertiesByFile) {}
+        public function __construct(private array $propertiesByFile) {}
 
         public function run(CompiledRecipe $recipe): DriverResult
         {
