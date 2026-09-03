@@ -7,6 +7,7 @@ namespace App\Slate\Recipe\Video;
 use App\Slate\Driver\Binary\H264OutputContract;
 use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\Driver;
+use App\Slate\Fanout\StoredVideo;
 use App\Slate\Recipe\Audio\AudioDuration;
 use App\Slate\Recipe\Caption\TimedWords;
 use App\Slate\Recipe\Probe;
@@ -51,6 +52,117 @@ final readonly class SlateVideo
             throw new RuntimeException('Slate video rendering failed: '.$renderResult->errorOutput);
         }
 
+        [$expectedWidth, $expectedHeight, $expectedFramesPerSecond, $expectedFrameCount, $expectedDurationSeconds, $qualityTier, $keyframeIntervalFrames] = match (true) {
+            $operation instanceof VideoStillClip => [
+                $operation->width,
+                $operation->height,
+                $operation->framesPerSecond,
+                null,
+                $operation->durationSeconds,
+                $operation->qualityTier,
+                H264OutputContract::keyframeIntervalFrames($operation->framesPerSecond),
+            ],
+            $operation instanceof VideoConcat => [
+                $operation->width(),
+                $operation->height(),
+                $operation->framesPerSecond,
+                $operation->mode === VideoConcatMode::Copy
+                    ? array_sum(array_map(static fn (self $input): int => $input->frameCount, $operation->inputs))
+                    : null,
+                $operation->outputDurationSeconds(),
+                $operation->qualityTier,
+                $operation->mode === VideoConcatMode::Copy
+                    ? self::copyKeyframeInterval($operation)
+                    : H264OutputContract::keyframeIntervalFrames($operation->framesPerSecond),
+            ],
+            $operation instanceof OverlayImage => [
+                $operation->input->width,
+                $operation->input->height,
+                $operation->input->framesPerSecond,
+                null,
+                $operation->input->durationSeconds,
+                $operation->input->qualityTier,
+                H264OutputContract::keyframeIntervalFrames($operation->input->framesPerSecond),
+            ],
+            $operation instanceof TimedWords => [
+                $operation->input->width,
+                $operation->input->height,
+                $operation->input->framesPerSecond,
+                null,
+                $operation->input->durationSeconds,
+                $operation->input->qualityTier,
+                H264OutputContract::keyframeIntervalFrames($operation->input->framesPerSecond),
+            ],
+            $operation instanceof VideoTrim => [
+                $operation->input->width,
+                $operation->input->height,
+                $operation->input->framesPerSecond,
+                $operation->frameCount,
+                $operation->durationSeconds(),
+                $operation->input->qualityTier,
+                $operation->input->keyframeIntervalFrames,
+            ],
+            $operation instanceof VideoTransitionSegment => [
+                $operation->from->width,
+                $operation->from->height,
+                $operation->framesPerSecond(),
+                $operation->frameCount,
+                $operation->durationSeconds(),
+                $operation->qualityTier,
+                H264OutputContract::keyframeIntervalFrames($operation->framesPerSecond()),
+            ],
+        };
+
+        return self::probeExpected(
+            $output,
+            $expectedWidth,
+            $expectedHeight,
+            $expectedFramesPerSecond,
+            $expectedFrameCount,
+            $expectedDurationSeconds,
+            $qualityTier,
+            $keyframeIntervalFrames,
+            $compiler,
+            $driver,
+        );
+    }
+
+    /**
+     * Reconstitutes a bucket-backed video only after probing the bytes staged into this invocation's
+     * scratch directory against the immutable metadata carried by the queue recipe.
+     */
+    public static function fromStored(
+        StoredVideo $storedVideo,
+        ScratchPath $localPath,
+        RecipeCompiler $compiler,
+        Driver $driver,
+    ): self {
+        return self::probeExpected(
+            $localPath,
+            $storedVideo->width,
+            $storedVideo->height,
+            $storedVideo->framesPerSecond,
+            $storedVideo->frameCount,
+            $storedVideo->durationSeconds,
+            $storedVideo->qualityTier,
+            $storedVideo->keyframeIntervalFrames,
+            $compiler,
+            $driver,
+        );
+    }
+
+    private static function probeExpected(
+        ScratchPath $output,
+        int $expectedWidth,
+        int $expectedHeight,
+        int $expectedFramesPerSecond,
+        ?int $expectedFrameCount,
+        float $expectedDurationSeconds,
+        QualityTier $qualityTier,
+        ?int $keyframeIntervalFrames,
+        RecipeCompiler $compiler,
+        Driver $driver,
+    ): self {
         $probeResult = $driver->run($compiler->compile(new Probe($output)));
 
         if ($probeResult->failed()) {
@@ -71,58 +183,6 @@ final readonly class SlateVideo
         $frameCount = self::frameCount($frameCountValue);
         $durationValue = $properties['format']['duration'] ?? null;
         $durationSeconds = is_numeric($durationValue) ? (float) $durationValue : NAN;
-        [$expectedWidth, $expectedHeight, $expectedFramesPerSecond, $expectedFrameCount, $expectedDurationSeconds, $qualityTier] = match (true) {
-            $operation instanceof VideoStillClip => [
-                $operation->width,
-                $operation->height,
-                $operation->framesPerSecond,
-                null,
-                $operation->durationSeconds,
-                $operation->qualityTier,
-            ],
-            $operation instanceof VideoConcat => [
-                $operation->width(),
-                $operation->height(),
-                $operation->framesPerSecond,
-                $operation->mode === VideoConcatMode::Copy
-                    ? array_sum(array_map(static fn (self $input): int => $input->frameCount, $operation->inputs))
-                    : null,
-                $operation->outputDurationSeconds(),
-                $operation->qualityTier,
-            ],
-            $operation instanceof OverlayImage => [
-                $operation->input->width,
-                $operation->input->height,
-                $operation->input->framesPerSecond,
-                null,
-                $operation->input->durationSeconds,
-                $operation->input->qualityTier,
-            ],
-            $operation instanceof TimedWords => [
-                $operation->input->width,
-                $operation->input->height,
-                $operation->input->framesPerSecond,
-                null,
-                $operation->input->durationSeconds,
-                $operation->input->qualityTier,
-            ],
-            $operation instanceof VideoTrim => [
-                $operation->input->width,
-                $operation->input->height,
-                $operation->input->framesPerSecond,
-                $operation->frameCount,
-                $operation->durationSeconds(),
-                $operation->input->qualityTier,
-            ],
-            $operation instanceof VideoTransitionSegment => [
-                $operation->from->width,
-                $operation->from->height,
-                $operation->framesPerSecond(),
-                $operation->frameCount,
-                $operation->durationSeconds(),
-                $operation->qualityTier,
-            ],
-        };
 
         $contractFailures = [];
         $audioCodecs = self::audioCodecs($properties);
@@ -216,12 +276,6 @@ final readonly class SlateVideo
                 .implode('; ', $contractFailures).'.',
             );
         }
-
-        $keyframeIntervalFrames = match (true) {
-            $operation instanceof VideoTrim => $operation->input->keyframeIntervalFrames,
-            $operation instanceof VideoConcat && $operation->mode === VideoConcatMode::Copy => self::copyKeyframeInterval($operation),
-            default => H264OutputContract::keyframeIntervalFrames($expectedFramesPerSecond),
-        };
 
         return new self(
             $output,

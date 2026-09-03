@@ -132,6 +132,16 @@ test('reports a content mismatch and still deletes the verification object', fun
                 fclose($source);
             }
         }
+
+        public function exists(ObjectKey $objectKey): bool
+        {
+            return Storage::disk()->exists($objectKey->value());
+        }
+
+        public function delete(ObjectKey $objectKey): void
+        {
+            Storage::disk()->delete($objectKey->value());
+        }
     });
 
     $exitCode = Artisan::call('slate:verify-object-storage', ['--bytes' => '8388608']);

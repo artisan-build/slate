@@ -1,5 +1,9 @@
 <?php
 
+use App\Slate\Driver\Binary\CompiledArgument;
+use App\Slate\Driver\Binary\CompiledFilterGraph;
+use App\Slate\Driver\Binary\CompiledInput;
+use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Driver\Driver;
@@ -12,6 +16,7 @@ use App\Slate\Recipe\Video\VideoConcat;
 use App\Slate\Recipe\Video\VideoStillClip;
 use App\Slate\Recipe\Video\VideoTransitionSegment;
 use App\Slate\Recipe\Video\VideoTrim;
+use App\Slate\Storage\ScratchDirectory;
 use App\Slate\Storage\ScratchPath;
 use Tests\TestCase;
 
@@ -662,4 +667,137 @@ function sourcePatternLocations(
     sort($locations);
 
     return $locations;
+}
+
+/**
+ * Inspects the object graph Laravel serializes for a queued job. A local path or scratch object in
+ * that graph is an inter-host handoff even when a single-host run happens to make it work.
+ *
+ * @return list<string>
+ */
+function queuedJobLocalHandoffViolations(object $job): array
+{
+    $violations = [];
+    $seen = [];
+    $walk = function (mixed $value, string $path) use (&$walk, &$seen, &$violations): void {
+        if (is_string($value)) {
+            if (preg_match('~^(?:/|[A-Za-z]:[\\\\/]|file://)~', $value) === 1) {
+                $violations[] = "{$path} contains host-local path {$value}";
+            }
+
+            return;
+        }
+
+        if (is_array($value)) {
+            foreach ($value as $key => $item) {
+                $walk($item, $path.'['.(string) $key.']');
+            }
+
+            return;
+        }
+
+        if (! is_object($value) || $value instanceof UnitEnum) {
+            return;
+        }
+
+        if ($value instanceof ScratchPath || $value instanceof ScratchDirectory) {
+            $violations[] = "{$path} contains ".$value::class;
+
+            return;
+        }
+
+        $objectId = spl_object_id($value);
+
+        if (isset($seen[$objectId])) {
+            return;
+        }
+
+        $seen[$objectId] = true;
+
+        foreach ((new ReflectionObject($value))->getProperties() as $property) {
+            if ($property->isStatic() || ! $property->isInitialized($value)) {
+                continue;
+            }
+
+            $walk($property->getValue($value), $path.'::$'.$property->getName());
+        }
+    };
+    $walk(unserialize(serialize($job)), $job::class);
+
+    sort($violations);
+
+    return $violations;
+}
+
+/**
+ * Rejects compiler products and detectable command vocabulary from Laravel's serialized job graph.
+ * Typed recipes contain domain values and bucket descriptors instead.
+ *
+ * @return list<string>
+ */
+function queuedJobCompiledPayloadViolations(object $job): array
+{
+    $violations = [];
+    $seen = [];
+    $compiledTypes = [
+        CompiledRecipe::class,
+        CompiledArgument::class,
+        CompiledFilterGraph::class,
+        CompiledInput::class,
+        CompiledOutput::class,
+    ];
+    $walk = function (mixed $value, string $path) use (&$walk, &$seen, &$violations, $compiledTypes): void {
+        if (is_string($value)) {
+            if (preg_match('/\b(?:ffmpeg|ffprobe|libopenh264|libx264|libx265)\b/i', $value) === 1) {
+                $violations[] = "{$path} contains binary or encoder vocabulary";
+            }
+
+            if (preg_match('/(?:-filter_complex|(?:drawtext|xfade|concat|trim|atrim|setpts|asetpts)\s*=)/', $value) === 1) {
+                $violations[] = "{$path} contains compiled filter vocabulary";
+            }
+
+            return;
+        }
+
+        if (is_array($value)) {
+            foreach ($value as $key => $item) {
+                $walk($item, $path.'['.(string) $key.']');
+            }
+
+            return;
+        }
+
+        if (! is_object($value) || $value instanceof UnitEnum) {
+            return;
+        }
+
+        foreach ($compiledTypes as $compiledType) {
+            if ($value instanceof $compiledType) {
+                $violations[] = "{$path} contains compiled type {$compiledType}";
+
+                return;
+            }
+        }
+
+        $objectId = spl_object_id($value);
+
+        if (isset($seen[$objectId])) {
+            return;
+        }
+
+        $seen[$objectId] = true;
+
+        foreach ((new ReflectionObject($value))->getProperties() as $property) {
+            if ($property->isStatic() || ! $property->isInitialized($value)) {
+                continue;
+            }
+
+            $walk($property->getValue($value), $path.'::$'.$property->getName());
+        }
+    };
+    $walk(unserialize(serialize($job)), $job::class);
+
+    sort($violations);
+
+    return $violations;
 }

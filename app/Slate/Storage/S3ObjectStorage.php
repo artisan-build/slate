@@ -82,4 +82,24 @@ final readonly class S3ObjectStorage implements ObjectStorage
             fclose($localStream);
         }
     }
+
+    public function exists(ObjectKey $objectKey): bool
+    {
+        try {
+            return $this->filesystem->exists($objectKey->value());
+        } catch (Throwable $exception) {
+            throw new RuntimeException("Unable to inspect object: {$objectKey->value()}", previous: $exception);
+        }
+    }
+
+    public function delete(ObjectKey $objectKey): void
+    {
+        try {
+            if (! $this->filesystem->delete($objectKey->value())) {
+                throw new RuntimeException("Unable to delete object: {$objectKey->value()}");
+            }
+        } catch (Throwable $exception) {
+            throw new RuntimeException("Unable to delete object: {$objectKey->value()}", previous: $exception);
+        }
+    }
 }

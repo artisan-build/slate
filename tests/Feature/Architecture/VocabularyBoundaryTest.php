@@ -1,7 +1,70 @@
 <?php
 
+use App\Jobs\FinalizeFanoutRun;
+use App\Jobs\RenderFanoutOperation;
 use App\Slate\Driver\Binary\CompiledDrawtextOptions;
+use App\Slate\Fanout\BucketOperation;
+use App\Slate\Fanout\BucketVideoTransitionSegment;
+use App\Slate\Fanout\BucketVideoTrim;
+use App\Slate\Fanout\FanoutRun;
+use App\Slate\Fanout\FanoutRunId;
+use App\Slate\Fanout\StoredVideo;
 use App\Slate\Recipe\OperationName;
+use App\Slate\Recipe\QualityTier;
+use App\Slate\Storage\ObjectKey;
+use Tests\Fixtures\Boundary\Queue\Deeply\Nested\RogueCompiledCommandJob;
+use Tests\Fixtures\Boundary\Queue\Deeply\Nested\RogueLocalPathJob;
+
+function fanoutBoundaryRun(): FanoutRun
+{
+    $id = FanoutRunId::fromString('55555555-5555-4555-8555-555555555555');
+    $prefix = $id->prefix();
+    $first = new StoredVideo(
+        ObjectKey::withinPrefix($prefix, $prefix.'/work/inputs/0000.mp4'),
+        1536,
+        1024,
+        24,
+        72,
+        3.0,
+        QualityTier::Delivery,
+        24,
+    );
+    $second = new StoredVideo(
+        ObjectKey::withinPrefix($prefix, $prefix.'/work/inputs/0001.mp4'),
+        1536,
+        1024,
+        24,
+        72,
+        3.0,
+        QualityTier::Delivery,
+        24,
+    );
+
+    return new FanoutRun($id, [$first, $second], [
+        new BucketVideoTrim(
+            0,
+            $first,
+            0,
+            48,
+            ObjectKey::withinPrefix($prefix, $prefix.'/work/operations/0000.mp4'),
+        ),
+        new BucketVideoTransitionSegment(
+            1,
+            $first,
+            $second,
+            24,
+            QualityTier::Delivery,
+            ObjectKey::withinPrefix($prefix, $prefix.'/work/operations/0001.mp4'),
+        ),
+        new BucketVideoTrim(
+            2,
+            $second,
+            24,
+            48,
+            ObjectKey::withinPrefix($prefix, $prefix.'/work/operations/0002.mp4'),
+        ),
+    ]);
+}
 
 /**
  * FfmpegDiagnostics legitimately names alternate encoders because the doctor inspects `ffmpeg -encoders`
@@ -271,4 +334,64 @@ test('recursive storage scan catches a nested rogue disk construction', function
         'storage temporary url' => ['Deeply/Nested/RogueStorageTemporaryUrl.php'],
         'storage url' => ['Deeply/Nested/RogueStorageUrl.php'],
     ]);
+});
+
+test('serialized fan-out jobs contain no host-local inter-job handoff', function (): void {
+    $run = fanoutBoundaryRun();
+    $jobs = [
+        ...array_map(
+            static fn (BucketOperation $operation): RenderFanoutOperation => new RenderFanoutOperation($run->id, $operation),
+            $run->operations,
+        ),
+        new FinalizeFanoutRun($run, false),
+    ];
+
+    foreach ($jobs as $job) {
+        expect(queuedJobLocalHandoffViolations($job))->toBe([], $job::class.' handed off a local path.');
+    }
+});
+
+test('recursive queue handoff guard goes red for a nested local-path job', function (): void {
+    $violations = queuedJobLocalHandoffViolations(new RogueLocalPathJob('/tmp/host-a/chunk-0001.mp4'));
+
+    if (filter_var(getenv('SLATE_DEMONSTRATE_LOCAL_HANDOFF_GUARD'), FILTER_VALIDATE_BOOL)) {
+        expect($violations)->toBe([]);
+    }
+
+    expect($violations)->toBe([
+        RogueLocalPathJob::class.'::$inputPath contains host-local path /tmp/host-a/chunk-0001.mp4',
+    ]);
+});
+
+test('serialized fan-out jobs contain typed operations rather than compiled commands', function (): void {
+    $run = fanoutBoundaryRun();
+    $jobs = [
+        ...array_map(
+            static fn (BucketOperation $operation): RenderFanoutOperation => new RenderFanoutOperation($run->id, $operation),
+            $run->operations,
+        ),
+        new FinalizeFanoutRun($run, false),
+    ];
+
+    foreach ($jobs as $job) {
+        expect(queuedJobCompiledPayloadViolations($job))->toBe([], $job::class.' carried compiled command data.');
+    }
+});
+
+test('recursive queue payload guard goes red for a nested compiled-command job', function (): void {
+    $violations = queuedJobCompiledPayloadViolations(new RogueCompiledCommandJob([
+        '/runtime/ffmpeg/bin/ffmpeg',
+        '-filter_complex',
+        '[0:v][1:v]xfade=transition=fade',
+        '-c:v',
+        'libopenh264',
+    ]));
+
+    if (filter_var(getenv('SLATE_DEMONSTRATE_COMPILED_PAYLOAD_GUARD'), FILTER_VALIDATE_BOOL)) {
+        expect($violations)->toBe([]);
+    }
+
+    expect($violations)->not->toBe([])
+        ->and(implode('; ', $violations))->toContain('binary or encoder vocabulary')
+        ->and(implode('; ', $violations))->toContain('compiled filter vocabulary');
 });
