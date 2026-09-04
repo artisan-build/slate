@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Jobs\DeliverRunWebhook;
 use App\Slate\Input\InputRejectionReason;
 use App\Slate\Run\RunRecipe;
 use App\Slate\Run\RunStillClip;
@@ -22,6 +23,8 @@ use LogicException;
  * @property RunStatus $status
  * @property RunTrust $trust
  * @property InputRejectionReason|null $rejection_reason
+ * @property string|null $webhook_url
+ * @property string|null $webhook_secret
  * @property-read RunRecipe $recipe
  *
  * @mixin IdeHelperRun
@@ -32,11 +35,20 @@ final class Run extends Model
     /** @use HasFactory<RunFactory> */
     use HasFactory, HasUuids;
 
+    /** @var list<string> */
+    protected $hidden = ['webhook_url', 'webhook_secret'];
+
     public static function createWithRecipe(
         string $runId,
         RunRecipe $recipe,
         RunTrust $trust = RunTrust::Untrusted,
+        ?string $webhookUrl = null,
+        ?string $webhookSecret = null,
     ): self {
+        if (($webhookUrl === null) !== ($webhookSecret === null)) {
+            throw new InvalidArgumentException('A run webhook URL and secret must be configured together.');
+        }
+
         self::assertRecipeObjectOwnership($runId, $recipe);
         $run = new self;
         $run->setRawAttributes([
@@ -45,6 +57,12 @@ final class Run extends Model
             'trust' => $trust->value,
             'status' => RunStatus::Queued->value,
         ]);
+
+        if ($webhookUrl !== null && $webhookSecret !== null) {
+            $run->webhook_url = $webhookUrl;
+            $run->webhook_secret = $webhookSecret;
+        }
+
         $run->save();
 
         return $run;
@@ -130,6 +148,7 @@ final class Run extends Model
         });
 
         $this->refresh();
+        $this->dispatchTerminalWebhook($changed);
 
         return $changed;
     }
@@ -150,6 +169,7 @@ final class Run extends Model
         });
 
         $this->refresh();
+        $this->dispatchTerminalWebhook($changed);
 
         return $changed;
     }
@@ -161,7 +181,16 @@ final class Run extends Model
             'status' => RunStatus::class,
             'trust' => RunTrust::class,
             'rejection_reason' => InputRejectionReason::class,
+            'webhook_url' => 'encrypted',
+            'webhook_secret' => 'encrypted',
         ];
+    }
+
+    private function dispatchTerminalWebhook(bool $changed): void
+    {
+        if ($changed && $this->status->isTerminal() && $this->webhook_url !== null) {
+            DeliverRunWebhook::dispatch($this->id);
+        }
     }
 
     private static function assertRecipeObjectOwnership(string $runId, RunRecipe $recipe): void
