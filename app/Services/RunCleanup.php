@@ -22,7 +22,7 @@ final readonly class RunCleanup
         $this->storageGuard->assertSafe();
         $outputKeys = [];
 
-        foreach (array_keys($run->recipe->operations) as $operationIndex) {
+        foreach (array_keys($run->recipe()->operations) as $operationIndex) {
             $outputKey = RunObjectKeys::operationOutput($run->id, $operationIndex);
             $outputKeys[$outputKey->value()] = true;
         }

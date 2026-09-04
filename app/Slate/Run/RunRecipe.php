@@ -6,6 +6,7 @@ namespace App\Slate\Run;
 
 use Illuminate\Contracts\Support\Arrayable;
 use InvalidArgumentException;
+use JsonException;
 use JsonSerializable;
 
 /** @implements Arrayable<string, mixed> */
@@ -52,6 +53,24 @@ final readonly class RunRecipe implements Arrayable, JsonSerializable
             },
             $operations,
         ));
+    }
+
+    /** @throws JsonException */
+    public static function fromJson(string $json, string $runPrefix): self
+    {
+        $data = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
+
+        if (! is_array($data)) {
+            throw new InvalidArgumentException('Stored run recipe must decode to an object.');
+        }
+
+        return self::fromArray($data, $runPrefix);
+    }
+
+    /** @throws JsonException */
+    public function toJson(): string
+    {
+        return json_encode($this, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     }
 
     /** @return array{operations: non-empty-list<array<string, mixed>>} */

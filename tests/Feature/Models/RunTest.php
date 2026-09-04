@@ -10,6 +10,8 @@ use App\Slate\Run\RunRecipe;
 use App\Slate\Run\RunStillClip;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\RunObjectKeys;
+use Illuminate\Database\Eloquent\MassAssignmentException;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -54,29 +56,45 @@ function persistedRunRecipe(string $runId): RunRecipe
 test('persists and round trips an equal typed recipe without compiled command vocabulary', function (): void {
     $runId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
     $recipe = persistedRunRecipe($runId);
-    $run = Run::factory()->create(['id' => $runId, 'recipe' => $recipe]);
+    $run = Run::createWithRecipe($runId, $recipe);
 
     $storedRecipe = DB::table('runs')->where('id', $run->id)->value('recipe');
     $reloaded = Run::query()->findOrFail($run->id);
     expect($storedRecipe)->toBeString();
     $decoded = json_decode($storedRecipe, true, flags: JSON_THROW_ON_ERROR);
 
-    expect($reloaded->recipe->toArray())->toBe($recipe->toArray())
+    expect($reloaded->recipe()->toArray())->toBe($recipe->toArray())
         ->and($reloaded->status)->toBe(RunStatus::Queued)
         ->and($decoded)->toBe($recipe->toArray())
         ->and(knownCompiledVocabularyViolations($decoded))->toBe([]);
 });
 
-test('rejects foreign object keys before saving a run', function (): void {
+test('rejects foreign object keys at the only typed recipe creation seam', function (): void {
     $runId = '19191919-1919-4919-8919-191919191919';
     $foreignRunId = '20202020-2020-4020-8020-202020202020';
 
-    expect(fn () => Run::factory()->create([
-        'id' => $runId,
-        'recipe' => persistedRunRecipe($foreignRunId),
-    ]))->toThrow(InvalidArgumentException::class, 'Object key must remain within the caller prefix');
+    expect(fn () => Run::createWithRecipe($runId, persistedRunRecipe($foreignRunId)))
+        ->toThrow(InvalidArgumentException::class, 'Object key must remain within the caller prefix');
 
     expect(DB::table('runs')->where('id', $runId)->exists())->toBeFalse();
+});
+
+test('exposes the typed recipe only at creation and as a read method afterwards', function (): void {
+    $runId = '22222222-2222-4222-8222-222222222224';
+    $recipe = persistedRunRecipe($runId);
+    $run = Run::createWithRecipe($runId, $recipe);
+    Model::preventSilentlyDiscardingAttributes();
+
+    try {
+        expect(fn () => $run->update(['recipe' => persistedRunRecipe($runId)]))
+            ->toThrow(MassAssignmentException::class);
+    } finally {
+        Model::preventSilentlyDiscardingAttributes(false);
+    }
+
+    expect($run->getFillable())->toBe(['status'])
+        ->and($run->getCasts())->not->toHaveKey('recipe')
+        ->and($run->fresh()->recipe()->toArray())->toBe($recipe->toArray());
 });
 
 test('hydrates a typed recipe after database JSON key reordering', function (): void {
@@ -97,7 +115,7 @@ test('hydrates a typed recipe after database JSON key reordering', function (): 
 
     $run = Run::query()->findOrFail($runId);
 
-    expect($run->recipe->toArray())->toBe($recipe->toArray());
+    expect($run->recipe()->toArray())->toBe($recipe->toArray());
 });
 
 test('persisted payload guard catches command-shaped arrays under an unrelated key', function (): void {

@@ -25,13 +25,14 @@ final readonly class RunExecutor
 
     public function execute(Run $run): void
     {
-        $plan = $this->plan($run);
-
         if (! $run->transitionTo(RunStatus::Running)) {
             return;
         }
 
         try {
+            $run = Run::query()->findOrFail($run->id);
+            $plan = $this->plan($run);
+
             match ($plan->strategy) {
                 ExecutorStrategy::SingleJob => $this->dispatchSingle($run, $plan),
                 ExecutorStrategy::Fanout => $this->dispatchFanout($run, $plan),
@@ -60,7 +61,7 @@ final readonly class RunExecutor
         $strategy = $this->selectStrategy($run, $settings);
         $operations = [];
 
-        foreach ($run->recipe->operations as $operationIndex => $recipeOperation) {
+        foreach ($run->recipe()->operations as $operationIndex => $recipeOperation) {
             if (! $recipeOperation instanceof RunStillClip) {
                 throw new InvalidArgumentException('Run executor received an unsupported persisted operation.');
             }
@@ -88,14 +89,14 @@ final readonly class RunExecutor
 
     private function selectStrategy(Run $run, QueueRuntimeSettings $settings): ExecutorStrategy
     {
-        foreach ($run->recipe->operations as $operation) {
+        foreach ($run->recipe()->operations as $operation) {
             if ($operation->durationMicroseconds()
                 > $settings->outputSecondsPerJob($operation->qualityTier()) * 1_000_000) {
                 return ExecutorStrategy::SubOperationSplit;
             }
         }
 
-        return count($run->recipe->operations) === 1
+        return count($run->recipe()->operations) === 1
             ? ExecutorStrategy::SingleJob
             : ExecutorStrategy::Fanout;
     }
@@ -185,7 +186,12 @@ final readonly class RunExecutor
                     return;
                 }
 
-                dispatch(new CompleteRun($runId));
+                try {
+                    Bus::dispatch(new CompleteRun($runId));
+                } catch (Throwable $exception) {
+                    resolve(RunFailure::class)->handle($runId);
+                    report($exception);
+                }
             })
             ->onQueue($plan->runtimeSettings->queue)
             ->dispatch();

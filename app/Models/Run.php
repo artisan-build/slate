@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Casts\RunRecipeCast;
 use App\Slate\Run\RunRecipe;
 use App\Slate\Run\RunStillClip;
 use App\Slate\Storage\ObjectKey;
@@ -18,16 +17,40 @@ use LogicException;
 
 /**
  * @property string $id
- * @property RunRecipe $recipe
  * @property RunStatus $status
  *
  * @mixin IdeHelperRun
  */
-#[Fillable(['recipe', 'status'])]
+#[Fillable(['status'])]
 final class Run extends Model
 {
     /** @use HasFactory<RunFactory> */
     use HasFactory, HasUuids;
+
+    public static function createWithRecipe(string $runId, RunRecipe $recipe): self
+    {
+        self::assertRecipeObjectOwnership($runId, $recipe);
+        $run = new self;
+        $run->setRawAttributes([
+            'id' => $runId,
+            'recipe' => $recipe->toJson(),
+            'status' => RunStatus::Queued->value,
+        ]);
+        $run->save();
+
+        return $run;
+    }
+
+    public function recipe(): RunRecipe
+    {
+        $recipe = $this->getRawOriginal('recipe');
+
+        if (! is_string($recipe)) {
+            throw new InvalidArgumentException('Stored run recipe must be JSON.');
+        }
+
+        return RunRecipe::fromJson($recipe, RunObjectKeys::prefix($this->id));
+    }
 
     public function transitionTo(RunStatus $nextStatus): bool
     {
@@ -53,32 +76,19 @@ final class Run extends Model
         return $changed;
     }
 
-    protected static function booted(): void
-    {
-        self::creating(static fn (self $run) => $run->assertRecipeObjectOwnership());
-        self::updating(static fn (self $run) => $run->assertRecipeObjectOwnership());
-    }
-
     /** @return array<string, string> */
     protected function casts(): array
     {
         return [
-            'recipe' => RunRecipeCast::class,
             'status' => RunStatus::class,
         ];
     }
 
-    private function assertRecipeObjectOwnership(): void
+    private static function assertRecipeObjectOwnership(string $runId, RunRecipe $recipe): void
     {
-        $runId = $this->getKey();
-
-        if (! is_string($runId)) {
-            throw new InvalidArgumentException('Run recipe ownership requires its UUID.');
-        }
-
         $prefix = RunObjectKeys::prefix($runId);
 
-        foreach ($this->recipe->operations as $operation) {
+        foreach ($recipe->operations as $operation) {
             if (! $operation instanceof RunStillClip) {
                 throw new InvalidArgumentException('Run recipe ownership received an unsupported operation.');
             }
