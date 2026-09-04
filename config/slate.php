@@ -23,8 +23,13 @@ return [
         'font_path' => resource_path('fonts/NotoSans[wdth,wght].ttf'),
     ],
     'execution' => [
-        'render_queue' => 'render',
+        'render_queue' => 'default',
+        'ingest_queue' => 'ingest',
         'visibility_window_fallback_seconds' => 180,
+        'visibility_window_fallback_seconds_by_queue' => [
+            'default' => 180,
+            'ingest' => 3600,
+        ],
         'job_timeout_margin_seconds' => 10,
         'driver_timeout_margin_seconds' => 10,
         'output_budget_margin' => 0.8,
@@ -38,5 +43,8 @@ return [
     'storage' => [
         'scratch_path' => storage_path('app/slate-jobs'),
         'allow_host_local_fanout' => env('SLATE_ALLOW_HOST_LOCAL_FANOUT', false),
+    ],
+    'ingest' => [
+        'part_size_bytes' => 8 * 1024 * 1024,
     ],
 ];

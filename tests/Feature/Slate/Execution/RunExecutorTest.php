@@ -558,7 +558,7 @@ test('reports operational fallback use when cloud queue metadata remains unknown
     config()->set('queue.default', 'cloud_test');
     config()->set('queue.connections.cloud_test', [
         'driver' => 'cloud',
-        'queues' => ['render' => ['unknown' => 300]],
+        'queues' => ['default' => ['unknown' => 300]],
     ]);
     Log::spy();
     $runId = '14141414-1414-4414-8414-141414141414';
@@ -569,7 +569,7 @@ test('reports operational fallback use when cloud queue metadata remains unknown
     Log::shouldHaveReceived('warning')->once()->with(
         'slate.execution.visibility_window_fallback',
         Mockery::on(static fn (array $context): bool => $context['connection'] === 'cloud_test'
-            && $context['queue'] === 'render'
+            && $context['queue'] === 'default'
             && $context['visibility_window_seconds'] === 180),
     );
 });

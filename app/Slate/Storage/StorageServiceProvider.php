@@ -2,8 +2,10 @@
 
 namespace App\Slate\Storage;
 
+use Illuminate\Filesystem\AwsS3V3Adapter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider;
+use RuntimeException;
 
 final class StorageServiceProvider extends ServiceProvider
 {
@@ -14,6 +16,18 @@ final class StorageServiceProvider extends ServiceProvider
         $this->app->bind(
             ObjectStorage::class,
             fn (): ObjectStorage => new S3ObjectStorage(Storage::disk()),
+        );
+        $this->app->bind(
+            IngestStorage::class,
+            function (): IngestStorage {
+                $filesystem = Storage::disk();
+
+                if (! $filesystem instanceof AwsS3V3Adapter) {
+                    throw new RuntimeException('Slate ingest requires an S3-backed default filesystem.');
+                }
+
+                return new S3IngestStorage($filesystem);
+            },
         );
         $this->app->bind(
             FanoutStorageGuard::class,

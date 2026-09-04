@@ -1,6 +1,10 @@
 <?php
 
+use App\Jobs\IngestSource;
 use App\Jobs\RenderFanoutOperation;
+use App\Models\Ingest;
+use App\Models\IngestMode;
+use App\Models\Run;
 use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Driver\Driver;
@@ -8,22 +12,33 @@ use App\Slate\Driver\DriverResult;
 use App\Slate\Fanout\BucketVideoTrim;
 use App\Slate\Fanout\FanoutRunId;
 use App\Slate\Fanout\StoredVideo;
+use App\Slate\Ingest\IngestManager;
+use App\Slate\Ingest\ResumableIngestTransfer;
+use App\Slate\Ingest\SourceMetadata;
+use App\Slate\Ingest\SourcePart;
+use App\Slate\Ingest\SourceReader;
 use App\Slate\Recipe\QualityTier;
 use App\Slate\Storage\FanoutStorageGuard;
+use App\Slate\Storage\IngestStorage;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\ObjectStorage;
+use App\Slate\Storage\RunObjectKeys;
 use App\Slate\Storage\ScratchDirectory;
 use Aws\S3\S3Client;
+use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use Tests\Support\MinioConfiguration;
+
+uses(LazilyRefreshDatabase::class);
 
 /**
  * Exercises the real S3 driver, signing, HTTP transport, streamed reads, and multipart-capable writes.
  * It does not exercise Cloudflare R2, Cloud-injected credentials, R2 checksum semantics, or Cloud workers.
  */
-test('round-trips through MinIO without driver buffering or process memory buffering', function (): void {
+test('round-trips and accepts a presigned PUT through MinIO without application byte proxying', function (): void {
     $configuredDisk = config('filesystems.disks.s3');
 
     expect($configuredDisk)->toBeArray()
@@ -119,6 +134,20 @@ test('round-trips through MinIO without driver buffering or process memory buffe
 
         expect($probe->successful())->toBeTrue($probe->errorOutput())
             ->and($probe->output())->toContain('round_trip_bytes=100663296');
+
+        $run = Run::factory()->create();
+        $manager = new IngestManager(resolve(IngestStorage::class));
+        $upload = $manager->presignedPut($run, 9, 'direct.bin', now()->addMinutes(5));
+        $put = Http::withHeaders($upload->headers)
+            ->withBody('client bytes sent directly to MinIO')
+            ->put($upload->url);
+
+        expect($put->successful())->toBeTrue($put->body())
+            ->and(Storage::disk()->get($upload->objectKey->value()))
+            ->toBe('client bytes sent directly to MinIO')
+            ->and(Ingest::query()->findOrFail($upload->ingestId)->mode)->toBe(IngestMode::Direct);
+
+        Storage::disk()->delete($upload->objectKey->value());
     } finally {
         Storage::disk()->delete($objectKey->value());
         Storage::disk()->delete('minio-tests/memory-probe.bin');
@@ -158,7 +187,7 @@ function minioFanoutDriver(): Driver
     };
 }
 
-test('moves a queued operation input and output through MinIO', function (): void {
+test('moves queued work and resumes a partially uploaded ingest through MinIO', function (): void {
     $socket = @fsockopen(
         MinioConfiguration::Host,
         MinioConfiguration::Port,
@@ -227,6 +256,80 @@ test('moves a queued operation input and output through MinIO', function (): voi
         expect($objectStorage->exists($inputKey))->toBeFalse()
             ->and($objectStorage->exists($outputKey))->toBeFalse()
             ->and($objectStorage->exists($receiptKey))->toBeFalse();
+
+        config()->set('slate.ingest.part_size_bytes', 5 * 1024 * 1024);
+        $sourceKey = ObjectKey::withinPrefix('minio-tests', 'minio-tests/resumable-source.bin');
+        $sourceBytes = (10 * 1024 * 1024) + 17;
+        $sourceStream = fopen('php://temp/maxmemory:1048576', 'w+b');
+        expect($sourceStream)->toBeResource();
+
+        for ($remaining = $sourceBytes; $remaining > 0; $remaining -= min($remaining, 1024 * 1024)) {
+            $bytes = min($remaining, 1024 * 1024);
+            fwrite($sourceStream, str_repeat('r', $bytes));
+        }
+
+        rewind($sourceStream);
+        Storage::disk()->writeStream($sourceKey->value(), $sourceStream);
+        fclose($sourceStream);
+        $run = Run::factory()->create();
+        $targetKey = RunObjectKeys::input($run->id, 2, 'resumed.bin');
+        $sourceUrl = Storage::disk()->temporaryUrl($sourceKey->value(), now()->addMinutes(5));
+        $ingest = Ingest::expectSource($run, $targetKey, $sourceUrl);
+        $ingestStorage = resolve(IngestStorage::class);
+        $sourceReader = resolve(SourceReader::class);
+        $metadata = $sourceReader->metadata($sourceUrl, 60);
+        $uploadId = $ingestStorage->beginMultipartUpload($targetKey);
+        $firstPart = $sourceReader->read($sourceUrl, $metadata, 0, (5 * 1024 * 1024) - 1, 60);
+
+        try {
+            $ingestStorage->uploadPart(
+                $targetKey,
+                $uploadId,
+                1,
+                $firstPart->stream,
+                $firstPart->bytes,
+            );
+        } finally {
+            $firstPart->close();
+        }
+
+        $ingest->beginUpload($metadata, 5 * 1024 * 1024, $uploadId);
+        $recordingReader = new class($sourceReader) implements SourceReader
+        {
+            /** @var list<array{int, int}> */
+            public array $ranges = [];
+
+            public function __construct(private readonly SourceReader $reader) {}
+
+            public function metadata(string $sourceUrl, int $timeoutSeconds): SourceMetadata
+            {
+                return $this->reader->metadata($sourceUrl, $timeoutSeconds);
+            }
+
+            public function read(
+                string $sourceUrl,
+                SourceMetadata $metadata,
+                int $startByte,
+                int $endByte,
+                int $timeoutSeconds,
+            ): SourcePart {
+                $this->ranges[] = [$startByte, $endByte];
+
+                return $this->reader->read($sourceUrl, $metadata, $startByte, $endByte, $timeoutSeconds);
+            }
+        };
+
+        (new IngestSource($ingest->id))->handle(new ResumableIngestTransfer($ingestStorage, $recordingReader));
+
+        expect($recordingReader->ranges)->toBe([
+            [5 * 1024 * 1024, (10 * 1024 * 1024) - 1],
+            [10 * 1024 * 1024, $sourceBytes - 1],
+        ])->and(Storage::disk()->size($targetKey->value()))->toBe($sourceBytes)
+            ->and(hash('sha256', Storage::disk()->get($targetKey->value())))
+            ->toBe(hash('sha256', Storage::disk()->get($sourceKey->value())));
+
+        Storage::disk()->delete($sourceKey->value());
+        Storage::disk()->delete($targetKey->value());
     } finally {
         Storage::disk()->deleteDirectory($prefix);
         Storage::forgetDisk('s3');
