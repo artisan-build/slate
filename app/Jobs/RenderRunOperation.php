@@ -18,6 +18,7 @@ use App\Slate\Storage\ScratchDirectory;
 use Illuminate\Bus\Batchable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\Middleware\SkipIfBatchCancelled;
 use Throwable;
 
 final class RenderRunOperation implements ShouldQueue
@@ -64,9 +65,17 @@ final class RenderRunOperation implements ShouldQueue
         });
     }
 
+    /** @return list<SkipIfBatchCancelled> */
+    public function middleware(): array
+    {
+        return [new SkipIfBatchCancelled];
+    }
+
     public function failed(?Throwable $exception): void
     {
-        resolve(RunFailure::class)->handle($this->runId);
+        if ($this->batchId === null) {
+            resolve(RunFailure::class)->handle($this->runId);
+        }
     }
 
     private function localInputName(string $label, ObjectKey $key): string

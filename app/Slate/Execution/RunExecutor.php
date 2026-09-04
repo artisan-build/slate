@@ -10,12 +10,14 @@ use App\Jobs\RenderRunOperation;
 use App\Jobs\RenderRunSubClip;
 use App\Models\Run;
 use App\Models\RunStatus;
+use App\Services\RunFailure;
 use App\Slate\Run\RunStillClip;
 use App\Slate\Storage\RunObjectKeys;
 use Illuminate\Bus\Batch;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
+use Throwable;
 
 final readonly class RunExecutor
 {
@@ -24,13 +26,22 @@ final readonly class RunExecutor
     public function execute(Run $run): void
     {
         $plan = $this->plan($run);
-        $run->transitionTo(RunStatus::Running);
 
-        match ($plan->strategy) {
-            ExecutorStrategy::SingleJob => $this->dispatchSingle($run, $plan),
-            ExecutorStrategy::Fanout => $this->dispatchFanout($run, $plan),
-            ExecutorStrategy::SubOperationSplit => $this->dispatchSplit($run, $plan),
-        };
+        if (! $run->transitionTo(RunStatus::Running)) {
+            return;
+        }
+
+        try {
+            match ($plan->strategy) {
+                ExecutorStrategy::SingleJob => $this->dispatchSingle($run, $plan),
+                ExecutorStrategy::Fanout => $this->dispatchFanout($run, $plan),
+                ExecutorStrategy::SubOperationSplit => $this->dispatchSplit($run, $plan),
+            };
+        } catch (Throwable $exception) {
+            resolve(RunFailure::class)->handle($run->id);
+
+            throw $exception;
+        }
     }
 
     public function plan(Run $run): ExecutionPlan
@@ -167,7 +178,13 @@ final readonly class RunExecutor
 
         Bus::batch($jobs)
             ->name('Slate run '.$runId)
-            ->then(static function (Batch $batch) use ($runId): void {
+            ->finally(static function (Batch $batch) use ($runId): void {
+                if ($batch->hasFailures()) {
+                    resolve(RunFailure::class)->handle($runId);
+
+                    return;
+                }
+
                 dispatch(new CompleteRun($runId));
             })
             ->onQueue($plan->runtimeSettings->queue)

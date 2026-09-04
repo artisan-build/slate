@@ -880,7 +880,8 @@ function knownCompiledVocabularyViolations(mixed $payload, string $root = 'paylo
  *
  * The token scan ignores comments and strings and accepts PHP numeric separators. It normalizes
  * camelCase and snake_case forms of visibilityWindow, visibilityTimeout, and retryAfter. It cannot
- * detect computed values, dynamically assembled identifiers, or differently named concepts.
+ * detect computed values, dynamically assembled identifiers, differently named concepts,
+ * constant-string configuration keys, or floating-point literals.
  *
  * @return list<string>
  */

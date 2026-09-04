@@ -56,7 +56,11 @@ final readonly class RunStillClip implements RunRecipeOperation
             'duration_microseconds', 'fit', 'pad_color', 'supersample', 'quality_tier', 'audio_bitrate',
         ];
 
-        if (array_keys($data) !== $expectedKeys
+        $actualKeys = array_keys($data);
+        sort($actualKeys);
+        sort($expectedKeys);
+
+        if ($actualKeys !== $expectedKeys
             || $data['operation'] !== OperationName::VideoStillClip->value
             || ! is_string($data['image_object_key'])
             || ! is_string($data['audio_object_key'])

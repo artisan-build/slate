@@ -102,4 +102,18 @@ final readonly class S3ObjectStorage implements ObjectStorage
             throw new RuntimeException("Unable to delete object: {$objectKey->value()}", previous: $exception);
         }
     }
+
+    public function keysWithinPrefix(string $prefix): array
+    {
+        try {
+            $paths = $this->filesystem->allFiles($prefix);
+        } catch (Throwable $exception) {
+            throw new RuntimeException("Unable to list object prefix: {$prefix}", previous: $exception);
+        }
+
+        return array_map(
+            static fn (string $path): ObjectKey => ObjectKey::withinPrefix($prefix, $path),
+            $paths,
+        );
+    }
 }

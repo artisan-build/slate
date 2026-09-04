@@ -4,12 +4,16 @@ namespace App\Models;
 
 use App\Casts\RunRecipeCast;
 use App\Slate\Run\RunRecipe;
+use App\Slate\Run\RunStillClip;
+use App\Slate\Storage\ObjectKey;
+use App\Slate\Storage\RunObjectKeys;
 use Database\Factories\RunFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use LogicException;
 
 /**
@@ -49,6 +53,12 @@ final class Run extends Model
         return $changed;
     }
 
+    protected static function booted(): void
+    {
+        self::creating(static fn (self $run) => $run->assertRecipeObjectOwnership());
+        self::updating(static fn (self $run) => $run->assertRecipeObjectOwnership());
+    }
+
     /** @return array<string, string> */
     protected function casts(): array
     {
@@ -56,5 +66,25 @@ final class Run extends Model
             'recipe' => RunRecipeCast::class,
             'status' => RunStatus::class,
         ];
+    }
+
+    private function assertRecipeObjectOwnership(): void
+    {
+        $runId = $this->getKey();
+
+        if (! is_string($runId)) {
+            throw new InvalidArgumentException('Run recipe ownership requires its UUID.');
+        }
+
+        $prefix = RunObjectKeys::prefix($runId);
+
+        foreach ($this->recipe->operations as $operation) {
+            if (! $operation instanceof RunStillClip) {
+                throw new InvalidArgumentException('Run recipe ownership received an unsupported operation.');
+            }
+
+            ObjectKey::withinPrefix($prefix, $operation->image->value());
+            ObjectKey::withinPrefix($prefix, $operation->audio->value());
+        }
     }
 }

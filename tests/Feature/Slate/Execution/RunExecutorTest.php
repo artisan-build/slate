@@ -29,8 +29,10 @@ use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\RunObjectKeys;
+use Illuminate\Bus\Batch;
 use Illuminate\Bus\PendingBatch;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Queue\Middleware\SkipIfBatchCancelled;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -266,6 +268,34 @@ test('keeps operations at or below the output budget in one queued job', functio
     'exactly at budget' => [49_000_000],
 ]);
 
+test('does not dispatch a run whose running transition is a redelivery no op', function (): void {
+    configureExecutorPolicy();
+    Bus::fake();
+    $runId = '17171717-1717-4717-8717-171717171717';
+    $run = executorRun([executorRecipeOperation($runId, 0, 30_000_000)], $runId);
+    resolve(RunExecutor::class)->execute($run);
+    Bus::fake();
+
+    resolve(RunExecutor::class)->execute($run->fresh());
+
+    Bus::assertNothingDispatched();
+    Bus::assertBatchCount(0);
+});
+
+test('marks a run failed when synchronous queue dispatch throws', function (): void {
+    configureExecutorPolicy();
+    Storage::fake();
+    config()->set('slate.storage.allow_host_local_fanout', true);
+    $runId = '18181818-1818-4818-8818-181818181818';
+    $run = executorRun([executorRecipeOperation($runId, 0, 30_000_000)], $runId);
+    Bus::shouldReceive('chain')->once()->andThrow(new RuntimeException('queue unavailable'));
+
+    expect(fn () => resolve(RunExecutor::class)->execute($run))
+        ->toThrow(RuntimeException::class, 'queue unavailable');
+
+    expect($run->fresh()->status)->toBe(RunStatus::Failed);
+});
+
 test('selects and dispatches fanout behind a persisted multi operation run', function (): void {
     configureExecutorPolicy();
     Bus::fake();
@@ -278,9 +308,49 @@ test('selects and dispatches fanout behind a persisted multi operation run', fun
     resolve(RunExecutor::class)->execute($run);
 
     Bus::assertBatched(fn (PendingBatch $batch): bool => $batch->jobs->count() === 2
-        && $batch->jobs->every(static fn (object $job): bool => $job instanceof RenderRunOperation));
+        && $batch->jobs->every(static fn (object $job): bool => $job instanceof RenderRunOperation
+            && $job->middleware()[0] instanceof SkipIfBatchCancelled)
+        && count($batch->finallyCallbacks()) === 1);
     expect(resolve(RunExecutor::class)->plan($run)->strategy)->toBe(ExecutorStrategy::Fanout)
         ->and((new ReflectionMethod(RunExecutor::class, 'selectStrategy'))->isPrivate())->toBeTrue();
+});
+
+test('defers failed fanout cleanup until the batch has settled', function (): void {
+    configureExecutorPolicy();
+    Storage::fake();
+    config()->set('slate.storage.allow_host_local_fanout', true);
+    Bus::fake();
+    $runId = '22222222-2222-4222-8222-222222222223';
+    $run = executorRun([
+        executorRecipeOperation($runId, 0, 30_000_000),
+        executorRecipeOperation($runId, 1, 20_000_000),
+    ], $runId);
+    $prefix = RunObjectKeys::prefix($runId);
+    $inFlightObject = ObjectKey::withinPrefix($prefix, $prefix.'/work/in-flight.mp4');
+    Storage::disk()->put($inFlightObject->value(), 'in flight');
+
+    resolve(RunExecutor::class)->execute($run);
+
+    $batchedJob = null;
+    $finally = null;
+    Bus::assertBatched(function (PendingBatch $pendingBatch) use (&$batchedJob, &$finally): bool {
+        $batchedJob = $pendingBatch->jobs->first();
+        $finally = $pendingBatch->finallyCallbacks()[0];
+
+        return true;
+    });
+    expect($batchedJob)->toBeInstanceOf(RenderRunOperation::class);
+    $batchedJob->withBatchId('batch-id')->failed(new RuntimeException('render failed'));
+
+    expect($run->fresh()->status)->toBe(RunStatus::Running)
+        ->and(Storage::disk()->exists($inFlightObject->value()))->toBeTrue();
+
+    $settledBatch = Mockery::mock(Batch::class);
+    $settledBatch->shouldReceive('hasFailures')->once()->andReturnTrue();
+    $finally($settledBatch);
+
+    expect($run->fresh()->status)->toBe(RunStatus::Failed)
+        ->and(Storage::disk()->allFiles($prefix))->toBe([]);
 });
 
 test('dispatches executable sub clip jobs and finalization behind a split run', function (): void {
@@ -356,15 +426,26 @@ test('failed run cleanup removes nested sub clips inputs intermediates and outpu
     $runId = '16161616-1616-4616-8616-161616161616';
     $recipe = executorRecipeOperation($runId, 0, 120_000_000);
     $run = executorRun([$recipe], $runId);
-    $plan = resolve(RunExecutor::class)->plan($run);
-    $keys = [$recipe->image, $recipe->audio, ...$plan->intermediateObjectKeys(), ...$plan->outputObjectKeys()];
+    $prefix = RunObjectKeys::prefix($runId);
+    $keys = [
+        $recipe->image,
+        $recipe->audio,
+        RunObjectKeys::subClip($runId, 0, 0),
+        RunObjectKeys::subClip($runId, 0, 1),
+        RunObjectKeys::subClip($runId, 0, 2),
+        RunObjectKeys::subClip($runId, 0, 9),
+        RunObjectKeys::silentConcat($runId, 0),
+        RunObjectKeys::operationOutput($runId, 0),
+        ObjectKey::withinPrefix($prefix, $prefix.'/work/unexpected-orphan.bin'),
+    ];
 
     foreach ($keys as $key) {
         Storage::disk()->put($key->value(), 'partial');
     }
 
+    config()->set('queue.connections.executor_test.queues.render.retry_after', 300);
     resolve(RunFailure::class)->handle($runId);
 
-    expect(Storage::disk()->allFiles(RunObjectKeys::prefix($runId)))->toBe([])
+    expect(Storage::disk()->allFiles($prefix))->toBe([])
         ->and($run->fresh()->status)->toBe(RunStatus::Failed);
 });

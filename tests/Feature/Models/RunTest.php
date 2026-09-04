@@ -67,6 +67,39 @@ test('persists and round trips an equal typed recipe without compiled command vo
         ->and(knownCompiledVocabularyViolations($decoded))->toBe([]);
 });
 
+test('rejects foreign object keys before saving a run', function (): void {
+    $runId = '19191919-1919-4919-8919-191919191919';
+    $foreignRunId = '20202020-2020-4020-8020-202020202020';
+
+    expect(fn () => Run::factory()->create([
+        'id' => $runId,
+        'recipe' => persistedRunRecipe($foreignRunId),
+    ]))->toThrow(InvalidArgumentException::class, 'Object key must remain within the caller prefix');
+
+    expect(DB::table('runs')->where('id', $runId)->exists())->toBeFalse();
+});
+
+test('hydrates a typed recipe after database JSON key reordering', function (): void {
+    $runId = '21212121-2121-4121-8121-212121212121';
+    $recipe = persistedRunRecipe($runId);
+    $payload = $recipe->toArray();
+    $payload['operations'] = array_map(
+        static fn (array $operation): array => array_reverse($operation, true),
+        $payload['operations'],
+    );
+    DB::table('runs')->insert([
+        'id' => $runId,
+        'recipe' => json_encode($payload, JSON_THROW_ON_ERROR),
+        'status' => RunStatus::Queued->value,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $run = Run::query()->findOrFail($runId);
+
+    expect($run->recipe->toArray())->toBe($recipe->toArray());
+});
+
 test('persisted payload guard catches command-shaped arrays under an unrelated key', function (): void {
     $violations = knownCompiledVocabularyViolations([
         'metadata' => ['tool', '-i', 'input.mp4', '-y', 'output.mp4'],
