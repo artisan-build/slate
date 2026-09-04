@@ -13,11 +13,14 @@ use App\Slate\Webhook\HostnameResolver;
 use App\Slate\Webhook\WebhookDestinationGuard;
 use ArtisanBuild\BuiltForCloud\Subject;
 use ArtisanBuild\BuiltForCloud\SubjectType;
+use Closure;
+use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use InvalidArgumentException;
+use Psr\Http\Message\RequestInterface;
 use Tests\TestCase;
 
 final class DeliverRunWebhookTest extends TestCase
@@ -44,9 +47,20 @@ final class DeliverRunWebhookTest extends TestCase
 
     public function test_delivery_posts_signed_terminal_status_without_result_bytes(): void
     {
+        /** @var array<string, mixed>|null $capturedOptions */
+        $capturedOptions = null;
         $this->travelTo('2026-09-05 14:00:00');
         Queue::fake([DeliverRunWebhook::class]);
         Http::preventStrayRequests();
+        Http::globalMiddleware(
+            static function (callable $handler) use (&$capturedOptions): Closure {
+                return static function (RequestInterface $request, array $options) use ($handler, &$capturedOptions): PromiseInterface {
+                    $capturedOptions = $options;
+
+                    return $handler($request, $options);
+                };
+            },
+        );
         Http::fake([
             'hooks.example.test/slate' => Http::response(status: 204),
         ]);
@@ -80,6 +94,13 @@ final class DeliverRunWebhookTest extends TestCase
 
             return true;
         });
+        self::assertNotNull($capturedOptions);
+        self::assertSame(false, $capturedOptions['allow_redirects'] ?? null);
+        self::assertSame('', $capturedOptions['proxy'] ?? null);
+        self::assertSame(
+            ['hooks.example.test:443:93.184.216.34'],
+            $capturedOptions['curl'][CURLOPT_RESOLVE] ?? null,
+        );
     }
 
     public function test_delivery_rechecks_dns_and_refuses_a_rebound_private_address(): void
