@@ -56,6 +56,13 @@ final class Run extends Model
         return RunRecipe::fromJson($value, RunObjectKeys::prefix($this->id));
     }
 
+    /**
+     * Closes ordinary Eloquent recipe writes: property assignment, fill/forceFill, model creation, and
+     * unguarded factories all pass here; replicate() is prohibited separately. Deliberate privileged
+     * escapes remain outside this guard: setRawAttributes() followed by save()/saveQuietly(), Eloquent
+     * bulk update()/upsert(), query-builder insert/update/upsert(), DB::table('runs')->update(), and raw
+     * SQL. createWithRecipe() intentionally uses raw attributes only after typed ownership validation.
+     */
     public function setAttribute(mixed $key, mixed $value): mixed
     {
         if ($key === 'recipe') {
@@ -65,17 +72,28 @@ final class Run extends Model
 
             $runId = $this->getAttribute('id');
 
-            if (! is_string($runId) || ! is_string($value)) {
-                throw new InvalidArgumentException('Run recipe creation requires its UUID and JSON payload.');
+            if (! is_string($value)) {
+                throw new InvalidArgumentException('Run recipe creation requires a JSON payload.');
             }
 
-            self::assertRecipeObjectOwnership(
-                $runId,
-                RunRecipe::fromJson($value, RunObjectKeys::prefix($runId)),
-            );
+            if (is_string($runId)) {
+                self::assertRecipeJsonOwnership($runId, $value);
+            }
+        } elseif ($key === $this->getKeyName() && ! $this->exists && is_string($value)) {
+            $recipe = $this->getAttributes()['recipe'] ?? null;
+
+            if (is_string($recipe)) {
+                self::assertRecipeJsonOwnership($value, $recipe);
+            }
         }
 
         return parent::setAttribute($key, $value);
+    }
+
+    /** @param list<string>|null $except */
+    public function replicate(?array $except = null): never
+    {
+        throw new LogicException('Run replication is prohibited because recipe object keys belong to the source run.');
     }
 
     public function transitionTo(RunStatus $nextStatus): bool
@@ -122,5 +140,13 @@ final class Run extends Model
             ObjectKey::withinPrefix($prefix, $operation->image->value());
             ObjectKey::withinPrefix($prefix, $operation->audio->value());
         }
+    }
+
+    private static function assertRecipeJsonOwnership(string $runId, string $recipe): void
+    {
+        self::assertRecipeObjectOwnership(
+            $runId,
+            RunRecipe::fromJson($recipe, RunObjectKeys::prefix($runId)),
+        );
     }
 }

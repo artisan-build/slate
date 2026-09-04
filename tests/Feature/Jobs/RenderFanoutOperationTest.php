@@ -15,6 +15,7 @@ use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\ObjectStorage;
+use Illuminate\Bus\BatchRepository;
 use Illuminate\Support\Facades\Storage;
 
 /** @return array<string, mixed> */
@@ -107,9 +108,19 @@ test('stages bucket inputs into invocation scratch and overwrites deterministic 
         Storage::disk()->get($prefix.'/work/receipts/0000.json'),
         $operation,
     );
+    $batchRepository = Mockery::mock(BatchRepository::class);
+    $batchRepository->shouldReceive('find')->once()->with('deleted-batch-id')->andReturnNull();
+    app()->instance(BatchRepository::class, $batchRepository);
+    $job->withBatchId('deleted-batch-id');
+    $handled = false;
+    $job->middleware()[0]->handle($job, function () use (&$handled): void {
+        $handled = true;
+    });
+
     expect($receipt->operationIndex)->toBe(0)
         ->and($receipt->operation->value)->toBe('video.trim')
         ->and($receipt->hostname)->not->toBe('')
         ->and($receipt->outputSizeBytes)->toBeGreaterThan(0)
-        ->and($job->middleware()[0])->toBeInstanceOf(SkipIfBatchUnavailable::class);
+        ->and($job->middleware()[0])->toBeInstanceOf(SkipIfBatchUnavailable::class)
+        ->and($handled)->toBeFalse();
 });

@@ -10,6 +10,7 @@ use App\Slate\Run\RunRecipe;
 use App\Slate\Run\RunStillClip;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\RunObjectKeys;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -113,6 +114,33 @@ test('rejects a foreign recipe supplied through an unguarded factory creation', 
     ]))->toThrow(InvalidArgumentException::class, 'Object key must remain within the caller prefix');
 
     expect(DB::table('runs')->where('id', $runId)->exists())->toBeFalse();
+});
+
+test('prohibits replicating a running run with source-owned recipe keys', function (): void {
+    $source = Run::factory()->create(['status' => RunStatus::Running]);
+
+    expect(function () use ($source): void {
+        $replica = $source->replicate();
+        $replica->save();
+    })->toThrow(LogicException::class, 'Run replication is prohibited');
+
+    expect(Run::query()->count())->toBe(1)
+        ->and(Run::query()->firstOrFail()->id)->toBe($source->id);
+});
+
+test('creates a valid run when unguarded attributes provide recipe before id', function (): void {
+    $runId = '34343434-3434-4434-8434-343434343434';
+    $recipe = persistedRunRecipe($runId);
+    $run = Model::unguarded(fn (): Run => new Run([
+        'recipe' => $recipe->toJson(),
+        'id' => $runId,
+    ]));
+
+    $run->save();
+    $run->refresh();
+
+    expect($run->recipe()->toArray())->toBe($recipe->toArray())
+        ->and($run->status)->toBe(RunStatus::Queued);
 });
 
 test('exposes recipe as a read-only typed model property', function (): void {
