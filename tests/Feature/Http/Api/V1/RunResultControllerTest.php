@@ -78,4 +78,25 @@ final class RunResultControllerTest extends TestCase
             'rejection_reason' => 'decode_codec_not_allowed',
         ]);
     }
+
+    public function test_result_returns_404_without_signing_for_a_foreign_bfc_subject(): void
+    {
+        $run = Run::factory()->create([
+            'status' => RunStatus::Succeeded,
+            'owner_subject_ref' => 'tenant-a',
+        ]);
+        $storage = $this->mock(ObjectStorage::class);
+        $storage->shouldNotReceive('temporaryUrl');
+        $credential = $this->mintCredential([
+            'abilities' => ['consume'],
+            'subject_ref' => 'tenant-b',
+        ]);
+
+        $response = $this->actingAsCredential($credential)->getJson('/api/v1/runs/'.$run->id.'/result');
+
+        $response->assertNotFound()->assertExactJson([
+            'message' => 'The run was not found.',
+            'reason' => RunApiErrorReason::RunNotFound->value,
+        ]);
+    }
 }

@@ -36,6 +36,8 @@ use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\RunObjectKeys;
+use ArtisanBuild\BuiltForCloud\Subject;
+use ArtisanBuild\BuiltForCloud\SubjectType;
 use Carbon\CarbonImmutable;
 use Illuminate\Bus\Batch;
 use Illuminate\Bus\PendingBatch;
@@ -123,7 +125,12 @@ function executorRecipeOperation(string $runId, int $operationIndex, int $durati
 /** @param non-empty-list<RunStillClip> $operations */
 function executorRun(array $operations, string $runId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'): Run
 {
-    return Run::createWithRecipe($runId, new RunRecipe($operations));
+    return Run::createWithRecipe($runId, new RunRecipe($operations), executorSubject());
+}
+
+function executorSubject(): Subject
+{
+    return new Subject(SubjectType::Application, 'executor-tests');
 }
 
 function configureExecutorPolicy(): void
@@ -145,7 +152,7 @@ test('plans one padded coarse cut job per source before precise per clip fan out
         new RunVideoClip($firstSource, 10.0, 20.0),
         new RunVideoClip($firstSource, 30.0, 36.0),
         new RunVideoClip($secondSource, 2.0, 7.0),
-    ]));
+    ]), executorSubject());
 
     $plan = resolve(RunExecutor::class)->plan($run);
     $coarse = array_values(array_filter(
@@ -187,7 +194,7 @@ test('dispatches exactly one coarse cut queue job for each distinct source', fun
         new RunVideoClip($firstSource, 10.0, 20.0),
         new RunVideoClip($firstSource, 30.0, 36.0),
         new RunVideoClip($secondSource, 2.0, 7.0),
-    ]));
+    ]), executorSubject());
 
     resolve(RunExecutor::class)->execute($run);
 

@@ -6,6 +6,7 @@ namespace App\Jobs;
 
 use App\Models\Run;
 use App\Models\RunStatus;
+use App\Slate\Webhook\WebhookDestinationGuard;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Http;
@@ -27,7 +28,7 @@ final class DeliverRunWebhook implements ShouldQueue
     }
 
     /** @throws JsonException */
-    public function handle(): void
+    public function handle(WebhookDestinationGuard $destinationGuard): void
     {
         $run = Run::query()->findOrFail($this->runId);
 
@@ -47,9 +48,19 @@ final class DeliverRunWebhook implements ShouldQueue
             'timestamp' => (int) $timestamp,
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
         $signature = hash_hmac('sha256', $timestamp.'.'.$rawBody, $run->webhook_secret);
+        $destination = $destinationGuard->resolve($run->webhook_url);
+
+        if (! defined('CURLOPT_RESOLVE')) {
+            throw new RuntimeException('Run webhook delivery requires cURL DNS pinning.');
+        }
+
         $response = Http::connectTimeout((int) config('slate.api.webhook_connect_timeout_seconds'))
             ->timeout((int) config('slate.api.webhook_timeout_seconds'))
-            ->withOptions(['allow_redirects' => false])
+            ->withOptions([
+                'allow_redirects' => false,
+                'proxy' => '',
+                'curl' => [CURLOPT_RESOLVE => [$destination->curlResolveEntry()]],
+            ])
             ->withBody($rawBody, 'application/json')
             ->withHeaders([
                 'X-Slate-Timestamp' => $timestamp,

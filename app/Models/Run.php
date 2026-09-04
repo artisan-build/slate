@@ -9,8 +9,11 @@ use App\Slate\Run\RunStillClip;
 use App\Slate\Run\RunVideoClip;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\RunObjectKeys;
+use ArtisanBuild\BuiltForCloud\Subject;
+use ArtisanBuild\BuiltForCloud\SubjectType;
 use Database\Factories\RunFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -23,6 +26,8 @@ use LogicException;
  * @property RunStatus $status
  * @property RunTrust $trust
  * @property InputRejectionReason|null $rejection_reason
+ * @property SubjectType $owner_subject_type
+ * @property string $owner_subject_ref
  * @property string|null $webhook_url
  * @property string|null $webhook_secret
  * @property-read RunRecipe $recipe
@@ -41,6 +46,7 @@ final class Run extends Model
     public static function createWithRecipe(
         string $runId,
         RunRecipe $recipe,
+        Subject $owner,
         RunTrust $trust = RunTrust::Untrusted,
         ?string $webhookUrl = null,
         ?string $webhookSecret = null,
@@ -54,6 +60,8 @@ final class Run extends Model
         $run->setRawAttributes([
             'id' => $runId,
             'recipe' => $recipe->toJson(),
+            'owner_subject_type' => $owner->type->value,
+            'owner_subject_ref' => $owner->ref,
             'trust' => $trust->value,
             'status' => RunStatus::Queued->value,
         ]);
@@ -71,6 +79,14 @@ final class Run extends Model
     public function recipe(): RunRecipe
     {
         return $this->recipe;
+    }
+
+    /** @return Builder<self> */
+    public static function ownedBy(Subject $subject): Builder
+    {
+        return self::query()
+            ->where('owner_subject_type', $subject->type->value)
+            ->where('owner_subject_ref', $subject->ref);
     }
 
     protected function getRecipeAttribute(mixed $value): RunRecipe
@@ -181,6 +197,7 @@ final class Run extends Model
             'status' => RunStatus::class,
             'trust' => RunTrust::class,
             'rejection_reason' => InputRejectionReason::class,
+            'owner_subject_type' => SubjectType::class,
             'webhook_url' => 'encrypted',
             'webhook_secret' => 'encrypted',
         ];

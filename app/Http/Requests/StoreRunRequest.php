@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace App\Http\Requests;
 
 use App\Models\RunTrust;
+use App\Slate\Input\InputRejectionReason;
+use App\Slate\Run\RunAdmissionPolicy;
 use App\Slate\Run\RunApiErrorReason;
 use App\Slate\Run\RunRecipe;
 use App\Slate\Run\RunRecipeOperation;
 use App\Slate\Storage\RunObjectKeys;
+use App\Slate\Webhook\WebhookDestinationGuard;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Contracts\Validation\Validator as ValidatorContract;
 use Illuminate\Foundation\Http\FormRequest;
@@ -21,20 +24,47 @@ final class StoreRunRequest extends FormRequest
 {
     private ?RunRecipe $runRecipe = null;
 
+    private ?RunAdmissionPolicy $admissionPolicy = null;
+
+    private ?InputRejectionReason $inputRejectionReason = null;
+
+    private RunApiErrorReason $apiErrorReason = RunApiErrorReason::MalformedRecipe;
+
     public function authorize(): bool
     {
         return true;
     }
 
     /** @return array<string, list<mixed>> */
-    public function rules(): array
+    public function rules(RunAdmissionPolicy $admissionPolicy, WebhookDestinationGuard $webhookGuard): array
     {
+        $this->admissionPolicy = $admissionPolicy;
+
         return [
-            'id' => ['required', 'string', 'uuid', 'unique:runs,id'],
+            'id' => ['required', 'string', 'uuid'],
             'recipe' => ['required', 'array:operations'],
             'recipe.operations' => ['required', 'array', 'min:1'],
             'trust' => ['sometimes', Rule::enum(RunTrust::class)],
-            'webhook_url' => ['sometimes', 'nullable', 'string', 'url:https', 'max:2048'],
+            'webhook_url' => [
+                'bail',
+                'sometimes',
+                'nullable',
+                'string',
+                'url:https',
+                'max:2048',
+                function (string $attribute, mixed $value, callable $fail) use ($webhookGuard): void {
+                    if (! is_string($value)) {
+                        return;
+                    }
+
+                    try {
+                        $webhookGuard->resolve($value);
+                    } catch (InvalidArgumentException $exception) {
+                        $this->apiErrorReason = RunApiErrorReason::InvalidWebhookDestination;
+                        $fail($exception->getMessage());
+                    }
+                },
+            ],
         ];
     }
 
@@ -72,6 +102,16 @@ final class StoreRunRequest extends FormRequest
                 if (count($operationClasses) > 1) {
                     throw new InvalidArgumentException('A run cannot mix source clips with assembler operations.');
                 }
+
+                $reason = $this->admissionPolicy?->rejectionReason($this->runRecipe);
+
+                if ($reason !== null) {
+                    $this->inputRejectionReason = $reason;
+                    $validator->errors()->add(
+                        'recipe.operations',
+                        $this->admissionPolicy?->message($reason) ?? 'The run exceeds its execution limits.',
+                    );
+                }
             } catch (InvalidArgumentException $exception) {
                 $validator->errors()->add('recipe', $exception->getMessage());
             }
@@ -104,7 +144,9 @@ final class StoreRunRequest extends FormRequest
     {
         throw new HttpResponseException(response()->json([
             'message' => 'The submitted run is invalid.',
-            'reason' => RunApiErrorReason::MalformedRecipe->value,
+            'reason' => $this->inputRejectionReason === null
+                ? $this->apiErrorReason->value
+                : $this->inputRejectionReason->value,
             'errors' => $validator->errors()->toArray(),
         ], 422));
     }

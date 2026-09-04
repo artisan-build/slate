@@ -13,6 +13,7 @@ use App\Slate\Run\RunRecipe;
 use App\Slate\Run\RunStillClip;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\RunObjectKeys;
+use ArtisanBuild\BuiltForCloud\SubjectType;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
@@ -50,6 +51,8 @@ class RunFactory extends Factory
             ]))->toJson(),
             'status' => RunStatus::Queued,
             'trust' => RunTrust::Untrusted,
+            'owner_subject_type' => SubjectType::Application,
+            'owner_subject_ref' => 'test-subject',
         ];
     }
 }

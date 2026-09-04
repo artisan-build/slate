@@ -21,6 +21,8 @@ use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\RunObjectKeys;
 use App\Slate\Storage\ScratchPath;
+use ArtisanBuild\BuiltForCloud\Subject;
+use ArtisanBuild\BuiltForCloud\SubjectType;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -36,7 +38,7 @@ final class CoarseCutVideoSourceTest extends TestCase
         $source = RunObjectKeys::input($runId, 0, 'source.mp4');
         $run = Run::createWithRecipe($runId, new RunRecipe([
             new RunVideoClip($source, 1.0, 2.0),
-        ]));
+        ]), new Subject(SubjectType::Application, 'coarse-cut-tests'));
         $run->transitionTo(RunStatus::Running);
         $coarseOutput = RunObjectKeys::coarseClip($runId, 0);
         $operation = new CoarseCutSource($source, [

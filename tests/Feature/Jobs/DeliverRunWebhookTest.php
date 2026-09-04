@@ -9,10 +9,15 @@ use App\Models\Run;
 use App\Models\RunStatus;
 use App\Models\RunTrust;
 use App\Slate\Input\InputRejectionReason;
+use App\Slate\Webhook\HostnameResolver;
+use App\Slate\Webhook\WebhookDestinationGuard;
+use ArtisanBuild\BuiltForCloud\Subject;
+use ArtisanBuild\BuiltForCloud\SubjectType;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use InvalidArgumentException;
 use Tests\TestCase;
 
 final class DeliverRunWebhookTest extends TestCase
@@ -45,12 +50,13 @@ final class DeliverRunWebhookTest extends TestCase
         Http::fake([
             'hooks.example.test/slate' => Http::response(status: 204),
         ]);
+        app()->instance(HostnameResolver::class, new WebhookTestHostnameResolver(['93.184.216.34']));
         $run = $this->webhookRun();
         $run->transitionTo(RunStatus::Running);
         $run->reject(InputRejectionReason::ReferencedMedia);
         $job = new DeliverRunWebhook($run->id);
 
-        $job->handle();
+        $job->handle(resolve(WebhookDestinationGuard::class));
 
         Http::assertSent(function (Request $request) use ($run): bool {
             $timestamp = (string) $request->header('X-Slate-Timestamp')[0];
@@ -76,6 +82,26 @@ final class DeliverRunWebhookTest extends TestCase
         });
     }
 
+    public function test_delivery_rechecks_dns_and_refuses_a_rebound_private_address(): void
+    {
+        Queue::fake([DeliverRunWebhook::class]);
+        Http::preventStrayRequests();
+        Http::fake();
+        app()->instance(HostnameResolver::class, new WebhookTestHostnameResolver(['10.0.0.1']));
+        $run = $this->webhookRun();
+        $run->transitionTo(RunStatus::Running);
+        $run->transitionTo(RunStatus::Succeeded);
+
+        $this->expectException(InvalidArgumentException::class);
+
+        try {
+            (new DeliverRunWebhook($run->id))->handle(resolve(WebhookDestinationGuard::class));
+        } finally {
+            Http::assertNothingSent();
+            self::assertSame(RunStatus::Succeeded, $run->fresh()->status);
+        }
+    }
+
     private function webhookRun(): Run
     {
         $factoryRun = Run::factory()->make();
@@ -83,9 +109,21 @@ final class DeliverRunWebhookTest extends TestCase
         return Run::createWithRecipe(
             $factoryRun->id,
             $factoryRun->recipe(),
+            new Subject(SubjectType::Application, 'webhook-tests'),
             RunTrust::TrustedOrigin,
             'https://hooks.example.test/slate',
             'webhook-test-secret',
         );
+    }
+}
+
+final readonly class WebhookTestHostnameResolver implements HostnameResolver
+{
+    /** @param list<string> $addresses */
+    public function __construct(private array $addresses) {}
+
+    public function resolve(string $hostname): array
+    {
+        return $this->addresses;
     }
 }
