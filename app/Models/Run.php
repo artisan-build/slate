@@ -16,6 +16,8 @@ use LogicException;
  * @property string $id
  * @property RunRecipe $recipe
  * @property RunStatus $status
+ *
+ * @mixin IdeHelperRun
  */
 #[Fillable(['recipe', 'status'])]
 final class Run extends Model
