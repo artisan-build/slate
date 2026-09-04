@@ -79,11 +79,17 @@ final class Run extends Model
             if (is_string($runId)) {
                 self::assertRecipeJsonOwnership($runId, $value);
             }
-        } elseif ($key === $this->getKeyName() && ! $this->exists && is_string($value)) {
-            $recipe = $this->getAttributes()['recipe'] ?? null;
+        } elseif ($key === $this->getKeyName()) {
+            if ($this->exists && $value !== $this->getRawOriginal($this->getKeyName())) {
+                throw new LogicException('A persisted Run ID is immutable.');
+            }
 
-            if (is_string($recipe)) {
-                self::assertRecipeJsonOwnership($value, $recipe);
+            if (! $this->exists && is_string($value)) {
+                $recipe = $this->getAttributes()['recipe'] ?? null;
+
+                if (is_string($recipe)) {
+                    self::assertRecipeJsonOwnership($value, $recipe);
+                }
             }
         }
 

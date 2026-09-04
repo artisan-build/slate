@@ -128,6 +128,26 @@ test('prohibits replicating a running run with source-owned recipe keys', functi
         ->and(Run::query()->firstOrFail()->id)->toBe($source->id);
 });
 
+test('permits an identical run id assignment but rejects persisted rekeying without changing its recipe', function (): void {
+    $run = Run::factory()->create();
+    $originalId = $run->id;
+    $originalRecipe = $run->recipe()->toArray();
+    $replacementId = '35353535-3535-4535-8535-353535353535';
+    $run->id = $originalId;
+    $run->save();
+
+    expect(function () use ($run, $replacementId): void {
+        $run->id = $replacementId;
+        $run->save();
+    })->toThrow(LogicException::class, 'persisted Run ID is immutable');
+
+    $persisted = Run::query()->findOrFail($originalId);
+
+    expect($persisted->id)->toBe($originalId)
+        ->and($persisted->recipe()->toArray())->toBe($originalRecipe)
+        ->and(Run::query()->whereKey($replacementId)->exists())->toBeFalse();
+});
+
 test('creates a valid run when unguarded attributes provide recipe before id', function (): void {
     $runId = '34343434-3434-4434-8434-343434343434';
     $recipe = persistedRunRecipe($runId);
