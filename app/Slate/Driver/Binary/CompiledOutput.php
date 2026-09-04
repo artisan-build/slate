@@ -46,6 +46,49 @@ final readonly class CompiledOutput
         return new self($values, $filterType);
     }
 
+    public static function silentH264(
+        CompiledH264FilterGraph $filterGraph,
+        QualityTier $tier,
+        int $width,
+        int $height,
+        int $framesPerSecond,
+        CompiledH264OutputOptions $outputOptions,
+        ScratchPath $output,
+    ): self {
+        $filterType = $filterGraph->complex ? CompiledFilterType::Complex : CompiledFilterType::Video;
+        $values = [
+            $filterType->value,
+            $filterGraph->filterGraph()->value(),
+            ...H264OutputContract::videoArgumentsFor($tier, $width, $height, $framesPerSecond),
+            ...$outputOptions->commandValues(),
+            $output->writablePath(),
+        ];
+
+        return new self($values, $filterType);
+    }
+
+    public static function muxedVideo(
+        AudioBitrate $audioBitrate,
+        float $durationSeconds,
+        ScratchPath $output,
+    ): self {
+        return new self([
+            '-map',
+            CompiledLiteral::VideoInputZero->value,
+            '-map',
+            CompiledLiteral::AudioInputOne->value,
+            '-c:v',
+            CompiledLiteral::Copy->value,
+            '-c:a',
+            H264OutputContract::audioEncoder(),
+            '-b:a',
+            $audioBitrate->value,
+            '-t',
+            CompiledArgument::seconds($durationSeconds)->value(),
+            $output->writablePath(),
+        ]);
+    }
+
     public static function mp3(
         AudioBitrate $bitrate,
         ScratchPath $output,

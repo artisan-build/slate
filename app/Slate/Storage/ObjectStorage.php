@@ -19,4 +19,7 @@ interface ObjectStorage
     public function exists(ObjectKey $objectKey): bool;
 
     public function delete(ObjectKey $objectKey): void;
+
+    /** @return list<ObjectKey> */
+    public function keysWithinPrefix(string $prefix): array;
 }

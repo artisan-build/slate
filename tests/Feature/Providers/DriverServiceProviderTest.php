@@ -26,11 +26,13 @@ use App\Slate\Recipe\QualityTier;
 use App\Slate\Recipe\Video\OverlayFadeIn;
 use App\Slate\Recipe\Video\OverlayImage;
 use App\Slate\Recipe\Video\StillMotion;
+use App\Slate\Recipe\Video\VideoAudioMux;
 use App\Slate\Recipe\Video\VideoColor;
 use App\Slate\Recipe\Video\VideoConcat;
 use App\Slate\Recipe\Video\VideoConcatMode;
 use App\Slate\Recipe\Video\VideoFit;
 use App\Slate\Recipe\Video\VideoStillClip;
+use App\Slate\Recipe\Video\VideoStillClipSlice;
 use App\Slate\Recipe\Video\VideoThumbnail;
 use App\Slate\Recipe\Video\VideoTransition;
 use App\Slate\Recipe\Video\VideoTransitionSegment;
@@ -60,6 +62,25 @@ test('registers production compilers for every shipped operation', function (): 
         );
         $video = fakeRenderedSlateVideo($stillClip);
         $secondVideo = fakeRenderedSlateVideo($secondStillClip);
+        $slice = new VideoStillClipSlice(
+            $image,
+            $scratch->file('silent-slice.mp4'),
+            1536,
+            1024,
+            24,
+            1_000_000,
+            VideoFit::ContainPad,
+            VideoColor::Black,
+            1,
+            QualityTier::Delivery,
+        );
+        $silentSlice = fakeRenderedSlateVideo($slice);
+        $mux = new VideoAudioMux(
+            $silentSlice,
+            $input,
+            AudioBitrate::Kbps192,
+            $scratch->file('muxed.mp4'),
+        );
         $font = $scratch->file('font.ttf');
         file_put_contents($font->writablePath(), "\x00\x01\x00\x00");
         $compiler = resolve(RecipeCompiler::class);
@@ -81,6 +102,8 @@ test('registers production compilers for every shipped operation', function (): 
             ),
             new AudioPad($input, $scratch->file('padded.mp3'), 0.25, 0.5, AudioBitrate::Kbps128),
             $stillClip,
+            $slice,
+            $mux,
             new VideoTrim($video, 24, 24, $scratch->file('trimmed.mp4')),
             new VideoTransitionSegment(
                 $video, $secondVideo, 24, QualityTier::Delivery, $scratch->file('transition.mp4'),
@@ -112,7 +135,7 @@ test('registers production compilers for every shipped operation', function (): 
             ->and($compiler)->toBeInstanceOf(RecipeCompiler::class)
             ->and($executables)->toBe([
                 'ffprobe', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg',
-                'ffmpeg', 'ffmpeg', 'ffmpeg',
+                'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg',
             ]);
     });
 });

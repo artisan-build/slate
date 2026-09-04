@@ -18,13 +18,22 @@ return [
     'benchmark' => [
         'duration_seconds' => 540,
         'segment_seconds' => 40,
-        'visibility_timeout_seconds' => 180,
         // The instrument must outlive production's kill point to measure the uncensored operation.
         'instrument_operation_timeout_seconds' => 600,
         'font_path' => resource_path('fonts/NotoSans[wdth,wght].ttf'),
     ],
-    'driver' => [
-        'timeout_seconds' => 170,
+    'execution' => [
+        'render_queue' => 'render',
+        'visibility_window_fallback_seconds' => 180,
+        'job_timeout_margin_seconds' => 10,
+        'driver_timeout_margin_seconds' => 10,
+        'output_budget_margin' => 0.8,
+        'measured_realtime_rates' => [
+            // Intermediate is unmeasured; conservatively use the slower delivery rate below.
+            'intermediate' => 0.389,
+            // Delivery measured 0.389x realtime at 1536x1024 in PRs #15/#17.
+            'delivery' => 0.389,
+        ],
     ],
     'storage' => [
         'scratch_path' => storage_path('app/slate-jobs'),

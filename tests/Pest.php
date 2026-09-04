@@ -12,12 +12,15 @@ use App\Slate\Recipe\Caption\TimedWords;
 use App\Slate\Recipe\Operation;
 use App\Slate\Recipe\Video\OverlayImage;
 use App\Slate\Recipe\Video\SlateVideo;
+use App\Slate\Recipe\Video\VideoAudioMux;
 use App\Slate\Recipe\Video\VideoConcat;
 use App\Slate\Recipe\Video\VideoStillClip;
+use App\Slate\Recipe\Video\VideoStillClipSlice;
 use App\Slate\Recipe\Video\VideoTransitionSegment;
 use App\Slate\Recipe\Video\VideoTrim;
 use App\Slate\Storage\ScratchDirectory;
 use App\Slate\Storage\ScratchPath;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Tests\TestCase;
 
 pest()->extend(TestCase::class)
@@ -36,7 +39,7 @@ function ffmpegFixture(string $name): string
 
 /** @param  array<string, mixed>  $videoStreamOverrides */
 function fakeRenderedSlateVideo(
-    VideoStillClip|VideoTrim|VideoTransitionSegment|VideoConcat|OverlayImage|TimedWords $operation,
+    VideoStillClip|VideoStillClipSlice|VideoAudioMux|VideoTrim|VideoTransitionSegment|VideoConcat|OverlayImage|TimedWords $operation,
     ?float $durationSeconds = null,
     array $videoStreamOverrides = [],
     bool $includeVideo = true,
@@ -50,6 +53,20 @@ function fakeRenderedSlateVideo(
         $height = $operation->height;
         $framesPerSecond = $operation->framesPerSecond;
         $durationSeconds ??= $operation->durationSeconds;
+    } elseif ($operation instanceof VideoStillClipSlice) {
+        file_put_contents($operation->image->writablePath(), 'image');
+        $width = $operation->width;
+        $height = $operation->height;
+        $framesPerSecond = $operation->framesPerSecond;
+        $durationSeconds ??= $operation->durationSeconds();
+        $includeAudio = false;
+    } elseif ($operation instanceof VideoAudioMux) {
+        file_put_contents($operation->audio->writablePath(), 'audio');
+        $width = $operation->video->width;
+        $height = $operation->video->height;
+        $framesPerSecond = $operation->video->framesPerSecond;
+        $durationSeconds ??= $operation->video->durationSeconds;
+        $includeAudio = true;
     } elseif ($operation instanceof VideoConcat) {
         $width = $operation->width();
         $height = $operation->height();
@@ -149,7 +166,7 @@ function fakeRenderedSlateVideo(
  */
 function encoderNameLocations(string $root): array
 {
-    $encoderPattern = '/\\b(?:aac|libaom-av1|libkvazaar|libmp3lame|libopenh264|libopus|libsvtav1|libvorbis|libvpx-vp9|libx264|libx265|mjpeg|pcm_s16le|prores_ks|h264_(?:amf|nvenc|v4l2m2m|vulkan))\\b/';
+    $encoderPattern = recognizedEncoderPattern();
     $locations = [];
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
         $root,
@@ -190,6 +207,34 @@ function encoderNameLocations(string $root): array
     }
 
     return $locations;
+}
+
+function recognizedEncoderPattern(): string
+{
+    return '/\\b(?:'.implode('|', array_map(
+        static fn (string $encoder): string => preg_quote($encoder, '/'),
+        recognizedEncoderNames(),
+    )).')\\b/';
+}
+
+/** @return list<string> */
+function recognizedEncoderNames(): array
+{
+    return [
+        'aac', 'libaom-av1', 'libkvazaar', 'libmp3lame', 'libopenh264', 'libopus', 'libsvtav1',
+        'libvorbis', 'libvpx-vp9', 'libx264', 'libx265', 'mjpeg', 'pcm_s16le', 'prores_ks',
+        'h264_amf', 'h264_nvenc', 'h264_v4l2m2m', 'h264_vulkan',
+    ];
+}
+
+/** @return list<string> */
+function recognizedFilterNames(): array
+{
+    return [
+        'acrossfade', 'adelay', 'amovie', 'anullsrc', 'apad', 'ass', 'asetpts', 'atrim', 'concat',
+        'drawtext', 'fade', 'format', 'metadata', 'movie', 'overlay', 'scale', 'sendcmd', 'setpts',
+        'subtitles', 'trim', 'xfade', 'zoompan',
+    ];
 }
 
 /**
@@ -739,6 +784,18 @@ function queuedJobAbsolutePathViolations(object $job): array
  */
 function queuedJobKnownCompiledVocabularyViolations(object $job): array
 {
+    return knownCompiledVocabularyViolations(unserialize(serialize($job)), $job::class);
+}
+
+/**
+ * Recursively rejects compiler products, command-shaped lists, command keys, and Slate's complete
+ * recognized encoder and filter vocabularies. Unknown future option/filter/encoder names remain
+ * outside this detector and require updating the closed vocabularies when introduced.
+ *
+ * @return list<string>
+ */
+function knownCompiledVocabularyViolations(mixed $payload, string $root = 'payload'): array
+{
     $violations = [];
     $seen = [];
     $compiledTypes = [
@@ -750,11 +807,14 @@ function queuedJobKnownCompiledVocabularyViolations(object $job): array
     ];
     $walk = function (mixed $value, string $path) use (&$walk, &$seen, &$violations, $compiledTypes): void {
         if (is_string($value)) {
-            if (preg_match('/\b(?:ffmpeg|ffprobe|libopenh264|libx264|libx265)\b/i', $value) === 1) {
+            if (preg_match('/\b(?:ffmpeg|ffprobe)\b/i', $value) === 1
+                || preg_match(recognizedEncoderPattern(), $value) === 1) {
                 $violations[] = "{$path} contains binary or encoder vocabulary";
             }
 
-            if (preg_match('/(?:-filter_complex|(?:drawtext|xfade|concat|trim|atrim|setpts|asetpts)\s*=)/', $value) === 1) {
+            $filterPattern = '/(?:-filter_complex|(?:'.implode('|', recognizedFilterNames()).')\s*=)/';
+
+            if (preg_match($filterPattern, $value) === 1) {
                 $violations[] = "{$path} contains compiled filter vocabulary";
             }
 
@@ -762,7 +822,18 @@ function queuedJobKnownCompiledVocabularyViolations(object $job): array
         }
 
         if (is_array($value)) {
+            if (array_is_list($value)
+                && count($value) > 1
+                && array_any($value, static fn (mixed $item): bool => is_string($item) && str_starts_with($item, '-'))) {
+                $violations[] = "{$path} contains command-shaped positional arguments";
+            }
+
             foreach ($value as $key => $item) {
+                if (is_string($key)
+                    && preg_match('/(?:^|_)(?:argv|arguments?|command|encoder|filter(?:graph)?)(?:_|$)/i', $key) === 1) {
+                    $violations[] = "{$path}[{$key}] contains a compiled-command key";
+                }
+
                 $walk($item, $path.'['.(string) $key.']');
             }
 
@@ -797,9 +868,202 @@ function queuedJobKnownCompiledVocabularyViolations(object $job): array
             $walk($property->getValue($value), $path.'::$'.$property->getName());
         }
     };
-    $walk(unserialize(serialize($job)), $job::class);
+    $walk($payload, $root);
 
     sort($violations);
 
     return $violations;
+}
+
+/**
+ * Finds direct positive integer assignments to known visibility-window identifier spellings.
+ *
+ * The token scan ignores comments and strings and accepts PHP numeric separators. It normalizes
+ * camelCase and snake_case forms of visibilityWindow, visibilityTimeout, and retryAfter. It cannot
+ * detect computed values, dynamically assembled identifiers, differently named concepts,
+ * constant-string configuration keys, or floating-point literals.
+ *
+ * @return list<string>
+ */
+function visibilityWindowNumberLocations(string $root): array
+{
+    $locations = [];
+    $recognizedNames = [
+        'retryafter',
+        'visibilitytimeout',
+        'visibilitytimeoutseconds',
+        'visibilitywindow',
+        'visibilitywindowseconds',
+    ];
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
+        $root,
+        FilesystemIterator::SKIP_DOTS,
+    ));
+
+    foreach ($iterator as $file) {
+        if (! $file->isFile() || $file->getExtension() !== 'php') {
+            continue;
+        }
+
+        $contents = file_get_contents($file->getPathname());
+
+        if (! is_string($contents)) {
+            throw new RuntimeException("Unable to scan source file: {$file->getPathname()}");
+        }
+
+        $tokens = token_get_all($contents);
+
+        foreach ($tokens as $index => $token) {
+            if (! is_array($token) || ! in_array($token[0], [T_VARIABLE, T_STRING], true)) {
+                continue;
+            }
+
+            $name = strtolower(str_replace('_', '', ltrim($token[1], '$')));
+
+            if (! in_array($name, $recognizedNames, true)) {
+                continue;
+            }
+
+            $assignment = nextSignificantToken($tokens, $index);
+
+            if ($assignment['token'] !== '=') {
+                continue;
+            }
+
+            $value = nextSignificantToken($tokens, $assignment['index']);
+
+            if (is_array($value['token']) && $value['token'][0] === T_LNUMBER) {
+                $locations[] = str_replace(
+                    DIRECTORY_SEPARATOR,
+                    '/',
+                    substr($file->getPathname(), strlen($root) + 1),
+                );
+                break;
+            }
+        }
+    }
+
+    sort($locations);
+
+    return $locations;
+}
+
+/**
+ * Finds autoloadable ShouldQueue classes carrying an integer default for timeout.
+ *
+ * Reflection resolves qualified and aliased interfaces plus inherited and trait-borne defaults, while
+ * tokenized class discovery ignores comments and strings. It cannot inspect generated/evaluated classes,
+ * classes that cannot be autoloaded, or constructor assignments because those are not bare defaults.
+ *
+ * @return list<string>
+ */
+function bareQueuedJobTimeoutLocations(string $root): array
+{
+    $locations = [];
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
+        $root,
+        FilesystemIterator::SKIP_DOTS,
+    ));
+
+    foreach ($iterator as $file) {
+        if (! $file->isFile() || $file->getExtension() !== 'php') {
+            continue;
+        }
+
+        foreach (declaredClassNames($file->getPathname()) as $class) {
+            if (! is_a($class, ShouldQueue::class, true)) {
+                continue;
+            }
+
+            $defaults = (new ReflectionClass($class))->getDefaultProperties();
+
+            if (isset($defaults['timeout']) && is_int($defaults['timeout'])) {
+                $locations[] = str_replace(
+                    DIRECTORY_SEPARATOR,
+                    '/',
+                    substr($file->getPathname(), strlen($root) + 1),
+                );
+                break;
+            }
+        }
+    }
+
+    sort($locations);
+
+    return $locations;
+}
+
+/**
+ * @param  list<array{int, string, int}|string>  $tokens
+ * @return array{index: int, token: array{int, string, int}|string|null}
+ */
+function nextSignificantToken(array $tokens, int $index): array
+{
+    for ($next = $index + 1; $next < count($tokens); $next++) {
+        $token = $tokens[$next];
+
+        if (is_array($token) && in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
+            continue;
+        }
+
+        return ['index' => $next, 'token' => $token];
+    }
+
+    return ['index' => count($tokens), 'token' => null];
+}
+
+/** @return list<class-string> */
+function declaredClassNames(string $path): array
+{
+    $contents = file_get_contents($path);
+
+    if (! is_string($contents)) {
+        throw new RuntimeException("Unable to scan source file: {$path}");
+    }
+
+    $tokens = token_get_all($contents);
+    $namespace = '';
+    $classes = [];
+
+    foreach ($tokens as $index => $token) {
+        if (! is_array($token)) {
+            continue;
+        }
+
+        if ($token[0] === T_NAMESPACE) {
+            $namespace = '';
+
+            for ($next = $index + 1; $next < count($tokens); $next++) {
+                $part = $tokens[$next];
+
+                if (is_string($part) && in_array($part, [';', '{'], true)) {
+                    break;
+                }
+
+                if (is_array($part) && in_array($part[0], [T_STRING, T_NAME_QUALIFIED, T_NS_SEPARATOR], true)) {
+                    $namespace .= $part[1];
+                }
+            }
+
+            continue;
+        }
+
+        if ($token[0] !== T_CLASS) {
+            continue;
+        }
+
+        $previous = $index > 0 ? nextSignificantToken(array_reverse(array_slice($tokens, 0, $index)), -1)['token'] : null;
+
+        if (is_array($previous) && $previous[0] === T_NEW) {
+            continue;
+        }
+
+        $name = nextSignificantToken($tokens, $index)['token'];
+
+        if (is_array($name) && $name[0] === T_STRING) {
+            $classes[] = ltrim($namespace.'\\'.$name[1], '\\');
+        }
+    }
+
+    return $classes;
 }

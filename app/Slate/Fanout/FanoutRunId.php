@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Slate\Fanout;
 
+use App\Slate\Storage\RunObjectKeys;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
@@ -32,6 +33,6 @@ final readonly class FanoutRunId
 
     public function prefix(): string
     {
-        return 'slate-fanout/'.$this->value;
+        return RunObjectKeys::prefix($this->value);
     }
 }

@@ -20,6 +20,7 @@ final readonly class StoredVideo
         public float $durationSeconds,
         public QualityTier $qualityTier,
         public ?int $keyframeIntervalFrames,
+        public bool $hasAudio = true,
     ) {
         if ($width < 1 || $height < 1 || $framesPerSecond < 1 || $frameCount < 1 || $durationSeconds <= 0) {
             throw new InvalidArgumentException('Stored video metadata must contain positive media dimensions and durations.');
@@ -41,6 +42,7 @@ final readonly class StoredVideo
             $video->durationSeconds,
             $video->qualityTier,
             $video->keyframeIntervalFrames,
+            $video->hasAudio,
         );
     }
 }

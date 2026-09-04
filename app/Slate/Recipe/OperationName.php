@@ -11,6 +11,8 @@ enum OperationName: string
     case AudioConcat = 'audio.concat';
     case AudioPad = 'audio.pad';
     case VideoStillClip = 'video.still_clip';
+    case VideoStillClipSlice = 'video.still_clip_slice';
+    case VideoAudioMux = 'video.audio_mux';
     case VideoTrim = 'video.trim';
     case VideoTransitionSegment = 'video.transition_segment';
     case VideoConcat = 'video.concat';

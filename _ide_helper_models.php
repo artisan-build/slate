@@ -13,6 +13,28 @@
 
 namespace App\Models{
 /**
+ * @property string $id
+ * @property RunRecipe $recipe
+ * @property RunStatus $status
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ * @method static \Database\Factories\RunFactory factory($count = null, $state = [])
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Run newModelQuery()
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Run newQuery()
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Run query()
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereCreatedAt($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereId($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereRecipe($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereStatus($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereUpdatedAt($value)
+ * @mixin \Eloquent
+ */
+	#[\AllowDynamicProperties]
+	final class IdeHelperRun {}
+}
+
+namespace App\Models{
+/**
  * @property int $id
  * @property string $name
  * @property string $email

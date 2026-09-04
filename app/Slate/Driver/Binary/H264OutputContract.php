@@ -27,12 +27,34 @@ final class H264OutputContract
         return self::argumentsForBitsPerPixel(self::bitsPerPixel($tier), $width, $height, $framesPerSecond);
     }
 
+    /** @return list<string> */
+    public static function videoArgumentsFor(QualityTier $tier, int $width, int $height, int $framesPerSecond): array
+    {
+        return self::videoArgumentsForBitsPerPixel(self::bitsPerPixel($tier), $width, $height, $framesPerSecond);
+    }
+
     /**
      * Generates candidate arguments for the external calibration harness.
      *
      * @return list<string>
      */
     public static function argumentsForBitsPerPixel(
+        float $bitsPerPixel,
+        int $width,
+        int $height,
+        int $framesPerSecond,
+    ): array {
+        return [
+            ...self::videoArgumentsForBitsPerPixel($bitsPerPixel, $width, $height, $framesPerSecond),
+            '-c:a',
+            self::audioEncoder(),
+            '-b:a',
+            '192k',
+        ];
+    }
+
+    /** @return list<string> */
+    private static function videoArgumentsForBitsPerPixel(
         float $bitsPerPixel,
         int $width,
         int $height,
@@ -63,10 +85,6 @@ final class H264OutputContract
             'h264_metadata=video_full_range_flag=0',
             '-r',
             (string) $framesPerSecond,
-            '-c:a',
-            self::audioEncoder(),
-            '-b:a',
-            '192k',
         ];
     }
 

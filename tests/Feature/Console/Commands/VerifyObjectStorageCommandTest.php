@@ -162,6 +162,14 @@ test('reports a content mismatch and still deletes the verification object', fun
         {
             Storage::disk()->delete($objectKey->value());
         }
+
+        public function keysWithinPrefix(string $prefix): array
+        {
+            return array_map(
+                static fn (string $path): ObjectKey => ObjectKey::withinPrefix($prefix, $path),
+                Storage::disk()->allFiles($prefix),
+            );
+        }
     });
 
     $exitCode = Artisan::call('slate:verify-object-storage', ['--bytes' => '8388608']);

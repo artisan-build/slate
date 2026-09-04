@@ -22,6 +22,16 @@ final readonly class CompiledH264OutputOptions
         ]);
     }
 
+    public static function silentStillClip(float $durationSeconds): self
+    {
+        return new self([
+            '-map',
+            CompiledLiteral::VideoInputZero->value,
+            '-t',
+            CompiledArgument::seconds($durationSeconds)->value(),
+        ]);
+    }
+
     public static function overlay(float $durationSeconds): self
     {
         return new self([

@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Slate\Driver\Binary\BenchmarkOutputVerifier;
 use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\Driver;
+use App\Slate\Execution\QueueRuntimePolicy;
 use App\Slate\Recipe\Audio\AudioBitrate;
 use App\Slate\Recipe\Audio\AudioChannelLayout;
 use App\Slate\Recipe\Audio\AudioFormat;
@@ -78,6 +79,7 @@ class FfmpegBenchmark
         private readonly RecipeCompiler $compiler,
         private readonly Driver $driver,
         private readonly BenchmarkOutputVerifier $outputVerifier,
+        private readonly QueueRuntimePolicy $queueRuntimePolicy,
     ) {}
 
     /**
@@ -125,6 +127,9 @@ class FfmpegBenchmark
             $transitionDuration,
             $transitionFrameCount,
         ): array {
+            $runtimeSettings = $this->queueRuntimePolicy->forQueue(
+                (string) config('slate.execution.render_queue'),
+            );
             $assetStartedAtMs = $this->monotonicMilliseconds();
             $illustration = $scratch->file('illustration.ppm');
             $badge = $scratch->file('badge.ppm');
@@ -266,7 +271,8 @@ class FfmpegBenchmark
                     'summary' => self::summarizeStrategy(
                         [$xfadeMeasurement],
                         $this->monotonicMilliseconds() - $strategyStartedAtMs,
-                        (int) config('slate.benchmark.visibility_timeout_seconds'),
+                        $runtimeSettings->visibilityWindowSeconds,
+                        $runtimeSettings->driverTimeoutSeconds,
                     ),
                     'output' => $xfadeOutput,
                 ];
@@ -341,7 +347,8 @@ class FfmpegBenchmark
                     'summary' => self::summarizeStrategy(
                         $hybrid['measurements'],
                         $this->monotonicMilliseconds() - $strategyStartedAtMs,
-                        (int) config('slate.benchmark.visibility_timeout_seconds'),
+                        $runtimeSettings->visibilityWindowSeconds,
+                        $runtimeSettings->driverTimeoutSeconds,
                     ),
                     'output' => $hybridOutput,
                     'stream_copy' => [
@@ -381,7 +388,7 @@ class FfmpegBenchmark
                     'intermediate_quality_tier' => QualityTier::Intermediate->value,
                     'hybrid_quality_tier' => $overlaidVideo->qualityTier->value,
                     'strategy' => $strategy->value,
-                    'production_operation_timeout_seconds' => (int) config('slate.driver.timeout_seconds'),
+                    'production_operation_timeout_seconds' => $runtimeSettings->driverTimeoutSeconds,
                     'instrument_operation_timeout_seconds' => (int) config('slate.benchmark.instrument_operation_timeout_seconds'),
                 ],
                 'asset_preparation_ms' => $assetPreparationMs,
@@ -414,7 +421,7 @@ class FfmpegBenchmark
         array $measurements,
         int $assemblyWallMs,
         int $visibilityTimeoutSeconds,
-        ?int $driverTimeoutSeconds = null,
+        int $driverTimeoutSeconds,
     ): array {
         $peak = $measurements[0];
 
@@ -427,7 +434,7 @@ class FfmpegBenchmark
         $strategyMediaMs = array_sum(array_column($measurements, 'media_duration_ms'));
         $strategyProcessingMs = array_sum(array_column($measurements, 'processing_duration_ms'));
         $visibilityTimeoutMs = $visibilityTimeoutSeconds * 1000;
-        $driverTimeoutMs = ($driverTimeoutSeconds ?? (int) config('slate.driver.timeout_seconds')) * 1000;
+        $driverTimeoutMs = $driverTimeoutSeconds * 1000;
 
         return [
             'assembly_wall_ms' => max(1, $assemblyWallMs),
@@ -466,8 +473,11 @@ class FfmpegBenchmark
             }
         }
 
-        $driverTimeoutMs = (int) config('slate.driver.timeout_seconds') * 1000;
-        $visibilityTimeoutMs = (int) config('slate.benchmark.visibility_timeout_seconds') * 1000;
+        $runtimeSettings = $this->queueRuntimePolicy->forQueue(
+            (string) config('slate.execution.render_queue'),
+        );
+        $driverTimeoutMs = $runtimeSettings->driverTimeoutSeconds * 1000;
+        $visibilityTimeoutMs = $runtimeSettings->visibilityWindowSeconds * 1000;
 
         return [
             'output_duration_ms' => $outputDurationMs,

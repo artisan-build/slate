@@ -7,6 +7,7 @@ namespace App\Jobs;
 use App\Services\FanoutRunCleanup;
 use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\Driver;
+use App\Slate\Execution\QueueRuntimePolicy;
 use App\Slate\Fanout\FanoutReceipt;
 use App\Slate\Fanout\FanoutRun;
 use App\Slate\Recipe\Video\SlateVideo;
@@ -28,7 +29,7 @@ final class FinalizeFanoutRun implements ShouldQueue
 
     public int $tries = 3;
 
-    public int $timeout = 60;
+    public int $timeout;
 
     /** @var list<int> */
     public array $backoff = [1, 5];
@@ -36,7 +37,13 @@ final class FinalizeFanoutRun implements ShouldQueue
     public function __construct(
         public FanoutRun $run,
         public bool $batchFailed,
-    ) {}
+    ) {
+        $settings = resolve(QueueRuntimePolicy::class)->forQueue(
+            (string) config('slate.execution.render_queue'),
+        );
+        $this->timeout = $settings->jobTimeoutSeconds;
+        $this->onQueue($settings->queue);
+    }
 
     public function handle(
         ObjectStorage $objectStorage,
