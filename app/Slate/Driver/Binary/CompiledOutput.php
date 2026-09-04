@@ -25,8 +25,14 @@ final readonly class CompiledOutput
         array $commandValues,
         private ?CompiledFilterType $videoFilterType = null,
         private ?CompiledInput $copiedVideoInput = null,
+        private ?int $copiedVideoInputIndex = null,
         bool $consumerDeliverable = false,
     ) {
+        if (($copiedVideoInput === null) !== ($copiedVideoInputIndex === null)
+            || ($copiedVideoInputIndex !== null && $copiedVideoInputIndex < 0)) {
+            throw new LogicException('A copied video output requires a non-negative bound input index.');
+        }
+
         if ($copiedVideoInput !== null && $copiedVideoInput->videoOrigin() === null) {
             throw new LogicException('A copied video output requires typed input provenance.');
         }
@@ -104,13 +110,14 @@ final readonly class CompiledOutput
 
     public static function muxedVideo(
         CompiledInput $videoInput,
+        int $videoInputIndex,
         AudioBitrate $audioBitrate,
         float $durationSeconds,
         ScratchPath $output,
     ): self {
         return new self([
             '-map',
-            CompiledLiteral::VideoInputZero->value,
+            self::videoStream($videoInputIndex),
             '-map',
             CompiledLiteral::AudioInputOne->value,
             '-c:v',
@@ -122,7 +129,7 @@ final readonly class CompiledOutput
             '-t',
             CompiledArgument::seconds($durationSeconds)->value(),
             $output->writablePath(),
-        ], copiedVideoInput: $videoInput, consumerDeliverable: true);
+        ], copiedVideoInput: $videoInput, copiedVideoInputIndex: $videoInputIndex, consumerDeliverable: true);
     }
 
     public static function mp3(
@@ -166,6 +173,7 @@ final readonly class CompiledOutput
 
     public static function copiedVideo(
         CompiledInput $videoInput,
+        int $videoInputIndex,
         ScratchPath $output,
         ?float $durationSeconds = null,
     ): self {
@@ -174,14 +182,19 @@ final readonly class CompiledOutput
                 CompiledOption::Duration->value,
                 CompiledArgument::seconds($durationSeconds)->value(),
             ]),
+            '-map',
+            self::videoStream($videoInputIndex),
+            '-map',
+            self::optionalAudioStream($videoInputIndex),
             '-c',
             CompiledLiteral::Copy->value,
             $output->writablePath(),
-        ], copiedVideoInput: $videoInput, consumerDeliverable: true);
+        ], copiedVideoInput: $videoInput, copiedVideoInputIndex: $videoInputIndex, consumerDeliverable: true);
     }
 
     public static function copiedIntermediateVideo(
         CompiledInput $videoInput,
+        int $videoInputIndex,
         ScratchPath $output,
         ?float $durationSeconds = null,
     ): self {
@@ -190,10 +203,14 @@ final readonly class CompiledOutput
                 CompiledOption::Duration->value,
                 CompiledArgument::seconds($durationSeconds)->value(),
             ]),
+            '-map',
+            self::videoStream($videoInputIndex),
+            '-map',
+            self::optionalAudioStream($videoInputIndex),
             '-c',
             CompiledLiteral::Copy->value,
             $output->writablePath(),
-        ], copiedVideoInput: $videoInput);
+        ], copiedVideoInput: $videoInput, copiedVideoInputIndex: $videoInputIndex);
     }
 
     public static function jpeg(ScratchPath $output): self
@@ -252,5 +269,20 @@ final readonly class CompiledOutput
     public function copiedVideoInput(): ?CompiledInput
     {
         return $this->copiedVideoInput;
+    }
+
+    public function copiedVideoInputIndex(): ?int
+    {
+        return $this->copiedVideoInputIndex;
+    }
+
+    private static function videoStream(int $inputIndex): string
+    {
+        return $inputIndex.':v:0';
+    }
+
+    private static function optionalAudioStream(int $inputIndex): string
+    {
+        return $inputIndex.':a?';
     }
 }

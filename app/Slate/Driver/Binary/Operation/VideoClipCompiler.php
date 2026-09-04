@@ -55,7 +55,7 @@ final readonly class VideoClipCompiler implements CompilesOperation
                 ? CompiledArgument::literal(CompiledLiteral::Zero)
                 : CompiledArgument::seconds($operation->startSeconds),
             $input,
-            CompiledOutput::copiedIntermediateVideo($input, $operation->output, $operation->durationSeconds),
+            CompiledOutput::copiedIntermediateVideo($input, 0, $operation->output, $operation->durationSeconds),
         ]);
     }
 

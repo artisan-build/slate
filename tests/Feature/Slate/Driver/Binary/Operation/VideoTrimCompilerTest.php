@@ -31,7 +31,7 @@ test('compiles an exact keyframe seek and frame-limited stream copy', function (
             '/runtime/ffmpeg/bin/ffmpeg', ...ffmpegInvocationHardeningArguments(),
             '-y', '-ss', '1', ...ffmpegFileInputHardeningArguments(), '-i', $video->path->readablePath(),
             '-frames:v', '48', ...ffmpegOutputHardeningArguments(), '-t', '2',
-            '-c', 'copy', $output->writablePath(),
+            '-map', '0:v:0', '-map', '0:a?', '-c', 'copy', $output->writablePath(),
         ]);
     });
 });

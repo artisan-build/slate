@@ -63,13 +63,9 @@ function compiledInvocationHardeningViolations(array $commands): array
             $violations[] = "invocation {$index} ({$executable}) lacks -nostdin";
         }
 
-        foreach (['-protocol_whitelist' => 'file', '-map_metadata' => '-1'] as $option => $expectedValue) {
-            if ($executable !== 'ffmpeg' && $option === '-map_metadata') {
-                continue;
-            }
-
-            if (compiledEffectiveOptionValue($command, $option) !== $expectedValue) {
-                $violations[] = "invocation {$index} ({$executable}) effective {$option} is not {$expectedValue}";
+        foreach (compiledInputScopes($command) as $scopeIndex => $inputScope) {
+            if (compiledEffectiveOptionValue($inputScope, '-protocol_whitelist') !== 'file') {
+                $violations[] = "invocation {$index} ({$executable}) input scope {$scopeIndex} effective -protocol_whitelist is not file";
             }
         }
 
@@ -77,30 +73,88 @@ function compiledInvocationHardeningViolations(array $commands): array
             continue;
         }
 
-        $duration = compiledEffectiveOptionValue($command, '-t');
+        $outputScopes = compiledOutputScopes($command);
 
-        if ($duration === null || ! is_numeric($duration) || (float) $duration <= 0 || (float) $duration > 86_400) {
-            $violations[] = "invocation {$index} ({$executable}) effective -t exceeds 86400";
+        if ($outputScopes === []) {
+            $violations[] = "invocation {$index} ({$executable}) has no sealed output scope";
         }
 
-        $fileSize = compiledEffectiveOptionValue($command, '-fs');
+        foreach ($outputScopes as $scopeIndex => $outputScope) {
+            if (compiledEffectiveOptionValue($outputScope, '-map_metadata') !== '-1') {
+                $violations[] = "invocation {$index} ({$executable}) output scope {$scopeIndex} effective -map_metadata is not -1";
+            }
 
-        if ($fileSize === null || ! ctype_digit($fileSize) || (int) $fileSize < 1 || (int) $fileSize > 17_179_869_184) {
-            $violations[] = "invocation {$index} ({$executable}) effective -fs exceeds 17179869184";
+            $duration = compiledEffectiveOptionValue($outputScope, '-t');
+
+            if ($duration === null || ! is_numeric($duration) || (float) $duration <= 0 || (float) $duration > 86_400) {
+                $violations[] = "invocation {$index} ({$executable}) output scope {$scopeIndex} effective -t exceeds 86400";
+            }
+
+            $fileSize = compiledEffectiveOptionValue($outputScope, '-fs');
+
+            if ($fileSize === null || ! ctype_digit($fileSize) || (int) $fileSize < 1 || (int) $fileSize > 17_179_869_184) {
+                $violations[] = "invocation {$index} ({$executable}) output scope {$scopeIndex} effective -fs exceeds 17179869184";
+            }
         }
     }
 
     return $violations;
 }
 
-/** @param non-empty-list<string> $command */
-function compiledEffectiveOptionValue(array $command, string $option): ?string
+/**
+ * @param  non-empty-list<string>  $command
+ * @return non-empty-list<list<string>>
+ */
+function compiledInputScopes(array $command): array
+{
+    $scopes = [];
+    $scopeStart = 1;
+
+    foreach ($command as $index => $argument) {
+        if ($argument !== '-i') {
+            continue;
+        }
+
+        $scopes[] = array_slice($command, $scopeStart, $index - $scopeStart);
+        $scopeStart = $index + 2;
+    }
+
+    return $scopes === [] ? [array_slice($command, 1)] : $scopes;
+}
+
+/**
+ * @param  non-empty-list<string>  $command
+ * @return list<non-empty-list<string>>
+ */
+function compiledOutputScopes(array $command): array
+{
+    $prefix = ffmpegOutputHardeningArguments();
+    $starts = [];
+
+    foreach (array_keys($command) as $index) {
+        if (array_slice($command, $index, count($prefix)) === $prefix) {
+            $starts[] = $index;
+        }
+    }
+
+    $scopes = [];
+
+    foreach ($starts as $scopeIndex => $start) {
+        $end = $starts[$scopeIndex + 1] ?? count($command);
+        $scopes[] = array_slice($command, $start, $end - $start);
+    }
+
+    return $scopes;
+}
+
+/** @param list<string> $scope */
+function compiledEffectiveOptionValue(array $scope, string $option): ?string
 {
     $effectiveValue = null;
 
-    foreach ($command as $index => $argument) {
-        if ($argument === $option && isset($command[$index + 1])) {
-            $effectiveValue = $command[$index + 1];
+    foreach ($scope as $index => $argument) {
+        if ($argument === $option && isset($scope[$index + 1])) {
+            $effectiveValue = $scope[$index + 1];
         }
     }
 
@@ -253,19 +307,23 @@ test('registers production compilers for every shipped operation', function (): 
         );
         $executables = array_map(static fn (array $command): string => basename($command[0]), $commands);
         $missingControl = [['/runtime/ffmpeg/bin/ffmpeg', '-i', '/tmp/input.mp4', '/tmp/output.mp4']];
-        $overrideControl = [[
-            '/runtime/ffmpeg/bin/ffmpeg', '-nostdin', '-protocol_whitelist', 'file',
+        $badFirstSafeLastControl = [[
+            '/runtime/ffmpeg/bin/ffmpeg', '-nostdin',
+            '-protocol_whitelist', 'http', '-i', '/tmp/source.mp4',
+            '-protocol_whitelist', 'file', '-i', '/tmp/slate.mp4',
             '-map_metadata', '-1', '-t', '86400', '-fs', '17179869184',
-            '-t', '200000', '-fs', '20000000000', '/tmp/output.mp4',
+            '-t', '200000', '-fs', '20000000000', '/tmp/unsafe.mp4',
+            '-map_metadata', '-1', '-t', '86400', '-fs', '17179869184', '/tmp/safe.mp4',
         ]];
 
         expect(app()->getProviders(DriverServiceProvider::class))->toHaveCount(1)
             ->and($compiler)->toBeInstanceOf(RecipeCompiler::class)
             ->and(compiledInvocationHardeningViolations($commands))->toBe([])
             ->and(compiledInvocationHardeningViolations($missingControl))->not->toBe([])
-            ->and(compiledInvocationHardeningViolations($overrideControl))->toBe([
-                'invocation 0 (ffmpeg) effective -t exceeds 86400',
-                'invocation 0 (ffmpeg) effective -fs exceeds 17179869184',
+            ->and(compiledInvocationHardeningViolations($badFirstSafeLastControl))->toBe([
+                'invocation 0 (ffmpeg) input scope 0 effective -protocol_whitelist is not file',
+                'invocation 0 (ffmpeg) output scope 0 effective -t exceeds 86400',
+                'invocation 0 (ffmpeg) output scope 0 effective -fs exceeds 17179869184',
             ])
             ->and($executables)->toBe([
                 'ffprobe', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg',

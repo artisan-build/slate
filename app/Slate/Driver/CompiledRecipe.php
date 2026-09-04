@@ -27,6 +27,11 @@ final readonly class CompiledRecipe
         array $arguments,
         private ?string $workingDirectory = null,
     ) {
+        $compiledInputs = array_values(array_filter(
+            $arguments,
+            static fn (mixed $argument): bool => $argument instanceof CompiledInput,
+        ));
+
         foreach ($arguments as $argument) {
             if (! $argument instanceof CompiledArgument
                 && ! $argument instanceof CompiledInput
@@ -40,8 +45,8 @@ final readonly class CompiledRecipe
 
             if ($argument instanceof CompiledOutput
                 && $argument->copiedVideoInput() !== null
-                && ! in_array($argument->copiedVideoInput(), $arguments, true)) {
-                throw new LogicException('A copied video output must bind to its exact compiled input.');
+                && ($compiledInputs[$argument->copiedVideoInputIndex()] ?? null) !== $argument->copiedVideoInput()) {
+                throw new LogicException('A copied video output map must select its exact bound input index.');
             }
         }
 

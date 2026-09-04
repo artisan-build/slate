@@ -20,8 +20,10 @@ Slate rejects sources that exceed its duration, dimensions, stream-count, frame-
 allowlists, and records a typed rejection reason. Every local-file ffmpeg invocation disables standard
 input, restricts nested protocols to `file`, strips source metadata, and applies duration and output-size
 caps. No consumer deliverable contains stream-copied bytes that originated outside Slate.
-Source-derived bytes are always transcoded; Slate's own encoded output may be stream-copied between
-Slate's own stages, including into a final audio-muxed deliverable.
+Source-derived bytes are always transcoded before entering a consumer deliverable. The padded coarse
+cut is the explicit exception: it may stream-copy source-derived bytes only into a bucket-backed
+intermediate. Slate's own encoded output may also be stream-copied between Slate's own stages, including
+into a final audio-muxed deliverable.
 
 These checks reduce accidental resource exhaustion and block known playlist/reference mechanisms that
 could make ffmpeg open another resource. They are not a proof that admitted bytes are safe.

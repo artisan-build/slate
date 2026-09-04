@@ -71,7 +71,7 @@ final readonly class VideoConcatCompiler implements CompilesOperation
             CompiledArgument::option(CompiledOption::Safe),
             CompiledArgument::literal(CompiledLiteral::Zero),
             $input,
-            CompiledOutput::copiedVideo($input, $operation->output),
+            CompiledOutput::copiedVideo($input, 0, $operation->output),
         ]);
     }
 

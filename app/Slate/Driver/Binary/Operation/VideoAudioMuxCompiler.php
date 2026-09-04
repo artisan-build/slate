@@ -39,6 +39,7 @@ final readonly class VideoAudioMuxCompiler implements CompilesOperation
             CompiledInput::ffmpeg($operation->audio),
             CompiledOutput::muxedVideo(
                 $videoInput,
+                0,
                 $operation->audioBitrate,
                 $operation->video->durationSeconds,
                 $operation->output,
