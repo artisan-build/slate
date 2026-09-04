@@ -28,7 +28,8 @@ return [
         'visibility_window_fallback_seconds' => 180,
         'visibility_window_fallback_seconds_by_queue' => [
             'default' => 180,
-            'ingest' => 3600,
+            // Intended: 3600. The Cloud CLI cannot set this; raising it requires a Cloud dashboard change.
+            'ingest' => 180,
         ],
         'job_timeout_margin_seconds' => 10,
         'driver_timeout_margin_seconds' => 10,
