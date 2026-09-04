@@ -60,6 +60,8 @@ namespace App\Models{
  * @property RunStatus $status
  * @property RunTrust $trust
  * @property InputRejectionReason|null $rejection_reason
+ * @property SubjectType $owner_subject_type
+ * @property string $owner_subject_ref
  * @property string|null $webhook_url
  * @property string|null $webhook_secret
  * @property-read RunRecipe $recipe
@@ -71,6 +73,8 @@ namespace App\Models{
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Run query()
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereCreatedAt($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereId($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereOwnerSubjectRef($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereOwnerSubjectType($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereRecipe($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereRejectionReason($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereStatus($value)

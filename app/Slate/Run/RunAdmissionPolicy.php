@@ -51,7 +51,7 @@ final readonly class RunAdmissionPolicy
     {
         $settings = $this->runtimePolicy->forQueue((string) config('slate.execution.render_queue'));
         $smallestOutputBudget = min(array_map(
-            static fn (QualityTier $tier): int => $settings->outputSecondsPerJob($tier),
+            $settings->outputSecondsPerJob(...),
             QualityTier::cases(),
         ));
 
