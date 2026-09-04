@@ -49,6 +49,10 @@ final readonly class VideoConcat implements Operation
             if ($input->framesPerSecond !== $framesPerSecond) {
                 throw new InvalidArgumentException('Video concat inputs must match the requested frame rate.');
             }
+
+            if ($input->hasAudio !== $inputs[0]->hasAudio) {
+                throw new InvalidArgumentException('Video concat inputs must agree on audio presence.');
+            }
         }
 
         $this->inputs = $validatedInputs;

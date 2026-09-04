@@ -10,8 +10,10 @@ use App\Slate\Driver\Binary\Operation\AudioSilenceCompiler;
 use App\Slate\Driver\Binary\Operation\OverlayImageCompiler;
 use App\Slate\Driver\Binary\Operation\ProbeCompiler;
 use App\Slate\Driver\Binary\Operation\TimedWordsCompiler;
+use App\Slate\Driver\Binary\Operation\VideoAudioMuxCompiler;
 use App\Slate\Driver\Binary\Operation\VideoConcatCompiler;
 use App\Slate\Driver\Binary\Operation\VideoStillClipCompiler;
+use App\Slate\Driver\Binary\Operation\VideoStillClipSliceCompiler;
 use App\Slate\Driver\Binary\Operation\VideoThumbnailCompiler;
 use App\Slate\Driver\Binary\Operation\VideoTransitionSegmentCompiler;
 use App\Slate\Driver\Binary\Operation\VideoTrimCompiler;
@@ -43,6 +45,8 @@ final readonly class RecipeCompiler
             new AudioConcatCompiler($locator),
             new AudioPadCompiler($locator),
             new VideoStillClipCompiler($locator, $filterGraphCompiler),
+            new VideoStillClipSliceCompiler($locator, $filterGraphCompiler),
+            new VideoAudioMuxCompiler($locator),
             new VideoTrimCompiler($locator),
             new VideoTransitionSegmentCompiler($locator, $filterGraphCompiler),
             new VideoConcatCompiler($locator, $filterGraphCompiler),

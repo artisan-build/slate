@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Slate\Execution;
 
+use App\Slate\Storage\ObjectKey;
 use InvalidArgumentException;
 
 final readonly class ExecutionPlan
@@ -28,5 +29,33 @@ final readonly class ExecutionPlan
         }
 
         $this->operations = $operations;
+    }
+
+    /** @return list<ObjectKey> */
+    public function intermediateObjectKeys(): array
+    {
+        $keys = [];
+
+        foreach ($this->operations as $operation) {
+            if ($operation instanceof RenderSilentSubClip || $operation instanceof CopyConcatSubClips) {
+                $keys[$operation->outputKey()->value()] = $operation->outputKey();
+            }
+        }
+
+        return array_values($keys);
+    }
+
+    /** @return list<ObjectKey> */
+    public function outputObjectKeys(): array
+    {
+        $keys = [];
+
+        foreach ($this->operations as $operation) {
+            if ($operation instanceof WholeOperation || $operation instanceof MuxOperationAudio) {
+                $keys[$operation->outputKey()->value()] = $operation->outputKey();
+            }
+        }
+
+        return array_values($keys);
     }
 }

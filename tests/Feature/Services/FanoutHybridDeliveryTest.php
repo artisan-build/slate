@@ -105,14 +105,14 @@ test('uses deterministic run and operation indexes for every transient object', 
             static fn (ObjectKey $key): string => $key->value(),
             $run->workObjectKeys(),
         ))->toBe([
-            'slate-fanout/22222222-2222-4222-8222-222222222222/work/inputs/0000.mp4',
-            'slate-fanout/22222222-2222-4222-8222-222222222222/work/inputs/0001.mp4',
-            'slate-fanout/22222222-2222-4222-8222-222222222222/work/operations/0000.mp4',
-            'slate-fanout/22222222-2222-4222-8222-222222222222/work/receipts/0000.json',
-            'slate-fanout/22222222-2222-4222-8222-222222222222/work/operations/0001.mp4',
-            'slate-fanout/22222222-2222-4222-8222-222222222222/work/receipts/0001.json',
-            'slate-fanout/22222222-2222-4222-8222-222222222222/work/operations/0002.mp4',
-            'slate-fanout/22222222-2222-4222-8222-222222222222/work/receipts/0002.json',
+            'slate-runs/22222222-2222-4222-8222-222222222222/work/inputs/0000.mp4',
+            'slate-runs/22222222-2222-4222-8222-222222222222/work/inputs/0001.mp4',
+            'slate-runs/22222222-2222-4222-8222-222222222222/work/operations/0000.mp4',
+            'slate-runs/22222222-2222-4222-8222-222222222222/work/receipts/0000.json',
+            'slate-runs/22222222-2222-4222-8222-222222222222/work/operations/0001.mp4',
+            'slate-runs/22222222-2222-4222-8222-222222222222/work/receipts/0001.json',
+            'slate-runs/22222222-2222-4222-8222-222222222222/work/operations/0002.mp4',
+            'slate-runs/22222222-2222-4222-8222-222222222222/work/receipts/0002.json',
         ]);
     });
 });
@@ -177,7 +177,7 @@ test('rejects an operation that references a stored video outside the run inputs
         QualityTier::Delivery,
         24,
     );
-    $foreignPrefix = 'slate-fanout/99999999-9999-4999-8999-999999999999';
+    $foreignPrefix = 'slate-runs/99999999-9999-4999-8999-999999999999';
     $foreignInput = new StoredVideo(
         ObjectKey::withinPrefix($foreignPrefix, $foreignPrefix.'/work/inputs/0000.mp4'),
         1536,

@@ -8,7 +8,7 @@ use Illuminate\Contracts\Support\Arrayable;
 use InvalidArgumentException;
 use JsonSerializable;
 
-/** @implements Arrayable<string, list<array{operation: string, quality_tier: string, duration_microseconds: int, has_audio: bool}>> */
+/** @implements Arrayable<string, mixed> */
 final readonly class RunRecipe implements Arrayable, JsonSerializable
 {
     /** @var non-empty-list<RunRecipeOperation> */
@@ -31,27 +31,30 @@ final readonly class RunRecipe implements Arrayable, JsonSerializable
     }
 
     /** @param array<string, mixed> $data */
-    public static function fromArray(array $data): self
+    public static function fromArray(array $data, string $runPrefix): self
     {
         $operations = $data['operations'] ?? null;
 
-        if (! is_array($operations) || ! array_is_list($operations)) {
+        if (array_keys($data) !== ['operations'] || ! is_array($operations) || ! array_is_list($operations)) {
             throw new InvalidArgumentException('Run recipe payload must contain an operation list.');
         }
 
         return new self(array_map(
-            static function (mixed $operation): RunRecipeOperation {
+            static function (mixed $operation) use ($runPrefix): RunRecipeOperation {
                 if (! is_array($operation)) {
                     throw new InvalidArgumentException('Run recipe operation payload must be an object.');
                 }
 
-                return RunRecipeOperation::fromArray($operation);
+                return match ($operation['operation'] ?? null) {
+                    'video.still_clip' => RunStillClip::fromArray($operation, $runPrefix),
+                    default => throw new InvalidArgumentException('Run recipe contains an unsupported operation.'),
+                };
             },
             $operations,
         ));
     }
 
-    /** @return array{operations: non-empty-list<array{operation: string, quality_tier: string, duration_microseconds: int, has_audio: bool}>} */
+    /** @return array{operations: non-empty-list<array<string, mixed>>} */
     public function toArray(): array
     {
         return [
@@ -62,7 +65,7 @@ final readonly class RunRecipe implements Arrayable, JsonSerializable
         ];
     }
 
-    /** @return array{operations: non-empty-list<array{operation: string, quality_tier: string, duration_microseconds: int, has_audio: bool}>} */
+    /** @return array{operations: non-empty-list<array<string, mixed>>} */
     public function jsonSerialize(): array
     {
         return $this->toArray();

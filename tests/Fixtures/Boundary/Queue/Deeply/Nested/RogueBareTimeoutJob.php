@@ -6,5 +6,5 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 
 final class RogueBareTimeoutJob implements ShouldQueue
 {
-    public int $timeout = 60;
+    public int $timeout = 1_000;
 }

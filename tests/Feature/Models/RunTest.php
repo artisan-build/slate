@@ -2,10 +2,14 @@
 
 use App\Models\Run;
 use App\Models\RunStatus;
-use App\Slate\Recipe\OperationName;
+use App\Slate\Recipe\Audio\AudioBitrate;
 use App\Slate\Recipe\QualityTier;
+use App\Slate\Recipe\Video\VideoColor;
+use App\Slate\Recipe\Video\VideoFit;
 use App\Slate\Run\RunRecipe;
-use App\Slate\Run\RunRecipeOperation;
+use App\Slate\Run\RunStillClip;
+use App\Slate\Storage\ObjectKey;
+use App\Slate\Storage\RunObjectKeys;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -13,39 +17,72 @@ use Tests\Fixtures\Queue\RedeliveredRunTransition;
 
 uses(LazilyRefreshDatabase::class);
 
-function persistedRunRecipe(): RunRecipe
+function persistedRunRecipe(string $runId): RunRecipe
 {
+    $prefix = RunObjectKeys::prefix($runId);
+
     return new RunRecipe([
-        new RunRecipeOperation(
-            OperationName::VideoStillClip,
-            QualityTier::Delivery,
+        new RunStillClip(
+            ObjectKey::withinPrefix($prefix, $prefix.'/inputs/0000/image.ppm'),
+            ObjectKey::withinPrefix($prefix, $prefix.'/inputs/0000/audio.mp3'),
+            1536,
+            1024,
+            24,
             120_000_000,
-            true,
-        ),
-        new RunRecipeOperation(
-            OperationName::VideoConcat,
+            VideoFit::ContainPad,
+            VideoColor::Black,
+            2,
             QualityTier::Delivery,
-            240_000_000,
-            true,
+            AudioBitrate::Kbps192,
+        ),
+        new RunStillClip(
+            ObjectKey::withinPrefix($prefix, $prefix.'/inputs/0001/image.ppm'),
+            ObjectKey::withinPrefix($prefix, $prefix.'/inputs/0001/audio.mp3'),
+            1024,
+            1536,
+            24,
+            30_000_000,
+            VideoFit::ContainPad,
+            VideoColor::Black,
+            1,
+            QualityTier::Intermediate,
+            AudioBitrate::Kbps192,
         ),
     ]);
 }
 
 test('persists and round trips an equal typed recipe without compiled command vocabulary', function (): void {
-    $recipe = persistedRunRecipe();
-    $run = Run::factory()->create(['recipe' => $recipe]);
+    $runId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    $recipe = persistedRunRecipe($runId);
+    $run = Run::factory()->create(['id' => $runId, 'recipe' => $recipe]);
 
     $storedRecipe = DB::table('runs')->where('id', $run->id)->value('recipe');
     $reloaded = Run::query()->findOrFail($run->id);
+    expect($storedRecipe)->toBeString();
+    $decoded = json_decode($storedRecipe, true, flags: JSON_THROW_ON_ERROR);
 
     expect($reloaded->recipe->toArray())->toBe($recipe->toArray())
         ->and($reloaded->status)->toBe(RunStatus::Queued)
-        ->and($storedRecipe)->toBeString()
-        ->and($storedRecipe)->not->toContain('argv')
-        ->and($storedRecipe)->not->toContain('-filter_complex')
-        ->and($storedRecipe)->not->toContain('drawtext=')
-        ->and($storedRecipe)->not->toContain('libopenh264');
+        ->and($decoded)->toBe($recipe->toArray())
+        ->and(knownCompiledVocabularyViolations($decoded))->toBe([]);
 });
+
+test('persisted payload guard catches command-shaped arrays under an unrelated key', function (): void {
+    $violations = knownCompiledVocabularyViolations([
+        'metadata' => ['tool', '-i', 'input.mp4', '-y', 'output.mp4'],
+    ]);
+
+    expect($violations)->not->toBe([])
+        ->and(implode('; ', $violations))->toContain('command-shaped positional arguments');
+});
+
+test('persisted payload guard catches every recognized filter fragment', function (string $filter): void {
+    expect(knownCompiledVocabularyViolations(['value' => $filter.'=untrusted']))->not->toBe([]);
+})->with(array_combine(recognizedFilterNames(), recognizedFilterNames()));
+
+test('persisted payload guard catches every recognized encoder name', function (string $encoder): void {
+    expect(knownCompiledVocabularyViolations(['value' => $encoder]))->not->toBe([]);
+})->with(array_combine(recognizedEncoderNames(), recognizedEncoderNames()));
 
 test('persists every run lifecycle status as its typed enum value', function (RunStatus $status): void {
     $run = Run::factory()->create(['status' => $status]);

@@ -3,6 +3,7 @@
 namespace App\Casts;
 
 use App\Slate\Run\RunRecipe;
+use App\Slate\Storage\RunObjectKeys;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
@@ -27,7 +28,13 @@ final class RunRecipeCast implements CastsAttributes
             throw new InvalidArgumentException('Stored run recipe must decode to an object.');
         }
 
-        return RunRecipe::fromArray($decoded);
+        $runId = $model->getKey();
+
+        if (! is_string($runId)) {
+            throw new InvalidArgumentException('Stored run recipe requires its persisted run ID.');
+        }
+
+        return RunRecipe::fromArray($decoded, RunObjectKeys::prefix($runId));
     }
 
     /**

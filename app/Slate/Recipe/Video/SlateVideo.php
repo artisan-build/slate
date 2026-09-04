@@ -32,10 +32,11 @@ final readonly class SlateVideo
         public float $durationSeconds,
         public QualityTier $qualityTier,
         public ?int $keyframeIntervalFrames,
+        public bool $hasAudio,
     ) {}
 
     public static function render(
-        VideoStillClip|VideoTrim|VideoTransitionSegment|VideoConcat|OverlayImage|TimedWords $operation,
+        VideoStillClip|VideoStillClipSlice|VideoAudioMux|VideoTrim|VideoTransitionSegment|VideoConcat|OverlayImage|TimedWords $operation,
         RecipeCompiler $compiler,
         Driver $driver,
     ): self {
@@ -52,7 +53,7 @@ final readonly class SlateVideo
             throw new RuntimeException('Slate video rendering failed: '.$renderResult->errorOutput);
         }
 
-        [$expectedWidth, $expectedHeight, $expectedFramesPerSecond, $expectedFrameCount, $expectedDurationSeconds, $qualityTier, $keyframeIntervalFrames] = match (true) {
+        [$expectedWidth, $expectedHeight, $expectedFramesPerSecond, $expectedFrameCount, $expectedDurationSeconds, $qualityTier, $keyframeIntervalFrames, $expectedAudio] = match (true) {
             $operation instanceof VideoStillClip => [
                 $operation->width,
                 $operation->height,
@@ -61,6 +62,27 @@ final readonly class SlateVideo
                 $operation->durationSeconds,
                 $operation->qualityTier,
                 H264OutputContract::keyframeIntervalFrames($operation->framesPerSecond),
+                true,
+            ],
+            $operation instanceof VideoStillClipSlice => [
+                $operation->width,
+                $operation->height,
+                $operation->framesPerSecond,
+                null,
+                $operation->durationSeconds(),
+                $operation->qualityTier,
+                H264OutputContract::keyframeIntervalFrames($operation->framesPerSecond),
+                false,
+            ],
+            $operation instanceof VideoAudioMux => [
+                $operation->video->width,
+                $operation->video->height,
+                $operation->video->framesPerSecond,
+                $operation->video->frameCount,
+                $operation->video->durationSeconds,
+                $operation->video->qualityTier,
+                $operation->video->keyframeIntervalFrames,
+                true,
             ],
             $operation instanceof VideoConcat => [
                 $operation->width(),
@@ -74,6 +96,7 @@ final readonly class SlateVideo
                 $operation->mode === VideoConcatMode::Copy
                     ? self::copyKeyframeInterval($operation)
                     : H264OutputContract::keyframeIntervalFrames($operation->framesPerSecond),
+                $operation->inputs[0]->hasAudio,
             ],
             $operation instanceof OverlayImage => [
                 $operation->input->width,
@@ -83,6 +106,7 @@ final readonly class SlateVideo
                 $operation->input->durationSeconds,
                 $operation->input->qualityTier,
                 H264OutputContract::keyframeIntervalFrames($operation->input->framesPerSecond),
+                $operation->input->hasAudio,
             ],
             $operation instanceof TimedWords => [
                 $operation->input->width,
@@ -92,6 +116,7 @@ final readonly class SlateVideo
                 $operation->input->durationSeconds,
                 $operation->input->qualityTier,
                 H264OutputContract::keyframeIntervalFrames($operation->input->framesPerSecond),
+                $operation->input->hasAudio,
             ],
             $operation instanceof VideoTrim => [
                 $operation->input->width,
@@ -101,6 +126,7 @@ final readonly class SlateVideo
                 $operation->durationSeconds(),
                 $operation->input->qualityTier,
                 $operation->input->keyframeIntervalFrames,
+                $operation->input->hasAudio,
             ],
             $operation instanceof VideoTransitionSegment => [
                 $operation->from->width,
@@ -110,6 +136,7 @@ final readonly class SlateVideo
                 $operation->durationSeconds(),
                 $operation->qualityTier,
                 H264OutputContract::keyframeIntervalFrames($operation->framesPerSecond()),
+                $operation->from->hasAudio && $operation->to->hasAudio,
             ],
         };
 
@@ -122,6 +149,7 @@ final readonly class SlateVideo
             $expectedDurationSeconds,
             $qualityTier,
             $keyframeIntervalFrames,
+            $expectedAudio,
             $compiler,
             $driver,
         );
@@ -146,6 +174,7 @@ final readonly class SlateVideo
             $storedVideo->durationSeconds,
             $storedVideo->qualityTier,
             $storedVideo->keyframeIntervalFrames,
+            $storedVideo->hasAudio,
             $compiler,
             $driver,
         );
@@ -160,6 +189,7 @@ final readonly class SlateVideo
         float $expectedDurationSeconds,
         QualityTier $qualityTier,
         ?int $keyframeIntervalFrames,
+        bool $expectedAudio,
         RecipeCompiler $compiler,
         Driver $driver,
     ): self {
@@ -208,10 +238,15 @@ final readonly class SlateVideo
             );
         }
 
-        if (! in_array(H264OutputContract::audioEncoder(), $audioCodecs, true)) {
+        if ($expectedAudio && ! in_array(H264OutputContract::audioEncoder(), $audioCodecs, true)) {
             $contractFailures[] = sprintf(
                 'audio.codec_name expected to include %s, probed %s',
                 self::probeValue(H264OutputContract::audioEncoder()),
+                self::probeValue($audioCodecs),
+            );
+        } elseif (! $expectedAudio && $audioCodecs !== []) {
+            $contractFailures[] = sprintf(
+                'audio.codec_name expected no audio stream, probed %s',
                 self::probeValue($audioCodecs),
             );
         }
@@ -286,6 +321,7 @@ final readonly class SlateVideo
             $durationSeconds,
             $qualityTier,
             $keyframeIntervalFrames,
+            $expectedAudio,
         );
     }
 

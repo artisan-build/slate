@@ -2,5 +2,5 @@
 
 final class RogueVisibilityWindow
 {
-    public int $visibilityWindowSeconds = 240;
+    public int $visibilityWindowSeconds = 2_400;
 }

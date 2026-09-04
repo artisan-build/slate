@@ -13,10 +13,10 @@ final readonly class QueueRuntimePolicy
     public function __construct(private Repository $config) {}
 
     /**
-     * Resolution order is deliberately narrow and observable: an explicit retry_after on the named
-     * queue, then the connection's Laravel retry_after, then Slate's conservative fallback. Laravel
-     * Cloud's injected `queues` map is not assigned an unobserved attribute shape here; until that
-     * shape is confirmed, it reaches the explicit ConfiguredFallback result instead of a silent guess.
+     * Resolution order is deliberately narrow and observable. Cloud connections go directly to
+     * Slate's conservative fallback because their injected queue-map schema is not yet observed.
+     * Other drivers use an explicit named-queue retry_after, then the connection's Laravel
+     * retry_after, then the same configured fallback.
      */
     public function forQueue(string $queue, ?string $connection = null): QueueRuntimeSettings
     {
@@ -79,6 +79,13 @@ final readonly class QueueRuntimePolicy
     /** @return array{int, VisibilityWindowSource} */
     private function visibilityWindow(string $connection, string $queue): array
     {
+        if ($this->config->get("queue.connections.{$connection}.driver") === 'cloud') {
+            return [
+                $this->positiveIntConfig('slate.execution.visibility_window_fallback_seconds'),
+                VisibilityWindowSource::ConfiguredFallback,
+            ];
+        }
+
         $namedQueueWindow = $this->positiveInt($this->config->get(
             "queue.connections.{$connection}.queues.{$queue}.retry_after",
         ));

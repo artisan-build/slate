@@ -14,8 +14,11 @@ use App\Slate\Fanout\StoredVideo;
 use App\Slate\Recipe\QualityTier;
 use App\Slate\Storage\ObjectKey;
 
-function configuredQueueRuntime(int $window, float $rate = 0.389): QueueRuntimeSettings
-{
+function configuredQueueRuntime(
+    int $window,
+    float $deliveryRate = 0.389,
+    float $intermediateRate = 0.389,
+): QueueRuntimeSettings {
     config()->set('queue.default', 'policy_test');
     config()->set('queue.connections.policy_test', [
         'driver' => 'database',
@@ -24,7 +27,8 @@ function configuredQueueRuntime(int $window, float $rate = 0.389): QueueRuntimeS
             'render' => ['retry_after' => $window],
         ],
     ]);
-    config()->set('slate.execution.measured_realtime_rates.delivery', $rate);
+    config()->set('slate.execution.measured_realtime_rates.delivery', $deliveryRate);
+    config()->set('slate.execution.measured_realtime_rates.intermediate', $intermediateRate);
 
     return resolve(QueueRuntimePolicy::class)->forQueue('render');
 }
@@ -55,24 +59,47 @@ function policyFanoutRun(): FanoutRun
     ]);
 }
 
-test('derives every runtime limit from two distinct configured queue windows and measured rates', function (): void {
-    $first = configuredQueueRuntime(180);
+test('derives every runtime limit for both tiers from two configured windows and rate points', function (): void {
+    $first = configuredQueueRuntime(180, 0.389, 0.25);
 
     expect($first->visibilityWindowSeconds)->toBe(180)
         ->and($first->jobTimeoutSeconds)->toBe(170)
         ->and($first->driverTimeoutSeconds)->toBe(160)
         ->and($first->outputSecondsPerJob(QualityTier::Delivery))->toBe(49)
+        ->and($first->outputSecondsPerJob(QualityTier::Intermediate))->toBe(32)
         ->and($first->visibilityWindowSource)->toBe(VisibilityWindowSource::NamedQueueRetryAfter)
         ->and($first->usedFallback())->toBeFalse();
 
-    $second = configuredQueueRuntime(300, 0.5);
+    $second = configuredQueueRuntime(300, 0.5, 0.75);
 
     expect($second->visibilityWindowSeconds)->toBe(300)
         ->and($second->jobTimeoutSeconds)->toBe(290)
         ->and($second->driverTimeoutSeconds)->toBe(280)
         ->and($second->outputSecondsPerJob(QualityTier::Delivery))->toBe(112)
+        ->and($second->outputSecondsPerJob(QualityTier::Intermediate))->toBe(168)
         ->and($second->driverTimeoutSeconds)->toBeLessThan($second->jobTimeoutSeconds)
         ->and($second->jobTimeoutSeconds)->toBeLessThan($second->visibilityWindowSeconds);
+});
+
+test('uses the observable fallback instead of interpreting an unknown cloud queue map', function (): void {
+    config()->set('queue.default', 'cloud_test');
+    config()->set('queue.connections.cloud_test', [
+        'driver' => 'cloud',
+        'retry_after' => 999,
+        'queues' => [
+            'render' => [
+                'retry_after' => 888,
+                'unobserved_cloud_attribute' => 777,
+            ],
+        ],
+    ]);
+    config()->set('slate.execution.visibility_window_fallback_seconds', 240);
+
+    $settings = resolve(QueueRuntimePolicy::class)->forQueue('render');
+
+    expect($settings->visibilityWindowSeconds)->toBe(240)
+        ->and($settings->visibilityWindowSource)->toBe(VisibilityWindowSource::ConfiguredFallback)
+        ->and($settings->usedFallback())->toBeTrue();
 });
 
 test('reports the configured conservative fallback when the queue exposes no window', function (): void {

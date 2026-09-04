@@ -103,6 +103,8 @@ test('keeps literal visibility window numbers out of application source', functi
 
 test('recursive visibility scan catches a nested rogue window number', function (): void {
     expect(visibilityWindowNumberLocations(base_path('tests/Fixtures/Boundary/Policy')))->toBe([
+        'Deeply/Nested/RogueRetryAfter.php',
+        'Deeply/Nested/RogueVisibilityTimeout.php',
         'Deeply/Nested/RogueVisibilityWindow.php',
     ]);
 });
@@ -113,7 +115,12 @@ test('keeps bare timeout constants out of queued application jobs', function ():
 
 test('recursive queued job scan catches a nested rogue bare timeout', function (): void {
     expect(bareQueuedJobTimeoutLocations(base_path('tests/Fixtures/Boundary/Queue')))->toBe([
+        'Deeply/Nested/RogueAliasedTimeoutJob.php',
         'Deeply/Nested/RogueBareTimeoutJob.php',
+        'Deeply/Nested/RogueInheritedTimeoutJob.php',
+        'Deeply/Nested/RogueQualifiedTimeoutJob.php',
+        'Deeply/Nested/RogueTimeoutParent.php',
+        'Deeply/Nested/RogueTraitTimeoutJob.php',
     ]);
 });
 
@@ -257,6 +264,10 @@ test('keeps every expression emitter at its approved compiler location', functio
             'y' => 1,
         ],
         'Binary/Operation/VideoStillClipCompiler.php' => [
+            'x' => 1,
+            'y' => 1,
+        ],
+        'Binary/Operation/VideoStillClipSliceCompiler.php' => [
             'x' => 1,
             'y' => 1,
         ],

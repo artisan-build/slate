@@ -28,9 +28,10 @@ return [
         'job_timeout_margin_seconds' => 10,
         'driver_timeout_margin_seconds' => 10,
         'output_budget_margin' => 0.8,
-        // Conservative 0.389x realtime at 1536x1024, measured in PRs #15/#17.
         'measured_realtime_rates' => [
+            // Intermediate is unmeasured; conservatively use the slower delivery rate below.
             'intermediate' => 0.389,
+            // Delivery measured 0.389x realtime at 1536x1024 in PRs #15/#17.
             'delivery' => 0.389,
         ],
     ],
