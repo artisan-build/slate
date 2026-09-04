@@ -189,7 +189,7 @@ final class Run extends Model
     private function dispatchTerminalWebhook(bool $changed): void
     {
         if ($changed && $this->status->isTerminal() && $this->webhook_url !== null) {
-            DeliverRunWebhook::dispatch($this->id);
+            dispatch(new DeliverRunWebhook($this->id));
         }
     }
 

@@ -219,10 +219,10 @@ final class RunControllerTest extends TestCase
             ->assertAccepted()
             ->assertExactJson(['id' => $runId]);
         $this->getJson('/api/v1/runs/'.$runId)->assertOk()->assertJsonPath('status', 'running');
-        self::assertInstanceOf(DatabaseQueue::class, app('queue')->connection());
+        self::assertInstanceOf(DatabaseQueue::class, resolve('queue')->connection());
         self::assertSame(1, DB::table('jobs')->where('queue', 'default')->count());
 
-        $worker = app('queue.worker');
+        $worker = resolve('queue.worker');
         self::assertInstanceOf(Worker::class, $worker);
         $options = new WorkerOptions(sleep: 0, timeout: 170, maxTries: 1, force: true);
         $worker->runNextJob('database', 'default', $options);
