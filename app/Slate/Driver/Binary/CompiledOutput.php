@@ -12,13 +12,36 @@ use App\Slate\Storage\ScratchPath;
 /** An atomic ordered output scope containing its codec selection and destination path. */
 final readonly class CompiledOutput
 {
-    /**
-     * @param  non-empty-list<string>  $commandValues
-     */
+    private const int MaximumOutputBytes = 16 * 1024 * 1024 * 1024;
+
+    private const int MaximumOutputDurationSeconds = 86_400;
+
+    /** @var non-empty-list<string> */
+    private array $commandValues;
+
+    /** @param non-empty-list<string> $commandValues */
     private function __construct(
-        private array $commandValues,
+        array $commandValues,
         private ?CompiledFilterType $videoFilterType = null,
-    ) {}
+    ) {
+        $this->commandValues = [
+            ...self::hardeningCommandValues(),
+            ...$commandValues,
+        ];
+    }
+
+    /** @return list<string> */
+    public static function hardeningCommandValues(): array
+    {
+        return [
+            CompiledOption::MapMetadata->value,
+            CompiledLiteral::NegativeOne->value,
+            CompiledOption::Duration->value,
+            (string) self::MaximumOutputDurationSeconds,
+            CompiledOption::MaximumFileSize->value,
+            (string) self::MaximumOutputBytes,
+        ];
+    }
 
     public static function h264(
         CompiledH264FilterGraph $filterGraph,
@@ -93,6 +116,7 @@ final readonly class CompiledOutput
         AudioBitrate $bitrate,
         ScratchPath $output,
         ?AudioChannelLayout $channels = null,
+        ?float $durationSeconds = null,
     ): self {
         $channelValues = match ($channels) {
             AudioChannelLayout::Mono => ['-ac', '1'],
@@ -101,6 +125,10 @@ final readonly class CompiledOutput
         };
 
         return new self([
+            ...($durationSeconds === null ? [] : [
+                CompiledOption::Duration->value,
+                CompiledArgument::seconds($durationSeconds)->value(),
+            ]),
             '-c:a',
             CompiledLiteral::Libmp3lame->value,
             ...$channelValues,
@@ -123,9 +151,13 @@ final readonly class CompiledOutput
         ]);
     }
 
-    public static function copiedVideo(ScratchPath $output): self
+    public static function copiedVideo(ScratchPath $output, ?float $durationSeconds = null): self
     {
         return new self([
+            ...($durationSeconds === null ? [] : [
+                CompiledOption::Duration->value,
+                CompiledArgument::seconds($durationSeconds)->value(),
+            ]),
             '-c',
             CompiledLiteral::Copy->value,
             $output->writablePath(),

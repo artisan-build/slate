@@ -49,6 +49,7 @@ final readonly class AudioSilenceCompiler implements CompilesOperation
                 $operation->bitrate,
                 $operation->output,
                 $operation->channels,
+                $operation->durationSeconds,
             ),
         };
 
@@ -57,8 +58,6 @@ final readonly class AudioSilenceCompiler implements CompilesOperation
             CompiledArgument::option(CompiledOption::Format),
             CompiledArgument::literal(CompiledLiteral::Lavfi),
             CompiledInput::lavfi($silenceInput),
-            CompiledArgument::option(CompiledOption::Duration),
-            CompiledArgument::seconds($operation->durationSeconds),
             $output,
         ]);
     }

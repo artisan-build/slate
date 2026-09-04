@@ -6,9 +6,11 @@ namespace App\Jobs;
 
 use App\Models\Ingest;
 use App\Services\IngestCleanup;
+use App\Services\RunFailure;
 use App\Slate\Execution\QueueRuntimePolicy;
 use App\Slate\Ingest\PermanentIngestException;
 use App\Slate\Ingest\ResumableIngestTransfer;
+use App\Slate\Input\InputRejectedException;
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -42,7 +44,15 @@ final class IngestSource implements ShouldQueue
     public function handle(ResumableIngestTransfer $transfer): void
     {
         $ingest = Ingest::query()->findOrFail($this->ingestId);
-        $transfer->handle($ingest, $this->sourceRequestTimeout);
+
+        try {
+            $transfer->handle($ingest, $this->sourceRequestTimeout);
+        } catch (InputRejectedException $exception) {
+            $ingest->run()->firstOrFail()->reject($exception->reason);
+
+            throw $exception;
+        }
+
         // Completion stays separate so ingest-time admission can run here before success.
         $ingest->markSucceeded();
     }
@@ -61,7 +71,7 @@ final class IngestSource implements ShouldQueue
     /** @return list<FailOnException> */
     public function middleware(): array
     {
-        return [new FailOnException([PermanentIngestException::class])];
+        return [new FailOnException([PermanentIngestException::class, InputRejectedException::class])];
     }
 
     public function failed(?Throwable $exception): void
@@ -74,6 +84,15 @@ final class IngestSource implements ShouldQueue
             resolve(IngestCleanup::class)->fail($this->ingestId);
         } catch (Throwable $cleanupException) {
             report($cleanupException);
+        }
+
+        if ($exception instanceof InputRejectedException) {
+            try {
+                $ingest = Ingest::query()->findOrFail($this->ingestId);
+                resolve(RunFailure::class)->handle($ingest->run_id, $exception->reason);
+            } catch (Throwable $cleanupException) {
+                report($cleanupException);
+            }
         }
     }
 }

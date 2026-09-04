@@ -1,6 +1,9 @@
 <?php
 
 use App\Providers\DriverServiceProvider;
+use App\Slate\Driver\Binary\DiagnosticRecipeCompiler;
+use App\Slate\Driver\Binary\FfmpegLocator;
+use App\Slate\Driver\Binary\FilterGraphCompiler;
 use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Recipe\Audio\AudioBitrate;
 use App\Slate\Recipe\Audio\AudioChannelLayout;
@@ -27,6 +30,7 @@ use App\Slate\Recipe\Video\OverlayFadeIn;
 use App\Slate\Recipe\Video\OverlayImage;
 use App\Slate\Recipe\Video\StillMotion;
 use App\Slate\Recipe\Video\VideoAudioMux;
+use App\Slate\Recipe\Video\VideoClip;
 use App\Slate\Recipe\Video\VideoColor;
 use App\Slate\Recipe\Video\VideoConcat;
 use App\Slate\Recipe\Video\VideoConcatMode;
@@ -39,6 +43,34 @@ use App\Slate\Recipe\Video\VideoTransitionSegment;
 use App\Slate\Recipe\Video\VideoTrim;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ScratchDirectory;
+
+/**
+ * @param  list<non-empty-list<string>>  $commands
+ * @return list<string>
+ */
+function compiledInvocationHardeningViolations(array $commands): array
+{
+    $violations = [];
+
+    foreach ($commands as $index => $command) {
+        $executable = basename($command[0]);
+        $required = $executable === 'ffmpeg'
+            ? ['-nostdin' => null, '-protocol_whitelist' => 'file', '-map_metadata' => '-1', '-t' => null, '-fs' => null]
+            : ['-protocol_whitelist' => 'file'];
+
+        foreach ($required as $option => $expectedValue) {
+            $optionIndex = array_search($option, $command, true);
+
+            if ($optionIndex === false
+                || ($expectedValue !== null && ($command[$optionIndex + 1] ?? null) !== $expectedValue)) {
+                $violations[] = "invocation {$index} ({$executable}) lacks {$option}"
+                    .($expectedValue === null ? '' : " {$expectedValue}");
+            }
+        }
+    }
+
+    return $violations;
+}
 
 test('registers production compilers for every shipped operation', function (): void {
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
@@ -104,6 +136,7 @@ test('registers production compilers for every shipped operation', function (): 
             $stillClip,
             $slice,
             $mux,
+            VideoClip::precise($videoOutput, 0, 1_000_000, $scratch->file('clipped.mp4')),
             new VideoTrim($video, 24, 24, $scratch->file('trimmed.mp4')),
             new VideoTransitionSegment(
                 $video, $secondVideo, 24, QualityTier::Delivery, $scratch->file('transition.mp4'),
@@ -126,15 +159,32 @@ test('registers production compilers for every shipped operation', function (): 
             new VideoThumbnail($video, $scratch->file('poster.jpg')),
         ];
 
-        $executables = array_map(
-            static fn (Operation $operation): string => basename($compiler->compile($operation)->command()[0]),
+        $commands = array_map(
+            static fn (Operation $operation): array => $compiler->compile($operation)->command(),
             $operations,
         );
+        $diagnostics = new DiagnosticRecipeCompiler(
+            new FfmpegLocator('Linux', 'arm64', '/runtime'),
+            new FilterGraphCompiler,
+        );
+        array_push(
+            $commands,
+            $diagnostics->version()->command(),
+            $diagnostics->filters()->command(),
+            $diagnostics->buildConfiguration()->command(),
+            $diagnostics->encoders()->command(),
+            $diagnostics->luma(null)->command(),
+        );
+        $executables = array_map(static fn (array $command): string => basename($command[0]), $commands);
+        $positiveControl = [['/runtime/ffmpeg/bin/ffmpeg', '-i', '/tmp/input.mp4', '/tmp/output.mp4']];
 
         expect(app()->getProviders(DriverServiceProvider::class))->toHaveCount(1)
             ->and($compiler)->toBeInstanceOf(RecipeCompiler::class)
+            ->and(compiledInvocationHardeningViolations($commands))->toBe([])
+            ->and(compiledInvocationHardeningViolations($positiveControl))->not->toBe([])
             ->and($executables)->toBe([
                 'ffprobe', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg',
+                'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg',
                 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg',
             ]);
     });

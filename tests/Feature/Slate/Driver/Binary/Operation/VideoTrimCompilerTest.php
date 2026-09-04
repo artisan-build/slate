@@ -28,8 +28,10 @@ test('compiles an exact keyframe seek and frame-limited stream copy', function (
         ))->compile($operation)->command();
 
         expect($command)->toBe([
-            '/runtime/ffmpeg/bin/ffmpeg', '-y', '-ss', '1', '-i', $video->path->readablePath(),
-            '-t', '2', '-frames:v', '48', '-c', 'copy', $output->writablePath(),
+            '/runtime/ffmpeg/bin/ffmpeg', ...ffmpegInvocationHardeningArguments(),
+            '-y', '-ss', '1', ...ffmpegFileInputHardeningArguments(), '-i', $video->path->readablePath(),
+            '-frames:v', '48', ...ffmpegOutputHardeningArguments(), '-t', '2',
+            '-c', 'copy', $output->writablePath(),
         ]);
     });
 });

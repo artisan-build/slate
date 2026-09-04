@@ -26,7 +26,14 @@ test('accepts compiler-owned scratch paths as local binary arguments', function 
             [CompiledInput::ffmpeg($input)],
         );
 
-        expect($recipe->command())->toBe(['/runtime/ffmpeg/bin/ffmpeg', '-i', $input->readablePath()]);
+        expect($recipe->command())->toBe([
+            '/runtime/ffmpeg/bin/ffmpeg',
+            ...ffmpegInvocationHardeningArguments(),
+            ...ffmpegFileInputHardeningArguments(),
+            '-i',
+            $input->readablePath(),
+            ...ffmpegOutputHardeningArguments(),
+        ]);
     });
 });
 
@@ -195,6 +202,9 @@ test('keeps codec selection inside the same ordered output unit as its path', fu
 
         expect($recipe->command())->toBe([
             '/runtime/ffmpeg/bin/ffmpeg',
+            ...ffmpegInvocationHardeningArguments(),
+            ...ffmpegFileInputHardeningArguments(),
+            ...ffmpegOutputHardeningArguments(),
             '-c:v',
             'mjpeg',
             '-f',
@@ -220,7 +230,11 @@ test('supports multiple independently scoped outputs with different media codecs
 
         expect($recipe->command())->toBe([
             '/runtime/ffmpeg/bin/ffmpeg',
+            ...ffmpegInvocationHardeningArguments(),
+            ...ffmpegFileInputHardeningArguments(),
+            ...ffmpegOutputHardeningArguments(),
             '-c:a', 'copy', '-f', 'mp3', $audio->writablePath(),
+            ...ffmpegOutputHardeningArguments(),
             '-c:v', 'mjpeg', '-f', 'image2', $image->writablePath(),
         ]);
     });

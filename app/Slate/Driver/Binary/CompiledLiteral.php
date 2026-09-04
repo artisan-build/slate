@@ -12,6 +12,7 @@ enum CompiledLiteral: string
     case Concat = 'concat';
     case Copy = 'copy';
     case Error = 'error';
+    case FileProtocol = 'file';
     case FrameMd5 = 'framemd5';
     case Info = 'info';
     case Image2 = 'image2';
@@ -20,6 +21,7 @@ enum CompiledLiteral: string
     case Libmp3lame = 'libmp3lame';
     case Mp3 = 'mp3';
     case Mjpeg = 'mjpeg';
+    case NegativeOne = '-1';
     case One = '1';
     case NullMuxer = 'null';
     case PcmS16le = 'pcm_s16le';

@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use App\Slate\Input\InputRejectionReason;
 use App\Slate\Run\RunRecipe;
 use App\Slate\Run\RunStillClip;
+use App\Slate\Run\RunVideoClip;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\RunObjectKeys;
 use Database\Factories\RunFactory;
@@ -18,6 +20,8 @@ use LogicException;
 /**
  * @property string $id
  * @property RunStatus $status
+ * @property RunTrust $trust
+ * @property InputRejectionReason|null $rejection_reason
  * @property-read RunRecipe $recipe
  *
  * @mixin IdeHelperRun
@@ -28,13 +32,17 @@ final class Run extends Model
     /** @use HasFactory<RunFactory> */
     use HasFactory, HasUuids;
 
-    public static function createWithRecipe(string $runId, RunRecipe $recipe): self
-    {
+    public static function createWithRecipe(
+        string $runId,
+        RunRecipe $recipe,
+        RunTrust $trust = RunTrust::Untrusted,
+    ): self {
         self::assertRecipeObjectOwnership($runId, $recipe);
         $run = new self;
         $run->setRawAttributes([
             'id' => $runId,
             'recipe' => $recipe->toJson(),
+            'trust' => $trust->value,
             'status' => RunStatus::Queued->value,
         ]);
         $run->save();
@@ -126,11 +134,33 @@ final class Run extends Model
         return $changed;
     }
 
+    public function reject(InputRejectionReason $reason): bool
+    {
+        $changed = DB::transaction(function () use ($reason): bool {
+            $run = self::query()->lockForUpdate()->findOrFail($this->getKey());
+
+            if ($run->status->isTerminal()) {
+                return false;
+            }
+
+            $run->status = RunStatus::Failed;
+            $run->rejection_reason = $reason;
+
+            return $run->save();
+        });
+
+        $this->refresh();
+
+        return $changed;
+    }
+
     /** @return array<string, string> */
     protected function casts(): array
     {
         return [
             'status' => RunStatus::class,
+            'trust' => RunTrust::class,
+            'rejection_reason' => InputRejectionReason::class,
         ];
     }
 
@@ -139,12 +169,16 @@ final class Run extends Model
         $prefix = RunObjectKeys::prefix($runId);
 
         foreach ($recipe->operations as $operation) {
-            if (! $operation instanceof RunStillClip) {
+            if (! $operation instanceof RunStillClip && ! $operation instanceof RunVideoClip) {
                 throw new InvalidArgumentException('Run recipe ownership received an unsupported operation.');
             }
 
-            ObjectKey::withinPrefix($prefix, $operation->image->value());
-            ObjectKey::withinPrefix($prefix, $operation->audio->value());
+            if ($operation instanceof RunStillClip) {
+                ObjectKey::withinPrefix($prefix, $operation->image->value());
+                ObjectKey::withinPrefix($prefix, $operation->audio->value());
+            } else {
+                ObjectKey::withinPrefix($prefix, $operation->source->value());
+            }
         }
     }
 

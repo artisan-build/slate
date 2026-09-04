@@ -26,11 +26,14 @@ test('compiles typed stereo silence to an MP3 command', function (): void {
 
         expect($recipe->command())->toBe([
             '/runtime/ffmpeg/bin/ffmpeg',
+            ...ffmpegInvocationHardeningArguments(),
             '-y',
             '-f',
             'lavfi',
+            ...ffmpegFileInputHardeningArguments(),
             '-i',
             'anullsrc=r=44100:cl=stereo',
+            ...ffmpegOutputHardeningArguments(),
             '-t',
             '1.25',
             '-c:a',

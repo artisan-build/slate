@@ -248,6 +248,24 @@ function legacyFfmpegBoundaryExceptions(): array
     return [];
 }
 
+/** @return list<string> */
+function ffmpegInvocationHardeningArguments(): array
+{
+    return ['-nostdin'];
+}
+
+/** @return list<string> */
+function ffmpegFileInputHardeningArguments(): array
+{
+    return ['-protocol_whitelist', 'file'];
+}
+
+/** @return list<string> */
+function ffmpegOutputHardeningArguments(): array
+{
+    return ['-map_metadata', '-1', '-t', '86400', '-fs', '17179869184'];
+}
+
 /**
  * Finds binary authority above the driver boundary without depending on process-call shape.
  *

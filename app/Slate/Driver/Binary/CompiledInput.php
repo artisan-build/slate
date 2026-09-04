@@ -17,17 +17,31 @@ final readonly class CompiledInput
 
     public static function ffmpeg(ScratchPath $input): self
     {
-        return new self(['-i', $input->readablePath()], BinaryExecutable::Ffmpeg);
+        return new self([
+            CompiledOption::ProtocolWhitelist->value,
+            CompiledLiteral::FileProtocol->value,
+            '-i',
+            $input->readablePath(),
+        ], BinaryExecutable::Ffmpeg);
     }
 
     public static function lavfi(LavfiInput $input): self
     {
-        return new self(['-i', $input->value], BinaryExecutable::Ffmpeg);
+        return new self([
+            CompiledOption::ProtocolWhitelist->value,
+            CompiledLiteral::FileProtocol->value,
+            '-i',
+            $input->value,
+        ], BinaryExecutable::Ffmpeg);
     }
 
     public static function ffprobe(ScratchPath $input): self
     {
-        return new self([$input->readablePath()], BinaryExecutable::Ffprobe);
+        return new self([
+            CompiledOption::ProtocolWhitelist->value,
+            CompiledLiteral::FileProtocol->value,
+            $input->readablePath(),
+        ], BinaryExecutable::Ffprobe);
     }
 
     /** @return non-empty-list<string> */

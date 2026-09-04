@@ -6,6 +6,7 @@ namespace App\Slate\Ingest;
 
 use App\Models\Ingest;
 use App\Models\IngestStatus;
+use App\Slate\Input\InputAdmission;
 use App\Slate\Storage\IngestStorage;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -22,6 +23,7 @@ final readonly class ResumableIngestTransfer
     public function __construct(
         private IngestStorage $storage,
         private SourceReader $sourceReader,
+        private InputAdmission $inputAdmission,
     ) {}
 
     public function handle(Ingest $ingest, int $sourceRequestTimeoutSeconds): void
@@ -31,6 +33,7 @@ final readonly class ResumableIngestTransfer
         }
 
         $metadata = $this->sourceReader->metadata($ingest->sourceUrl(), $sourceRequestTimeoutSeconds);
+        $this->inputAdmission->inspectSourceMetadata($metadata);
         $ingest->refresh();
 
         if ($ingest->status->isTerminal()) {
@@ -39,6 +42,7 @@ final readonly class ResumableIngestTransfer
 
         $objectKey = $ingest->objectKey();
         $ingest->assertSourceMetadata($metadata);
+        $this->inspectInitialBytes($ingest, $metadata, $sourceRequestTimeoutSeconds);
 
         if ($this->storage->exists($objectKey)) {
             if ($this->storage->size($objectKey) !== $metadata->bytes) {
@@ -70,6 +74,7 @@ final readonly class ResumableIngestTransfer
             );
 
             try {
+                $this->inputAdmission->inspectStream($part->stream, false);
                 $this->storage->uploadPart(
                     $objectKey,
                     $uploadId,
@@ -162,5 +167,25 @@ final readonly class ResumableIngestTransfer
         }
 
         return $partSize;
+    }
+
+    private function inspectInitialBytes(
+        Ingest $ingest,
+        SourceMetadata $metadata,
+        int $sourceRequestTimeoutSeconds,
+    ): void {
+        $sample = $this->sourceReader->read(
+            $ingest->sourceUrl(),
+            $metadata,
+            0,
+            min($metadata->bytes - 1, 64 * 1024 - 1),
+            $sourceRequestTimeoutSeconds,
+        );
+
+        try {
+            $this->inputAdmission->inspectStream($sample->stream, true);
+        } finally {
+            $sample->close();
+        }
     }
 }

@@ -4,15 +4,20 @@ declare(strict_types=1);
 
 namespace App\Slate\Execution;
 
+use App\Jobs\CoarseCutVideoSource;
 use App\Jobs\CompleteRun;
 use App\Jobs\FinalizeRunSplitOperation;
 use App\Jobs\RenderRunOperation;
 use App\Jobs\RenderRunSubClip;
+use App\Jobs\RenderVideoClip;
 use App\Models\Run;
 use App\Models\RunStatus;
 use App\Services\RunFailure;
+use App\Slate\Input\InputRejectedException;
 use App\Slate\Run\RunRecipe;
+use App\Slate\Run\RunRecipeOperation;
 use App\Slate\Run\RunStillClip;
+use App\Slate\Run\RunVideoClip;
 use App\Slate\Storage\RunObjectKeys;
 use Illuminate\Bus\Batch;
 use Illuminate\Support\Facades\Bus;
@@ -38,6 +43,7 @@ final readonly class RunExecutor
                 ExecutorStrategy::SingleJob => $this->dispatchSingle($run, $plan),
                 ExecutorStrategy::Fanout => $this->dispatchFanout($run, $plan),
                 ExecutorStrategy::SubOperationSplit => $this->dispatchSplit($run, $plan),
+                ExecutorStrategy::VideoClipFanout => $this->dispatchVideoClips($run, $plan),
             };
         } catch (Throwable $exception) {
             resolve(RunFailure::class)->handle($run->id);
@@ -58,6 +64,19 @@ final readonly class RunExecutor
                 'queue' => $settings->queue,
                 'visibility_window_seconds' => $settings->visibilityWindowSeconds,
             ]);
+        }
+
+        $videoClipCount = count(array_filter(
+            $recipe->operations,
+            static fn (RunRecipeOperation $operation): bool => $operation instanceof RunVideoClip,
+        ));
+
+        if ($videoClipCount > 0) {
+            if ($videoClipCount !== count($recipe->operations)) {
+                throw new InvalidArgumentException('Video clip runs cannot mix source clips with assembler operations.');
+            }
+
+            return $this->planVideoClips($runId, $recipe, $settings);
         }
 
         $strategy = $this->selectStrategy($recipe, $settings);
@@ -232,6 +251,105 @@ final readonly class RunExecutor
         $jobs[] = new CompleteRun($run->id);
 
         Bus::chain($jobs)->onQueue($plan->runtimeSettings->queue)->dispatch();
+    }
+
+    private function planVideoClips(
+        string $runId,
+        RunRecipe $recipe,
+        QueueRuntimeSettings $settings,
+    ): ExecutionPlan {
+        $rangesBySource = [];
+        $sources = [];
+        $preciseOperations = [];
+        $paddingMicroseconds = 5 * 1_000_000;
+
+        foreach ($recipe->operations as $operationIndex => $operation) {
+            if (! $operation instanceof RunVideoClip) {
+                throw new InvalidArgumentException('Video clip planning requires only typed source clips.');
+            }
+
+            $source = $operation->source->value();
+            $coarseOutput = RunObjectKeys::coarseClip($runId, $operationIndex);
+            $startMicroseconds = $operation->startMicroseconds();
+            $endMicroseconds = $operation->endMicroseconds();
+            $coarseStart = max(0, $startMicroseconds - $paddingMicroseconds);
+            $sources[$source] = $operation->source;
+            $rangesBySource[$source][] = new CoarseCutRange(
+                $operationIndex,
+                $startMicroseconds,
+                $endMicroseconds,
+                $coarseOutput,
+            );
+            $preciseOperations[] = new PreciseVideoClip(
+                $operationIndex,
+                $coarseOutput,
+                $startMicroseconds - $coarseStart,
+                $operation->durationMicroseconds(),
+                RunObjectKeys::operationOutput($runId, $operationIndex),
+            );
+        }
+
+        $coarseOperations = [];
+
+        foreach ($rangesBySource as $source => $ranges) {
+            $coarseOperations[] = new CoarseCutSource($sources[$source], $ranges);
+        }
+
+        return new ExecutionPlan(
+            ExecutorStrategy::VideoClipFanout,
+            [...$coarseOperations, ...$preciseOperations],
+            $settings,
+        );
+    }
+
+    private function dispatchVideoClips(Run $run, ExecutionPlan $plan): void
+    {
+        $coarseJobs = [];
+        $preciseOperations = [];
+
+        foreach ($plan->operations as $operation) {
+            if ($operation instanceof CoarseCutSource) {
+                $coarseJobs[] = new CoarseCutVideoSource($run->id, $operation);
+            } elseif ($operation instanceof PreciseVideoClip) {
+                $preciseOperations[] = $operation;
+            } else {
+                throw new InvalidArgumentException('Video clip fan-out received an unrelated planned operation.');
+            }
+        }
+
+        $runId = $run->id;
+        $queue = $plan->runtimeSettings->queue;
+
+        Bus::batch($coarseJobs)
+            ->name('Slate coarse cuts '.$runId)
+            ->then(static function (Batch $batch) use ($runId, $preciseOperations, $queue): void {
+                $renderJobs = array_map(
+                    static fn (PreciseVideoClip $operation): RenderVideoClip => new RenderVideoClip($runId, $operation),
+                    $preciseOperations,
+                );
+
+                Bus::batch($renderJobs)
+                    ->name('Slate precise clips '.$runId)
+                    ->finally(static function (Batch $renderBatch) use ($runId): void {
+                        if ($renderBatch->hasFailures()) {
+                            resolve(RunFailure::class)->handle($runId);
+
+                            return;
+                        }
+
+                        Bus::dispatch(new CompleteRun($runId));
+                    })
+                    ->onQueue($queue)
+                    ->dispatch();
+            })
+            ->catch(static function (Batch $batch, Throwable $exception) use ($runId): void {
+                resolve(RunFailure::class)->handle(
+                    $runId,
+                    $exception instanceof InputRejectedException ? $exception->reason : null,
+                );
+            })
+            ->onQueue($queue)
+            ->dispatch();
     }
 
     private function persistedRunId(Run $run): string

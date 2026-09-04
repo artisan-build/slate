@@ -4,6 +4,7 @@ namespace Database\Factories;
 
 use App\Models\Run;
 use App\Models\RunStatus;
+use App\Models\RunTrust;
 use App\Slate\Recipe\Audio\AudioBitrate;
 use App\Slate\Recipe\QualityTier;
 use App\Slate\Recipe\Video\VideoColor;
@@ -48,6 +49,7 @@ class RunFactory extends Factory
                 ),
             ]))->toJson(),
             'status' => RunStatus::Queued,
+            'trust' => RunTrust::Untrusted,
         ];
     }
 }

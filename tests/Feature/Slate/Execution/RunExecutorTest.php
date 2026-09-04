@@ -1,9 +1,11 @@
 <?php
 
+use App\Jobs\CoarseCutVideoSource;
 use App\Jobs\CompleteRun;
 use App\Jobs\FinalizeRunSplitOperation;
 use App\Jobs\RenderRunOperation;
 use App\Jobs\RenderRunSubClip;
+use App\Jobs\RenderVideoClip;
 use App\Models\Run;
 use App\Models\RunStatus;
 use App\Services\RunCleanup;
@@ -12,9 +14,11 @@ use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Driver\Driver;
 use App\Slate\Driver\DriverResult;
+use App\Slate\Execution\CoarseCutSource;
 use App\Slate\Execution\CopyConcatSubClips;
 use App\Slate\Execution\ExecutorStrategy;
 use App\Slate\Execution\MuxOperationAudio;
+use App\Slate\Execution\PreciseVideoClip;
 use App\Slate\Execution\RenderSilentSubClip;
 use App\Slate\Execution\RunExecutor;
 use App\Slate\Execution\SkipIfBatchUnavailable;
@@ -26,6 +30,7 @@ use App\Slate\Recipe\Video\VideoConcatMode;
 use App\Slate\Recipe\Video\VideoFit;
 use App\Slate\Run\RunRecipe;
 use App\Slate\Run\RunStillClip;
+use App\Slate\Run\RunVideoClip;
 use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectKey;
@@ -130,6 +135,79 @@ function configureExecutorPolicy(): void
     ]);
     config()->set('slate.execution.measured_realtime_rates.delivery', 0.389);
 }
+
+test('plans one padded coarse cut job per source before precise per clip fan out', function (): void {
+    configureExecutorPolicy();
+    $runId = '51515151-5151-4151-8151-515151515151';
+    $firstSource = RunObjectKeys::input($runId, 0, 'first.mp4');
+    $secondSource = RunObjectKeys::input($runId, 1, 'second.mp4');
+    $run = Run::createWithRecipe($runId, new RunRecipe([
+        new RunVideoClip($firstSource, 10.0, 20.0),
+        new RunVideoClip($firstSource, 30.0, 36.0),
+        new RunVideoClip($secondSource, 2.0, 7.0),
+    ]));
+
+    $plan = resolve(RunExecutor::class)->plan($run);
+    $coarse = array_values(array_filter(
+        $plan->operations,
+        static fn (object $operation): bool => $operation instanceof CoarseCutSource,
+    ));
+    $precise = array_values(array_filter(
+        $plan->operations,
+        static fn (object $operation): bool => $operation instanceof PreciseVideoClip,
+    ));
+
+    expect($plan->strategy)->toBe(ExecutorStrategy::VideoClipFanout)
+        ->and($coarse)->toHaveCount(2)
+        ->and($coarse[0]->source->value())->toBe($firstSource->value())
+        ->and($coarse[0]->ranges)->toHaveCount(2)
+        ->and($coarse[1]->source->value())->toBe($secondSource->value())
+        ->and($coarse[1]->ranges)->toHaveCount(1)
+        ->and($precise)->toHaveCount(3)
+        ->and($precise[0]->startMicroseconds)->toBe(5_000_000)
+        ->and($precise[1]->startMicroseconds)->toBe(5_000_000)
+        ->and($precise[2]->startMicroseconds)->toBe(2_000_000)
+        ->and(array_map(
+            static fn (ObjectKey $key): string => $key->value(),
+            $plan->intermediateObjectKeys(),
+        ))->toBe([
+            RunObjectKeys::coarseClip($runId, 0)->value(),
+            RunObjectKeys::coarseClip($runId, 1)->value(),
+            RunObjectKeys::coarseClip($runId, 2)->value(),
+        ]);
+});
+
+test('dispatches exactly one coarse cut queue job for each distinct source', function (): void {
+    configureExecutorPolicy();
+    Bus::fake();
+    $runId = '52525252-5252-4252-8252-525252525252';
+    $firstSource = RunObjectKeys::input($runId, 0, 'first.mp4');
+    $secondSource = RunObjectKeys::input($runId, 1, 'second.mp4');
+    $run = Run::createWithRecipe($runId, new RunRecipe([
+        new RunVideoClip($firstSource, 10.0, 20.0),
+        new RunVideoClip($firstSource, 30.0, 36.0),
+        new RunVideoClip($secondSource, 2.0, 7.0),
+    ]));
+
+    resolve(RunExecutor::class)->execute($run);
+
+    $then = null;
+    Bus::assertBatched(function (PendingBatch $batch) use (&$then): bool {
+        if (! $batch->jobs->every(static fn (object $job): bool => $job instanceof CoarseCutVideoSource)) {
+            return false;
+        }
+
+        $then = $batch->thenCallbacks()[0] ?? null;
+
+        return $batch->jobs->count() === 2 && count($batch->catchCallbacks()) === 1;
+    });
+    expect($then)->toBeCallable();
+    $then(Mockery::mock(Batch::class));
+    Bus::assertBatched(fn (PendingBatch $batch): bool => $batch->jobs->count() === 3
+        && $batch->jobs->every(static fn (object $job): bool => $job instanceof RenderVideoClip)
+        && count($batch->finallyCallbacks()) === 1);
+    expect($run->fresh()->status)->toBe(RunStatus::Running);
+});
 
 test('executes an over budget operation as bucket-backed silent slices then copy concats and muxes audio once', function (): void {
     configureExecutorPolicy();

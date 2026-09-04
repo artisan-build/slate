@@ -19,6 +19,7 @@ use App\Slate\Recipe\Video\OverlayFadeIn;
 use App\Slate\Recipe\Video\OverlayImage;
 use App\Slate\Recipe\Video\SlateVideo;
 use App\Slate\Recipe\Video\StillMotion;
+use App\Slate\Recipe\Video\VideoClip;
 use App\Slate\Recipe\Video\VideoColor;
 use App\Slate\Recipe\Video\VideoConcat;
 use App\Slate\Recipe\Video\VideoConcatMode;
@@ -107,6 +108,19 @@ test('renders every video operation and emitted filter through the pinned ffmpeg
         );
         $firstVideo = SlateVideo::render($first, $compiler, $driver);
         $secondVideo = SlateVideo::render($second, $compiler, $driver);
+        $coarseClip = $scratch->file('coarse-clip.mp4');
+        runPinnedVideoOperation(VideoClip::coarse(
+            $firstVideo->path,
+            100_000,
+            800_000,
+            $firstVideo->durationSeconds,
+            $coarseClip,
+        ), $compiler, $driver);
+        $preciseClip = SlateVideo::render(
+            VideoClip::precise($coarseClip, 100_000, 700_000, $scratch->file('precise-clip.mp4')),
+            $compiler,
+            $driver,
+        );
 
         $overlay = new OverlayImage(
             $firstVideo, $badge, $scratch->file('overlay.mp4'), 20, 40,
@@ -152,6 +166,10 @@ test('renders every video operation and emitted filter through the pinned ffmpeg
             ->and($hardCutAudioVideo->durationSeconds)->toBeLessThan(1.85)
             ->and($copiedVideo->durationSeconds)->toBeGreaterThan(1.9)
             ->and($copiedVideo->durationSeconds)->toBeLessThan(2.2)
+            ->and($preciseClip->width)->toBe(1536)
+            ->and($preciseClip->height)->toBe(1024)
+            ->and($preciseClip->durationSeconds)->toBeGreaterThan(0.65)
+            ->and($preciseClip->durationSeconds)->toBeLessThan(0.85)
             ->and($thumbnailStream)->toBeArray()
             ->and(data_get($thumbnailStream, 'codec_name'))->toBe('mjpeg')
             ->and(data_get($thumbnailStream, 'width'))->toBe(1536)

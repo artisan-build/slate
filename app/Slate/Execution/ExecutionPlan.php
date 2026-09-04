@@ -37,7 +37,17 @@ final readonly class ExecutionPlan
         $keys = [];
 
         foreach ($this->operations as $operation) {
-            if ($operation instanceof RenderSilentSubClip || $operation instanceof CopyConcatSubClips) {
+            if ($operation instanceof RenderSilentSubClip
+                || $operation instanceof CopyConcatSubClips
+                || $operation instanceof CoarseCutSource) {
+                if ($operation instanceof CoarseCutSource) {
+                    foreach ($operation->ranges as $range) {
+                        $keys[$range->output->value()] = $range->output;
+                    }
+
+                    continue;
+                }
+
                 $keys[$operation->outputKey()->value()] = $operation->outputKey();
             }
         }
@@ -51,7 +61,9 @@ final readonly class ExecutionPlan
         $keys = [];
 
         foreach ($this->operations as $operation) {
-            if ($operation instanceof WholeOperation || $operation instanceof MuxOperationAudio) {
+            if ($operation instanceof WholeOperation
+                || $operation instanceof MuxOperationAudio
+                || $operation instanceof PreciseVideoClip) {
                 $keys[$operation->outputKey()->value()] = $operation->outputKey();
             }
         }

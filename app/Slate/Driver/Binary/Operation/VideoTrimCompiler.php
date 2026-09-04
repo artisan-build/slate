@@ -41,11 +41,9 @@ final readonly class VideoTrimCompiler implements CompilesOperation
             CompiledArgument::option(CompiledOption::Seek),
             $seek,
             CompiledInput::ffmpeg($operation->input->path),
-            CompiledArgument::option(CompiledOption::Duration),
-            CompiledArgument::seconds($operation->durationSeconds()),
             CompiledArgument::option(CompiledOption::VideoFrames),
             CompiledArgument::unsignedInteger($operation->frameCount),
-            CompiledOutput::copiedVideo($operation->output),
+            CompiledOutput::copiedVideo($operation->output, $operation->durationSeconds()),
         ]);
     }
 }

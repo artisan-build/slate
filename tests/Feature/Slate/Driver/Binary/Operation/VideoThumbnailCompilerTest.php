@@ -28,8 +28,10 @@ test('compiles a poster frame only from a typed Slate output', function (): void
             ->command();
 
         expect($command)->toBe([
-            '/runtime/ffmpeg/bin/ffmpeg', '-y', '-ss', '0', '-i', $sourcePath->readablePath(),
-            '-frames:v', '1', '-c:v', 'mjpeg', '-f', 'image2', $output->writablePath(),
+            '/runtime/ffmpeg/bin/ffmpeg', ...ffmpegInvocationHardeningArguments(),
+            '-y', '-ss', '0', ...ffmpegFileInputHardeningArguments(), '-i', $sourcePath->readablePath(),
+            '-frames:v', '1', ...ffmpegOutputHardeningArguments(),
+            '-c:v', 'mjpeg', '-f', 'image2', $output->writablePath(),
         ]);
     });
 });

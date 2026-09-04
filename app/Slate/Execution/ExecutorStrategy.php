@@ -7,4 +7,5 @@ enum ExecutorStrategy: string
     case SingleJob = 'single_job';
     case Fanout = 'fanout';
     case SubOperationSplit = 'sub_operation_split';
+    case VideoClipFanout = 'video_clip_fanout';
 }
