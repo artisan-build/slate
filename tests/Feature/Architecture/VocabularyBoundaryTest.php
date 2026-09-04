@@ -97,6 +97,26 @@ test('keeps the legacy filter exception list empty', function (): void {
     expect(legacyFfmpegBoundaryExceptions())->toBe([]);
 });
 
+test('keeps literal visibility window numbers out of application source', function (): void {
+    expect(visibilityWindowNumberLocations(base_path('app')))->toBe([]);
+});
+
+test('recursive visibility scan catches a nested rogue window number', function (): void {
+    expect(visibilityWindowNumberLocations(base_path('tests/Fixtures/Boundary/Policy')))->toBe([
+        'Deeply/Nested/RogueVisibilityWindow.php',
+    ]);
+});
+
+test('keeps bare timeout constants out of queued application jobs', function (): void {
+    expect(bareQueuedJobTimeoutLocations(base_path('app/Jobs')))->toBe([]);
+});
+
+test('recursive queued job scan catches a nested rogue bare timeout', function (): void {
+    expect(bareQueuedJobTimeoutLocations(base_path('tests/Fixtures/Boundary/Queue')))->toBe([
+        'Deeply/Nested/RogueBareTimeoutJob.php',
+    ]);
+});
+
 /**
  * Provisioning and diagnostics still name the binary. New binary authority above Slate/Driver changes
  * this map and fails the test.

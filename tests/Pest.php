@@ -803,3 +803,65 @@ function queuedJobKnownCompiledVocabularyViolations(object $job): array
 
     return $violations;
 }
+
+/**
+ * Finds direct numeric defaults assigned to identifiers that explicitly name a visibility window.
+ *
+ * This source scan does not resolve aliases, computed values, or dynamically assembled identifiers.
+ * It prevents a second literal window authority; QueueRuntimePolicy's runtime resolution and tests
+ * cover configuration-derived values that this deliberately narrow scan cannot interpret.
+ *
+ * @return list<string>
+ */
+function visibilityWindowNumberLocations(string $root): array
+{
+    return sourcePatternLocations(
+        $root,
+        '/\bvisibility(?:Window|_window|Timeout|_timeout)(?:Seconds|_seconds)?\b[^\r\n;=]*=\s*\d+\b/i',
+    );
+}
+
+/**
+ * Finds ShouldQueue classes with a timeout property initialized directly to a numeric literal.
+ *
+ * This source scan recognizes an explicit `implements ShouldQueue` declaration and a conventional
+ * public timeout property. It does not resolve interface aliases, inherited queue contracts, traits,
+ * or computed defaults; runtime policy tests separately prove the current jobs' derived values.
+ *
+ * @return list<string>
+ */
+function bareQueuedJobTimeoutLocations(string $root): array
+{
+    $locations = [];
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
+        $root,
+        FilesystemIterator::SKIP_DOTS,
+    ));
+
+    foreach ($iterator as $file) {
+        if (! $file->isFile() || $file->getExtension() !== 'php') {
+            continue;
+        }
+
+        $contents = file_get_contents($file->getPathname());
+
+        if (! is_string($contents)) {
+            throw new RuntimeException("Unable to scan source file: {$file->getPathname()}");
+        }
+
+        if (preg_match('/\bimplements\s+(?:[^\r\n{,]+,\s*)*ShouldQueue\b/', $contents) !== 1
+            || preg_match('/\bpublic\s+(?:\??int\s+)?\$timeout\s*=\s*\d+\s*;/', $contents) !== 1) {
+            continue;
+        }
+
+        $locations[] = str_replace(
+            DIRECTORY_SEPARATOR,
+            '/',
+            substr($file->getPathname(), strlen($root) + 1),
+        );
+    }
+
+    sort($locations);
+
+    return $locations;
+}

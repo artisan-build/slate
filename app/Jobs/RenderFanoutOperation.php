@@ -6,6 +6,7 @@ namespace App\Jobs;
 
 use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\Driver;
+use App\Slate\Execution\QueueRuntimePolicy;
 use App\Slate\Fanout\BucketOperation;
 use App\Slate\Fanout\FanoutReceipt;
 use App\Slate\Fanout\FanoutRunId;
@@ -27,7 +28,7 @@ final class RenderFanoutOperation implements ShouldQueue
 
     public int $tries = 3;
 
-    public int $timeout = 60;
+    public int $timeout;
 
     /** @var list<int> */
     public array $backoff = [1, 5];
@@ -35,7 +36,13 @@ final class RenderFanoutOperation implements ShouldQueue
     public function __construct(
         public FanoutRunId $runId,
         public BucketOperation $operation,
-    ) {}
+    ) {
+        $settings = resolve(QueueRuntimePolicy::class)->forQueue(
+            (string) config('slate.execution.render_queue'),
+        );
+        $this->timeout = $settings->jobTimeoutSeconds;
+        $this->onQueue($settings->queue);
+    }
 
     /** @return list<SkipIfBatchCancelled> */
     public function middleware(): array

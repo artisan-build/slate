@@ -27,7 +27,7 @@ test('runs both strategies through the identical harness and verifies their rend
         ->and(data_get($result, 'workload.strategy'))->toBe('both')
         ->and(data_get($result, 'workload.hybrid_quality_tier'))->toBe('intermediate')
         ->and(data_get($result, 'workload.intermediate_quality_tier'))->toBe('intermediate')
-        ->and(data_get($result, 'workload.production_operation_timeout_seconds'))->toBe(170)
+        ->and(data_get($result, 'workload.production_operation_timeout_seconds'))->toBe(160)
         ->and(data_get($result, 'workload.instrument_operation_timeout_seconds'))->toBe(600)
         ->and(data_get($result, 'workload.caption_word_count'))->toBeGreaterThan(0)
         ->and(data_get($result, 'captions.compiled_drawtext_count'))->toBe(data_get($result, 'workload.caption_word_count'))
