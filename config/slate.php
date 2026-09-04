@@ -45,6 +45,14 @@ return [
         'scratch_path' => storage_path('app/slate-jobs'),
         'allow_host_local_fanout' => env('SLATE_ALLOW_HOST_LOCAL_FANOUT', false),
     ],
+    'api' => [
+        'result_url_ttl_seconds' => 15 * 60,
+        'webhook_connect_timeout_seconds' => 3,
+        'webhook_timeout_seconds' => 10,
+        // Ten workers times ten fair-share waves bounds one run to 100 queued execution jobs.
+        'worker_ceiling' => 10,
+        'maximum_queue_waves_per_run' => 10,
+    ],
     'ingest' => [
         'part_size_bytes' => 8 * 1024 * 1024,
         'maximum_source_bytes' => 8 * 1024 * 1024 * 1024,

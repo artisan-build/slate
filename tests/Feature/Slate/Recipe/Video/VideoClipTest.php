@@ -9,6 +9,8 @@ use App\Slate\Input\InputRejectionReason;
 use App\Slate\Run\RunRecipe;
 use App\Slate\Run\RunVideoClip;
 use App\Slate\Storage\RunObjectKeys;
+use ArtisanBuild\BuiltForCloud\Subject;
+use ArtisanBuild\BuiltForCloud\SubjectType;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Tests\TestCase;
 
@@ -22,7 +24,12 @@ final class VideoClipTest extends TestCase
         $source = RunObjectKeys::input($runId, 0, 'source.mp4');
         $recipe = new RunRecipe([new RunVideoClip($source, 12.5, 19.75)]);
 
-        $run = Run::createWithRecipe($runId, $recipe, RunTrust::TrustedOrigin)->fresh();
+        $run = Run::createWithRecipe(
+            $runId,
+            $recipe,
+            new Subject(SubjectType::Application, 'video-clip-tests'),
+            RunTrust::TrustedOrigin,
+        )->fresh();
 
         self::assertNotNull($run);
         self::assertSame(RunTrust::TrustedOrigin, $run->trust);

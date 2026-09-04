@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Slate\Storage;
 
+use DateTimeInterface;
+
 /**
  * Stages objects between durable bucket storage and one job's local scratch directory.
  *
@@ -19,6 +21,8 @@ interface ObjectStorage
     public function exists(ObjectKey $objectKey): bool;
 
     public function delete(ObjectKey $objectKey): void;
+
+    public function temporaryUrl(ObjectKey $objectKey, DateTimeInterface $expiration): string;
 
     /** @return list<ObjectKey> */
     public function keysWithinPrefix(string $prefix): array;

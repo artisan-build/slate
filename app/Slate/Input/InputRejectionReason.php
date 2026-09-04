@@ -17,4 +17,7 @@ enum InputRejectionReason: string
     case FrameRateExceeded = 'frame_rate_exceeded';
     case VideoStreamMissing = 'video_stream_missing';
     case ClipRangeInvalid = 'clip_range_invalid';
+    case OperationCountExceeded = 'operation_count_exceeded';
+    case TotalOutputDurationExceeded = 'total_output_duration_exceeded';
+    case RenderJobCountExceeded = 'render_job_count_exceeded';
 }

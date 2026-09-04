@@ -10,6 +10,8 @@ use App\Slate\Run\RunRecipe;
 use App\Slate\Run\RunStillClip;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\RunObjectKeys;
+use ArtisanBuild\BuiltForCloud\Subject;
+use ArtisanBuild\BuiltForCloud\SubjectType;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -52,10 +54,15 @@ function persistedRunRecipe(string $runId): RunRecipe
     ]);
 }
 
+function persistedRunOwner(): Subject
+{
+    return new Subject(SubjectType::Application, 'run-model-tests');
+}
+
 test('persists and round trips an equal typed recipe without compiled command vocabulary', function (): void {
     $runId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
     $recipe = persistedRunRecipe($runId);
-    $run = Run::createWithRecipe($runId, $recipe);
+    $run = Run::createWithRecipe($runId, $recipe, persistedRunOwner());
 
     $storedRecipe = DB::table('runs')->where('id', $run->id)->value('recipe');
     $reloaded = Run::query()->findOrFail($run->id);
@@ -72,7 +79,7 @@ test('rejects foreign object keys at the only typed recipe creation seam', funct
     $runId = '19191919-1919-4919-8919-191919191919';
     $foreignRunId = '20202020-2020-4020-8020-202020202020';
 
-    expect(fn () => Run::createWithRecipe($runId, persistedRunRecipe($foreignRunId)))
+    expect(fn () => Run::createWithRecipe($runId, persistedRunRecipe($foreignRunId), persistedRunOwner()))
         ->toThrow(InvalidArgumentException::class, 'Object key must remain within the caller prefix');
 
     expect(DB::table('runs')->where('id', $runId)->exists())->toBeFalse();
@@ -81,7 +88,7 @@ test('rejects foreign object keys at the only typed recipe creation seam', funct
 test('rejects ordinary recipe assignment on a persisted run', function (): void {
     $runId = '22222222-2222-4222-8222-222222222224';
     $recipe = persistedRunRecipe($runId);
-    $run = Run::createWithRecipe($runId, $recipe);
+    $run = Run::createWithRecipe($runId, $recipe, persistedRunOwner());
     $shrunkenRecipe = new RunRecipe([$recipe->operations[0]]);
 
     expect(function () use ($run, $shrunkenRecipe): void {
@@ -95,7 +102,7 @@ test('rejects ordinary recipe assignment on a persisted run', function (): void 
 test('rejects force-filled recipe assignment on a persisted run', function (): void {
     $runId = '28282828-2828-4828-8828-282828282828';
     $recipe = persistedRunRecipe($runId);
-    $run = Run::createWithRecipe($runId, $recipe);
+    $run = Run::createWithRecipe($runId, $recipe, persistedRunOwner());
     $shrunkenRecipe = new RunRecipe([$recipe->operations[0]]);
 
     expect(fn () => $run->forceFill(['recipe' => $shrunkenRecipe->toJson()])->save())
@@ -154,6 +161,8 @@ test('creates a valid run when unguarded attributes provide recipe before id', f
     $run = Model::unguarded(fn (): Run => new Run([
         'recipe' => $recipe->toJson(),
         'id' => $runId,
+        'owner_subject_type' => SubjectType::Application,
+        'owner_subject_ref' => 'run-model-tests',
     ]));
 
     $run->save();
@@ -182,6 +191,8 @@ test('hydrates a typed recipe after database JSON key reordering', function (): 
     DB::table('runs')->insert([
         'id' => $runId,
         'recipe' => json_encode($payload, JSON_THROW_ON_ERROR),
+        'owner_subject_type' => SubjectType::Application->value,
+        'owner_subject_ref' => 'run-model-tests',
         'status' => RunStatus::Queued->value,
         'created_at' => now(),
         'updated_at' => now(),

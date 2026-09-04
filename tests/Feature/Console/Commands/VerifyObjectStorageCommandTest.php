@@ -4,6 +4,7 @@ use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\ScratchPath;
 use Aws\S3\S3Client;
+use DateTimeInterface;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Process;
@@ -161,6 +162,11 @@ test('reports a content mismatch and still deletes the verification object', fun
         public function delete(ObjectKey $objectKey): void
         {
             Storage::disk()->delete($objectKey->value());
+        }
+
+        public function temporaryUrl(ObjectKey $objectKey, DateTimeInterface $expiration): string
+        {
+            return 'https://bucket.example/temporary';
         }
 
         public function keysWithinPrefix(string $prefix): array

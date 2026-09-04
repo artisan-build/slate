@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Slate\Storage;
 
+use DateTimeInterface;
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Filesystem\FilesystemAdapter;
 use RuntimeException;
 use Throwable;
 
@@ -101,6 +103,15 @@ final readonly class S3ObjectStorage implements ObjectStorage
         } catch (Throwable $exception) {
             throw new RuntimeException("Unable to delete object: {$objectKey->value()}", previous: $exception);
         }
+    }
+
+    public function temporaryUrl(ObjectKey $objectKey, DateTimeInterface $expiration): string
+    {
+        if (! $this->filesystem instanceof FilesystemAdapter) {
+            throw new RuntimeException('Temporary object URLs require a Laravel filesystem adapter.');
+        }
+
+        return $this->filesystem->temporaryUrl($objectKey->value(), $expiration);
     }
 
     public function keysWithinPrefix(string $prefix): array

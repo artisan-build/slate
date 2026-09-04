@@ -5,6 +5,7 @@ use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\S3ObjectStorage;
 use App\Slate\Storage\ScratchDirectory;
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Process;
 
 /**
@@ -152,4 +153,18 @@ test('reports a refused object deletion', function (): void {
 
     expect(fn () => (new S3ObjectStorage($filesystem))->delete($objectKey))
         ->toThrow(RuntimeException::class, 'Unable to delete object');
+});
+
+test('returns a temporary object URL from the configured filesystem adapter', function (): void {
+    $objectKey = ObjectKey::withinPrefix('customers/customer-123', 'customers/customer-123/output.mp4');
+    $expiration = now()->addMinutes(15);
+    $filesystem = Mockery::mock(FilesystemAdapter::class);
+    $filesystem->shouldReceive('temporaryUrl')
+        ->once()
+        ->with($objectKey->value(), $expiration)
+        ->andReturn('https://bucket.example.test/output.mp4?signature=signed');
+
+    $url = (new S3ObjectStorage($filesystem))->temporaryUrl($objectKey, $expiration);
+
+    expect($url)->toBe('https://bucket.example.test/output.mp4?signature=signed');
 });
