@@ -17,6 +17,8 @@ use App\Slate\Execution\ExecutorStrategy;
 use App\Slate\Execution\MuxOperationAudio;
 use App\Slate\Execution\RenderSilentSubClip;
 use App\Slate\Execution\RunExecutor;
+use App\Slate\Execution\SkipIfBatchUnavailable;
+use App\Slate\Execution\WholeOperation;
 use App\Slate\Recipe\Audio\AudioBitrate;
 use App\Slate\Recipe\QualityTier;
 use App\Slate\Recipe\Video\VideoColor;
@@ -29,10 +31,11 @@ use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\RunObjectKeys;
+use Carbon\CarbonImmutable;
 use Illuminate\Bus\Batch;
 use Illuminate\Bus\PendingBatch;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
-use Illuminate\Queue\Middleware\SkipIfBatchCancelled;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -115,10 +118,7 @@ function executorRecipeOperation(string $runId, int $operationIndex, int $durati
 /** @param non-empty-list<RunStillClip> $operations */
 function executorRun(array $operations, string $runId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'): Run
 {
-    return Run::factory()->create([
-        'id' => $runId,
-        'recipe' => new RunRecipe($operations),
-    ]);
+    return Run::createWithRecipe($runId, new RunRecipe($operations));
 }
 
 function configureExecutorPolicy(): void
@@ -282,6 +282,74 @@ test('does not dispatch a run whose running transition is a redelivery no op', f
     Bus::assertBatchCount(0);
 });
 
+test('executes the persisted recipe when in-memory raw state differs before transition', function (): void {
+    configureExecutorPolicy();
+    Bus::fake();
+    $runId = '23232323-2323-4323-8323-232323232323';
+    $foreignRunId = '24242424-2424-4424-8424-242424242424';
+    $original = executorRecipeOperation($runId, 0, 30_000_000);
+    $run = executorRun([$original], $runId);
+    $attributes = $run->getAttributes();
+    $attributes['recipe'] = (new RunRecipe([
+        executorRecipeOperation($foreignRunId, 0, 30_000_000),
+    ]))->toJson();
+    $run->setRawAttributes($attributes);
+
+    resolve(RunExecutor::class)->execute($run);
+
+    Bus::assertChained([
+        static fn (RenderRunOperation $job): bool => $job->operation->recipeOperation->image->value()
+            === $original->image->value(),
+        CompleteRun::class,
+    ]);
+});
+
+test('failure cleanup does not delete outputs when the failure transition resolves to succeeded', function (): void {
+    configureExecutorPolicy();
+    Storage::fake();
+    config()->set('slate.storage.allow_host_local_fanout', true);
+    $runId = '31313131-3131-4131-8131-313131313131';
+    $run = executorRun([executorRecipeOperation($runId, 0, 30_000_000)], $runId);
+    $run->transitionTo(RunStatus::Running);
+    $output = RunObjectKeys::operationOutput($runId, 0);
+    Storage::disk()->put($output->value(), 'completed output');
+    Run::saving(static function (Run $saving): void {
+        if ($saving->status === RunStatus::Failed) {
+            $saving->status = RunStatus::Succeeded;
+        }
+    });
+
+    resolve(RunFailure::class)->handle($runId);
+
+    expect($run->fresh()->status)->toBe(RunStatus::Succeeded)
+        ->and(Storage::disk()->get($output->value()))->toBe('completed output');
+});
+
+test('completion preserves every output from the create-only recipe', function (): void {
+    configureExecutorPolicy();
+    Storage::fake();
+    config()->set('slate.storage.allow_host_local_fanout', true);
+    $runId = '27272727-2727-4727-8727-272727272727';
+    $run = executorRun([
+        executorRecipeOperation($runId, 0, 30_000_000),
+        executorRecipeOperation($runId, 1, 20_000_000),
+    ], $runId);
+    $run->transitionTo(RunStatus::Running);
+    $prefix = RunObjectKeys::prefix($runId);
+    $firstOutput = RunObjectKeys::operationOutput($runId, 0);
+    $secondOutput = RunObjectKeys::operationOutput($runId, 1);
+    Storage::disk()->put($firstOutput->value(), 'first');
+    Storage::disk()->put($secondOutput->value(), 'second');
+    Storage::disk()->put($prefix.'/work/intermediate.mp4', 'work');
+
+    (new CompleteRun($runId))->handle(resolve(RunCleanup::class));
+
+    expect($run->fresh()->status)->toBe(RunStatus::Succeeded)
+        ->and(Storage::disk()->get($firstOutput->value()))->toBe('first')
+        ->and(Storage::disk()->get($secondOutput->value()))->toBe('second')
+        ->and(Storage::disk()->exists($prefix.'/work/intermediate.mp4'))->toBeFalse();
+});
+
 test('marks a run failed when synchronous queue dispatch throws', function (): void {
     configureExecutorPolicy();
     Storage::fake();
@@ -309,7 +377,7 @@ test('selects and dispatches fanout behind a persisted multi operation run', fun
 
     Bus::assertBatched(fn (PendingBatch $batch): bool => $batch->jobs->count() === 2
         && $batch->jobs->every(static fn (object $job): bool => $job instanceof RenderRunOperation
-            && $job->middleware()[0] instanceof SkipIfBatchCancelled)
+            && $job->middleware()[0] instanceof SkipIfBatchUnavailable)
         && count($batch->finallyCallbacks()) === 1);
     expect(resolve(RunExecutor::class)->plan($run)->strategy)->toBe(ExecutorStrategy::Fanout)
         ->and((new ReflectionMethod(RunExecutor::class, 'selectStrategy'))->isPrivate())->toBeTrue();
@@ -353,6 +421,110 @@ test('defers failed fanout cleanup until the batch has settled', function (): vo
         ->and(Storage::disk()->allFiles($prefix))->toBe([]);
 });
 
+test('moves a run to durable failure when completion dispatch fails in a successful batch callback', function (): void {
+    configureExecutorPolicy();
+    Storage::fake();
+    config()->set('slate.storage.allow_host_local_fanout', true);
+    Bus::fake();
+    $runId = '25252525-2525-4525-8525-252525252525';
+    $run = executorRun([
+        executorRecipeOperation($runId, 0, 30_000_000),
+        executorRecipeOperation($runId, 1, 20_000_000),
+    ], $runId);
+    $prefix = RunObjectKeys::prefix($runId);
+    Storage::disk()->put($prefix.'/work/pending-cleanup.mp4', 'partial');
+    resolve(RunExecutor::class)->execute($run);
+    $finally = null;
+    Bus::assertBatched(function (PendingBatch $pendingBatch) use (&$finally): bool {
+        $finally = $pendingBatch->finallyCallbacks()[0];
+
+        return true;
+    });
+    Bus::shouldReceive('dispatch')->once()->andThrow(new RuntimeException('completion queue unavailable'));
+    $settledBatch = Mockery::mock(Batch::class);
+    $settledBatch->shouldReceive('hasFailures')->once()->andReturnFalse();
+
+    $finally($settledBatch);
+
+    expect($run->fresh()->status)->toBe(RunStatus::Failed)
+        ->and(Storage::disk()->allFiles($prefix))->toBe([]);
+});
+
+test('reports completion dispatch failure before containing failure cleanup errors', function (): void {
+    configureExecutorPolicy();
+    Storage::fake();
+    config()->set('slate.storage.allow_host_local_fanout', false);
+    Bus::fake();
+    $runId = '32323232-3232-4232-8232-323232323232';
+    $run = executorRun([
+        executorRecipeOperation($runId, 0, 30_000_000),
+        executorRecipeOperation($runId, 1, 20_000_000),
+    ], $runId);
+    resolve(RunExecutor::class)->execute($run);
+    $finally = null;
+    Bus::assertBatched(function (PendingBatch $pendingBatch) use (&$finally): bool {
+        $finally = $pendingBatch->finallyCallbacks()[0];
+
+        return true;
+    });
+    $dispatchFailure = new RuntimeException('completion queue unavailable');
+    Bus::shouldReceive('dispatch')->once()->andThrow($dispatchFailure);
+    $handler = Mockery::mock(ExceptionHandler::class);
+    $handler->shouldReceive('report')->once()->with($dispatchFailure)->ordered();
+    $handler->shouldReceive('report')->once()->with(Mockery::on(
+        static fn (Throwable $exception): bool => str_contains($exception->getMessage(), 'requires an S3-backed'),
+    ))->ordered();
+    app()->instance(ExceptionHandler::class, $handler);
+    $settledBatch = Mockery::mock(Batch::class);
+    $settledBatch->shouldReceive('hasFailures')->once()->andReturnFalse();
+
+    $finally($settledBatch);
+
+    expect($run->fresh()->status)->toBe(RunStatus::Failed);
+});
+
+test('skips an SQS accepted batch member after partial bulk failure deletes its batch record', function (): void {
+    configureExecutorPolicy();
+    $runId = '26262626-2626-4626-8626-262626262626';
+    $run = executorRun([executorRecipeOperation($runId, 0, 30_000_000)], $runId);
+    $operation = resolve(RunExecutor::class)->plan($run)->operations[0];
+    expect($operation)->toBeInstanceOf(WholeOperation::class);
+    $job = (new RenderRunOperation($runId, $operation))->withBatchId('deleted-batch-id');
+    $handled = false;
+
+    (new SkipIfBatchUnavailable)->handle($job, function () use (&$handled): void {
+        $handled = true;
+    });
+
+    expect($job->batch())->toBeNull()
+        ->and($handled)->toBeFalse();
+});
+
+test('batch middleware runs jobs without a batch id and skips cancelled batches', function (): void {
+    configureExecutorPolicy();
+    $runId = '33333333-3333-4333-8333-333333333334';
+    $run = executorRun([executorRecipeOperation($runId, 0, 30_000_000)], $runId);
+    $operation = resolve(RunExecutor::class)->plan($run)->operations[0];
+    expect($operation)->toBeInstanceOf(WholeOperation::class);
+    $middleware = new SkipIfBatchUnavailable;
+    $unbatchedHandled = false;
+    $unbatched = new RenderRunOperation($runId, $operation);
+    $middleware->handle($unbatched, function () use (&$unbatchedHandled): void {
+        $unbatchedHandled = true;
+    });
+    [$cancelled] = (new RenderRunOperation($runId, $operation))->withFakeBatch(
+        cancelledAt: CarbonImmutable::now(),
+    );
+    $cancelledHandled = false;
+    $middleware->handle($cancelled, function () use (&$cancelledHandled): void {
+        $cancelledHandled = true;
+    });
+
+    expect($unbatched->batchId)->toBeNull()
+        ->and($unbatchedHandled)->toBeTrue()
+        ->and($cancelledHandled)->toBeFalse();
+});
+
 test('dispatches executable sub clip jobs and finalization behind a split run', function (): void {
     configureExecutorPolicy();
     Bus::fake();
@@ -375,7 +547,7 @@ test('rejects a non persisted run at the planning boundary', function (): void {
     $runId = '13131313-1313-4313-8313-131313131313';
     $run = Run::factory()->make([
         'id' => $runId,
-        'recipe' => new RunRecipe([executorRecipeOperation($runId, 0, 30_000_000)]),
+        'recipe' => (new RunRecipe([executorRecipeOperation($runId, 0, 30_000_000)]))->toJson(),
     ]);
 
     expect(fn () => resolve(RunExecutor::class)->plan($run))

@@ -15,11 +15,10 @@ final readonly class RunFailure
     {
         $run = Run::query()->findOrFail($runId);
 
-        if ($run->status === RunStatus::Succeeded) {
-            return;
-        }
-
         $run->transitionTo(RunStatus::Failed);
-        $this->cleanup->allObjects($run);
+
+        if ($run->status === RunStatus::Failed) {
+            $this->cleanup->allObjects($run);
+        }
     }
 }

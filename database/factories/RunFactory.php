@@ -32,7 +32,7 @@ class RunFactory extends Factory
 
         return [
             'id' => $id,
-            'recipe' => new RunRecipe([
+            'recipe' => (new RunRecipe([
                 new RunStillClip(
                     ObjectKey::withinPrefix($prefix, $prefix.'/inputs/0000/image.ppm'),
                     ObjectKey::withinPrefix($prefix, $prefix.'/inputs/0000/audio.mp3'),
@@ -46,7 +46,7 @@ class RunFactory extends Factory
                     QualityTier::Delivery,
                     AudioBitrate::Kbps192,
                 ),
-            ]),
+            ]))->toJson(),
             'status' => RunStatus::Queued,
         ];
     }

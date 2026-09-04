@@ -7,6 +7,7 @@ namespace App\Jobs;
 use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\Driver;
 use App\Slate\Execution\QueueRuntimePolicy;
+use App\Slate\Execution\SkipIfBatchUnavailable;
 use App\Slate\Fanout\BucketOperation;
 use App\Slate\Fanout\FanoutReceipt;
 use App\Slate\Fanout\FanoutRunId;
@@ -19,7 +20,6 @@ use App\Slate\Storage\ScratchDirectory;
 use Illuminate\Bus\Batchable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use Illuminate\Queue\Middleware\SkipIfBatchCancelled;
 use RuntimeException;
 
 final class RenderFanoutOperation implements ShouldQueue
@@ -44,10 +44,10 @@ final class RenderFanoutOperation implements ShouldQueue
         $this->onQueue($settings->queue);
     }
 
-    /** @return list<SkipIfBatchCancelled> */
+    /** @return list<SkipIfBatchUnavailable> */
     public function middleware(): array
     {
-        return [new SkipIfBatchCancelled];
+        return [new SkipIfBatchUnavailable];
     }
 
     public function handle(

@@ -10,6 +10,7 @@ use App\Slate\Run\RunRecipe;
 use App\Slate\Run\RunStillClip;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\RunObjectKeys;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -54,29 +55,120 @@ function persistedRunRecipe(string $runId): RunRecipe
 test('persists and round trips an equal typed recipe without compiled command vocabulary', function (): void {
     $runId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
     $recipe = persistedRunRecipe($runId);
-    $run = Run::factory()->create(['id' => $runId, 'recipe' => $recipe]);
+    $run = Run::createWithRecipe($runId, $recipe);
 
     $storedRecipe = DB::table('runs')->where('id', $run->id)->value('recipe');
     $reloaded = Run::query()->findOrFail($run->id);
     expect($storedRecipe)->toBeString();
     $decoded = json_decode($storedRecipe, true, flags: JSON_THROW_ON_ERROR);
 
-    expect($reloaded->recipe->toArray())->toBe($recipe->toArray())
+    expect($reloaded->recipe()->toArray())->toBe($recipe->toArray())
         ->and($reloaded->status)->toBe(RunStatus::Queued)
         ->and($decoded)->toBe($recipe->toArray())
         ->and(knownCompiledVocabularyViolations($decoded))->toBe([]);
 });
 
-test('rejects foreign object keys before saving a run', function (): void {
+test('rejects foreign object keys at the only typed recipe creation seam', function (): void {
     $runId = '19191919-1919-4919-8919-191919191919';
     $foreignRunId = '20202020-2020-4020-8020-202020202020';
 
+    expect(fn () => Run::createWithRecipe($runId, persistedRunRecipe($foreignRunId)))
+        ->toThrow(InvalidArgumentException::class, 'Object key must remain within the caller prefix');
+
+    expect(DB::table('runs')->where('id', $runId)->exists())->toBeFalse();
+});
+
+test('rejects ordinary recipe assignment on a persisted run', function (): void {
+    $runId = '22222222-2222-4222-8222-222222222224';
+    $recipe = persistedRunRecipe($runId);
+    $run = Run::createWithRecipe($runId, $recipe);
+    $shrunkenRecipe = new RunRecipe([$recipe->operations[0]]);
+
+    expect(function () use ($run, $shrunkenRecipe): void {
+        $run->recipe = $shrunkenRecipe->toJson();
+        $run->save();
+    })->toThrow(LogicException::class, 'persisted Run recipe is immutable');
+
+    expect($run->fresh()->recipe()->toArray())->toBe($recipe->toArray());
+});
+
+test('rejects force-filled recipe assignment on a persisted run', function (): void {
+    $runId = '28282828-2828-4828-8828-282828282828';
+    $recipe = persistedRunRecipe($runId);
+    $run = Run::createWithRecipe($runId, $recipe);
+    $shrunkenRecipe = new RunRecipe([$recipe->operations[0]]);
+
+    expect(fn () => $run->forceFill(['recipe' => $shrunkenRecipe->toJson()])->save())
+        ->toThrow(LogicException::class, 'persisted Run recipe is immutable');
+
+    expect($run->fresh()->recipe()->toArray())->toBe($recipe->toArray());
+});
+
+test('rejects a foreign recipe supplied through an unguarded factory creation', function (): void {
+    $runId = '29292929-2929-4929-8929-292929292929';
+    $foreignRunId = '30303030-3030-4030-8030-303030303030';
+
     expect(fn () => Run::factory()->create([
         'id' => $runId,
-        'recipe' => persistedRunRecipe($foreignRunId),
+        'recipe' => persistedRunRecipe($foreignRunId)->toJson(),
     ]))->toThrow(InvalidArgumentException::class, 'Object key must remain within the caller prefix');
 
     expect(DB::table('runs')->where('id', $runId)->exists())->toBeFalse();
+});
+
+test('prohibits replicating a running run with source-owned recipe keys', function (): void {
+    $source = Run::factory()->create(['status' => RunStatus::Running]);
+
+    expect(function () use ($source): void {
+        $replica = $source->replicate();
+        $replica->save();
+    })->toThrow(LogicException::class, 'Run replication is prohibited');
+
+    expect(Run::query()->count())->toBe(1)
+        ->and(Run::query()->firstOrFail()->id)->toBe($source->id);
+});
+
+test('permits an identical run id assignment but rejects persisted rekeying without changing its recipe', function (): void {
+    $run = Run::factory()->create();
+    $originalId = $run->id;
+    $originalRecipe = $run->recipe()->toArray();
+    $replacementId = '35353535-3535-4535-8535-353535353535';
+    $run->id = $originalId;
+    $run->save();
+
+    expect(function () use ($run, $replacementId): void {
+        $run->id = $replacementId;
+        $run->save();
+    })->toThrow(LogicException::class, 'persisted Run ID is immutable');
+
+    $persisted = Run::query()->findOrFail($originalId);
+
+    expect($persisted->id)->toBe($originalId)
+        ->and($persisted->recipe()->toArray())->toBe($originalRecipe)
+        ->and(Run::query()->whereKey($replacementId)->exists())->toBeFalse();
+});
+
+test('creates a valid run when unguarded attributes provide recipe before id', function (): void {
+    $runId = '34343434-3434-4434-8434-343434343434';
+    $recipe = persistedRunRecipe($runId);
+    $run = Model::unguarded(fn (): Run => new Run([
+        'recipe' => $recipe->toJson(),
+        'id' => $runId,
+    ]));
+
+    $run->save();
+    $run->refresh();
+
+    expect($run->recipe()->toArray())->toBe($recipe->toArray())
+        ->and($run->status)->toBe(RunStatus::Queued);
+});
+
+test('exposes recipe as a read-only typed model property', function (): void {
+    $run = Run::factory()->create();
+
+    expect($run->getFillable())->toBe(['status'])
+        ->and($run->getCasts())->not->toHaveKey('recipe')
+        ->and($run->recipe)->toBeInstanceOf(RunRecipe::class);
 });
 
 test('hydrates a typed recipe after database JSON key reordering', function (): void {
@@ -97,7 +189,7 @@ test('hydrates a typed recipe after database JSON key reordering', function (): 
 
     $run = Run::query()->findOrFail($runId);
 
-    expect($run->recipe->toArray())->toBe($recipe->toArray());
+    expect($run->recipe()->toArray())->toBe($recipe->toArray());
 });
 
 test('persisted payload guard catches command-shaped arrays under an unrelated key', function (): void {

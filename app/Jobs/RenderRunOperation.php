@@ -8,6 +8,7 @@ use App\Services\RunFailure;
 use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\Driver;
 use App\Slate\Execution\QueueRuntimePolicy;
+use App\Slate\Execution\SkipIfBatchUnavailable;
 use App\Slate\Execution\WholeOperation;
 use App\Slate\Recipe\Video\SlateVideo;
 use App\Slate\Storage\FanoutStorageGuard;
@@ -18,7 +19,6 @@ use App\Slate\Storage\ScratchDirectory;
 use Illuminate\Bus\Batchable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use Illuminate\Queue\Middleware\SkipIfBatchCancelled;
 use Throwable;
 
 final class RenderRunOperation implements ShouldQueue
@@ -65,10 +65,10 @@ final class RenderRunOperation implements ShouldQueue
         });
     }
 
-    /** @return list<SkipIfBatchCancelled> */
+    /** @return list<SkipIfBatchUnavailable> */
     public function middleware(): array
     {
-        return [new SkipIfBatchCancelled];
+        return [new SkipIfBatchUnavailable];
     }
 
     public function failed(?Throwable $exception): void
