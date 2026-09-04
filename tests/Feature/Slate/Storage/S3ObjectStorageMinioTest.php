@@ -398,3 +398,111 @@ test('moves queued work and resumes a partially uploaded ingest through MinIO', 
         Storage::forgetDisk('s3');
     }
 })->group('minio');
+
+test('terminal ingest failure aborts multipart parts and deletes the object in MinIO', function (): void {
+    $socket = @fsockopen(
+        MinioConfiguration::Host,
+        MinioConfiguration::Port,
+        $errorCode,
+        $errorMessage,
+        0.2,
+    );
+
+    if (! is_resource($socket)) {
+        $message = 'MinIO unavailable at '.MinioConfiguration::Endpoint.'; ingest cleanup lane not run.';
+
+        if (filter_var(getenv('SLATE_REQUIRE_MINIO'), FILTER_VALIDATE_BOOL)) {
+            test()->fail($message.' SLATE_REQUIRE_MINIO requires this lane to run.');
+        }
+
+        test()->markTestSkipped($message);
+    }
+
+    fclose($socket);
+    $configuredDisk = config('filesystems.disks.s3');
+    expect($configuredDisk)->toBeArray();
+    $diskConfig = MinioConfiguration::disk($configuredDisk);
+    $client = new S3Client([
+        'version' => 'latest',
+        'region' => $diskConfig['region'],
+        'endpoint' => $diskConfig['endpoint'],
+        'use_path_style_endpoint' => $diskConfig['use_path_style_endpoint'],
+        'credentials' => ['key' => $diskConfig['key'], 'secret' => $diskConfig['secret']],
+    ]);
+
+    if (! $client->doesBucketExist($diskConfig['bucket'])) {
+        $client->createBucket(['Bucket' => $diskConfig['bucket']]);
+    }
+
+    config()->set('filesystems.default', 's3');
+    config()->set('filesystems.disks.s3', $diskConfig);
+    Storage::forgetDisk('s3');
+    $run = Run::factory()->create();
+    $objectKey = RunObjectKeys::input($run->id, 8, 'terminal-failure.bin');
+    $ingest = Ingest::expectSource($run, $objectKey, 'https://source.example/video.mp4');
+    $partBytes = 5 * 1024 * 1024;
+    $uploadId = null;
+
+    try {
+        $upload = $client->createMultipartUpload([
+            'Bucket' => $diskConfig['bucket'],
+            'Key' => $objectKey->value(),
+        ]);
+        $uploadId = $upload['UploadId'];
+        expect($uploadId)->toBeString()->not->toBe('');
+        $client->uploadPart([
+            'Bucket' => $diskConfig['bucket'],
+            'Key' => $objectKey->value(),
+            'UploadId' => $uploadId,
+            'PartNumber' => 1,
+            'Body' => str_repeat('p', $partBytes),
+            'ContentLength' => $partBytes,
+        ]);
+        $client->putObject([
+            'Bucket' => $diskConfig['bucket'],
+            'Key' => $objectKey->value(),
+            'Body' => 'completed object requiring terminal cleanup',
+        ]);
+        $partsBeforeFailure = $client->listParts([
+            'Bucket' => $diskConfig['bucket'],
+            'Key' => $objectKey->value(),
+            'UploadId' => $uploadId,
+        ])['Parts'] ?? [];
+        expect($partsBeforeFailure)->toHaveCount(1)
+            ->and($client->doesObjectExistV2($diskConfig['bucket'], $objectKey->value()))->toBeTrue();
+        $ingest->beginUpload(
+            new SourceMetadata($partBytes, 'ETag', '"terminal-source"'),
+            $partBytes,
+            $uploadId,
+        );
+
+        (new IngestSource($ingest->id))->failed(new RuntimeException('terminal ingest failure'));
+
+        $uploadsAfterFailure = array_values(array_filter(
+            $client->listMultipartUploads([
+                'Bucket' => $diskConfig['bucket'],
+                'Prefix' => $objectKey->value(),
+            ])['Uploads'] ?? [],
+            static fn (array $candidate): bool => ($candidate['Key'] ?? null) === $objectKey->value(),
+        ));
+        expect($uploadsAfterFailure)->toBe([])
+            ->and($client->doesObjectExistV2($diskConfig['bucket'], $objectKey->value()))->toBeFalse();
+    } finally {
+        foreach ($client->listMultipartUploads([
+            'Bucket' => $diskConfig['bucket'],
+            'Prefix' => $objectKey->value(),
+        ])['Uploads'] ?? [] as $remainingUpload) {
+            $client->abortMultipartUpload([
+                'Bucket' => $diskConfig['bucket'],
+                'Key' => $remainingUpload['Key'],
+                'UploadId' => $remainingUpload['UploadId'],
+            ]);
+        }
+
+        $client->deleteObject([
+            'Bucket' => $diskConfig['bucket'],
+            'Key' => $objectKey->value(),
+        ]);
+        Storage::forgetDisk('s3');
+    }
+})->group('minio');
