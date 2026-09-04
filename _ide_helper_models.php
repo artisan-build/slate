@@ -24,6 +24,8 @@ namespace App\Models{
  * @property string|null $source_validator
  * @property int|null $part_size_bytes
  * @property string|null $multipart_upload_id
+ * @property CarbonImmutable|null $retry_until
+ * @property CarbonImmutable|null $expires_at
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  * @property-read \App\Models\Run $run
@@ -33,11 +35,13 @@ namespace App\Models{
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest query()
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereCreatedAt($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereExpectedBytes($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereExpiresAt($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereId($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereMode($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereMultipartUploadId($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereObjectKey($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest wherePartSizeBytes($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereRetryUntil($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereRunId($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereSourceUrl($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereSourceValidator($value)
