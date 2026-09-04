@@ -6,18 +6,22 @@ relax any check today.
 
 ## What Slate Checks
 
-Before source ingest starts, Slate enforces the configured byte limit and checks the leading bytes for
-a self-contained MP4/MOV/M4A, WebM/Matroska, MP3, WAV, or AAC container. It rejects recognized HLS and
-DASH manifests, concat scripts, text inputs, and QuickTime reference-movie atoms. Direct bucket uploads
-receive the same byte and container checks after they are staged into an isolated worker scratch
-directory and before ffprobe or ffmpeg runs.
+Before source ingest starts, Slate enforces the configured byte limit and checks the first 64 KiB for a
+self-contained MP4/MOV/M4A, WebM/Matroska, MP3, WAV, or AAC signature. This leading-byte check rejects
+recognized HLS and DASH manifests, concat scripts, and text inputs early. It cannot rule out a QuickTime
+reference atom stored later in a MOV file.
+
+After a source or direct bucket upload is staged into an isolated worker scratch directory, Slate scans
+the complete ISO media box structure and rejects QuickTime reference movies before ffprobe or ffmpeg
+runs. Direct uploads also receive the byte-limit and leading-container checks at this stage.
 
 On the worker, ffprobe runs with the same process timeout and worker resource limits as rendering.
 Slate rejects sources that exceed its duration, dimensions, stream-count, frame-rate, or decode-codec
 allowlists, and records a typed rejection reason. Every local-file ffmpeg invocation disables standard
 input, restricts nested protocols to `file`, strips source metadata, and applies duration and output-size
-caps. Coarse cuts may stream-copy only to bucket-backed intermediates; every consumer deliverable is
-precisely trimmed and re-encoded.
+caps. No consumer deliverable contains stream-copied bytes that originated outside Slate.
+Source-derived bytes are always transcoded; Slate's own encoded output may be stream-copied between
+Slate's own stages, including into a final audio-muxed deliverable.
 
 These checks reduce accidental resource exhaustion and block known playlist/reference mechanisms that
 could make ffmpeg open another resource. They are not a proof that admitted bytes are safe.

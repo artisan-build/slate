@@ -13,16 +13,34 @@ final readonly class CompiledInput
     private function __construct(
         private array $commandValues,
         private BinaryExecutable $executable,
+        private ?CompiledVideoOrigin $videoOrigin = null,
     ) {}
 
     public static function ffmpeg(ScratchPath $input): self
     {
+        return self::ffmpegFile($input);
+    }
+
+    public static function slateVideo(ScratchPath $input): self
+    {
+        return self::ffmpegFile($input, CompiledVideoOrigin::SlateEncoded);
+    }
+
+    public static function sourceVideo(ScratchPath $input): self
+    {
+        return self::ffmpegFile($input, CompiledVideoOrigin::SourceDerived);
+    }
+
+    private static function ffmpegFile(
+        ScratchPath $input,
+        ?CompiledVideoOrigin $videoOrigin = null,
+    ): self {
         return new self([
             CompiledOption::ProtocolWhitelist->value,
             CompiledLiteral::FileProtocol->value,
             '-i',
             $input->readablePath(),
-        ], BinaryExecutable::Ffmpeg);
+        ], BinaryExecutable::Ffmpeg, $videoOrigin);
     }
 
     public static function lavfi(LavfiInput $input): self
@@ -53,5 +71,10 @@ final readonly class CompiledInput
     public function supports(BinaryExecutable $executable): bool
     {
         return $this->executable === $executable;
+    }
+
+    public function videoOrigin(): ?CompiledVideoOrigin
+    {
+        return $this->videoOrigin;
     }
 }

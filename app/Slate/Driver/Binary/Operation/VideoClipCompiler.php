@@ -46,19 +46,22 @@ final readonly class VideoClipCompiler implements CompilesOperation
 
     private function compileCoarse(VideoClip $operation): CompiledRecipe
     {
+        $input = CompiledInput::sourceVideo($operation->source);
+
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, [
             CompiledArgument::option(CompiledOption::Overwrite),
             CompiledArgument::option(CompiledOption::Seek),
             $operation->startSeconds === 0.0
                 ? CompiledArgument::literal(CompiledLiteral::Zero)
                 : CompiledArgument::seconds($operation->startSeconds),
-            CompiledInput::ffmpeg($operation->source),
-            CompiledOutput::copiedVideo($operation->output, $operation->durationSeconds),
+            $input,
+            CompiledOutput::copiedIntermediateVideo($input, $operation->output, $operation->durationSeconds),
         ]);
     }
 
     private function compilePrecise(VideoClip $operation): CompiledRecipe
     {
+        $input = CompiledInput::sourceVideo($operation->source);
         $filters = match ($operation->fit) {
             VideoFit::ContainPad => [
                 "scale={$operation->width}:{$operation->height}:force_original_aspect_ratio=decrease",
@@ -68,7 +71,7 @@ final readonly class VideoClipCompiler implements CompilesOperation
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, [
             CompiledArgument::option(CompiledOption::Overwrite),
-            CompiledInput::ffmpeg($operation->source),
+            $input,
             CompiledArgument::option(CompiledOption::Seek),
             $operation->startSeconds === 0.0
                 ? CompiledArgument::literal(CompiledLiteral::Zero)

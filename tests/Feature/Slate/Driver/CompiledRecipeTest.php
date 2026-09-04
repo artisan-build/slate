@@ -240,6 +240,48 @@ test('supports multiple independently scoped outputs with different media codecs
     });
 });
 
+test('rejects source-derived video copy into a consumer deliverable but permits a typed intermediate', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $source = $scratch->file('source.mp4');
+        file_put_contents($source->writablePath(), 'source video');
+        $sourceInput = CompiledInput::sourceVideo($source);
+        $intermediate = CompiledOutput::copiedIntermediateVideo(
+            $sourceInput,
+            $scratch->file('coarse.mp4'),
+            10.0,
+        );
+
+        $recipe = new CompiledRecipe(
+            new FfmpegLocator('Linux', 'arm64', '/runtime'),
+            BinaryExecutable::Ffmpeg,
+            [$sourceInput, $intermediate],
+        );
+
+        expect($recipe->command())->toContain('-c', 'copy')
+            ->and(fn (): CompiledOutput => CompiledOutput::copiedVideo(
+                $sourceInput,
+                $scratch->file('deliverable.mp4'),
+                10.0,
+            ))->toThrow(LogicException::class, 'cannot stream-copy source-derived video bytes');
+    });
+});
+
+test('rejects a copied output bound to a different compiled input object', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $video = $scratch->file('slate.mp4');
+        file_put_contents($video->writablePath(), 'slate video');
+        $boundInput = CompiledInput::slateVideo($video);
+        $differentInput = CompiledInput::slateVideo($video);
+        $output = CompiledOutput::copiedVideo($boundInput, $scratch->file('deliverable.mp4'));
+
+        expect(fn (): CompiledRecipe => new CompiledRecipe(
+            new FfmpegLocator('Linux', 'arm64', '/runtime'),
+            BinaryExecutable::Ffmpeg,
+            [$differentInput, $output],
+        ))->toThrow(LogicException::class, 'bind to its exact compiled input');
+    });
+});
+
 test('rejects diagnostic early-exit options in a file-output recipe', function (): void {
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
         expect(fn (): CompiledRecipe => new CompiledRecipe(

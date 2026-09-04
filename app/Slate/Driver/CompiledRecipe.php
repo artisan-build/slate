@@ -37,6 +37,12 @@ final readonly class CompiledRecipe
             if ($argument instanceof CompiledInput && ! $argument->supports($executable)) {
                 throw new LogicException('A compiled input cannot be used with a different executable.');
             }
+
+            if ($argument instanceof CompiledOutput
+                && $argument->copiedVideoInput() !== null
+                && ! in_array($argument->copiedVideoInput(), $arguments, true)) {
+                throw new LogicException('A copied video output must bind to its exact compiled input.');
+            }
         }
 
         $argumentValues = [];

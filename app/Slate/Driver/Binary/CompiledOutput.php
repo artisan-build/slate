@@ -8,6 +8,7 @@ use App\Slate\Recipe\Audio\AudioBitrate;
 use App\Slate\Recipe\Audio\AudioChannelLayout;
 use App\Slate\Recipe\QualityTier;
 use App\Slate\Storage\ScratchPath;
+use LogicException;
 
 /** An atomic ordered output scope containing its codec selection and destination path. */
 final readonly class CompiledOutput
@@ -23,7 +24,18 @@ final readonly class CompiledOutput
     private function __construct(
         array $commandValues,
         private ?CompiledFilterType $videoFilterType = null,
+        private ?CompiledInput $copiedVideoInput = null,
+        bool $consumerDeliverable = false,
     ) {
+        if ($copiedVideoInput !== null && $copiedVideoInput->videoOrigin() === null) {
+            throw new LogicException('A copied video output requires typed input provenance.');
+        }
+
+        if ($consumerDeliverable
+            && $copiedVideoInput?->videoOrigin() === CompiledVideoOrigin::SourceDerived) {
+            throw new LogicException('A consumer deliverable cannot stream-copy source-derived video bytes.');
+        }
+
         $this->commandValues = [
             ...self::hardeningCommandValues(),
             ...$commandValues,
@@ -91,6 +103,7 @@ final readonly class CompiledOutput
     }
 
     public static function muxedVideo(
+        CompiledInput $videoInput,
         AudioBitrate $audioBitrate,
         float $durationSeconds,
         ScratchPath $output,
@@ -109,7 +122,7 @@ final readonly class CompiledOutput
             '-t',
             CompiledArgument::seconds($durationSeconds)->value(),
             $output->writablePath(),
-        ]);
+        ], copiedVideoInput: $videoInput, consumerDeliverable: true);
     }
 
     public static function mp3(
@@ -151,8 +164,11 @@ final readonly class CompiledOutput
         ]);
     }
 
-    public static function copiedVideo(ScratchPath $output, ?float $durationSeconds = null): self
-    {
+    public static function copiedVideo(
+        CompiledInput $videoInput,
+        ScratchPath $output,
+        ?float $durationSeconds = null,
+    ): self {
         return new self([
             ...($durationSeconds === null ? [] : [
                 CompiledOption::Duration->value,
@@ -161,7 +177,23 @@ final readonly class CompiledOutput
             '-c',
             CompiledLiteral::Copy->value,
             $output->writablePath(),
-        ]);
+        ], copiedVideoInput: $videoInput, consumerDeliverable: true);
+    }
+
+    public static function copiedIntermediateVideo(
+        CompiledInput $videoInput,
+        ScratchPath $output,
+        ?float $durationSeconds = null,
+    ): self {
+        return new self([
+            ...($durationSeconds === null ? [] : [
+                CompiledOption::Duration->value,
+                CompiledArgument::seconds($durationSeconds)->value(),
+            ]),
+            '-c',
+            CompiledLiteral::Copy->value,
+            $output->writablePath(),
+        ], copiedVideoInput: $videoInput);
     }
 
     public static function jpeg(ScratchPath $output): self
@@ -215,5 +247,10 @@ final readonly class CompiledOutput
     public function videoFilterType(): ?CompiledFilterType
     {
         return $this->videoFilterType;
+    }
+
+    public function copiedVideoInput(): ?CompiledInput
+    {
+        return $this->copiedVideoInput;
     }
 }

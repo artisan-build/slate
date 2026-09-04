@@ -1,10 +1,14 @@
 <?php
 
 use App\Providers\DriverServiceProvider;
+use App\Services\FfmpegDiagnostics;
+use App\Slate\Driver\Binary\BenchmarkOutputVerifier;
 use App\Slate\Driver\Binary\DiagnosticRecipeCompiler;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\Binary\FilterGraphCompiler;
 use App\Slate\Driver\Binary\RecipeCompiler;
+use App\Slate\Driver\DriverResult;
+use App\Slate\Driver\FakeDriver;
 use App\Slate\Recipe\Audio\AudioBitrate;
 use App\Slate\Recipe\Audio\AudioChannelLayout;
 use App\Slate\Recipe\Audio\AudioConcat;
@@ -54,22 +58,53 @@ function compiledInvocationHardeningViolations(array $commands): array
 
     foreach ($commands as $index => $command) {
         $executable = basename($command[0]);
-        $required = $executable === 'ffmpeg'
-            ? ['-nostdin' => null, '-protocol_whitelist' => 'file', '-map_metadata' => '-1', '-t' => null, '-fs' => null]
-            : ['-protocol_whitelist' => 'file'];
 
-        foreach ($required as $option => $expectedValue) {
-            $optionIndex = array_search($option, $command, true);
+        if ($executable === 'ffmpeg' && ! in_array('-nostdin', $command, true)) {
+            $violations[] = "invocation {$index} ({$executable}) lacks -nostdin";
+        }
 
-            if ($optionIndex === false
-                || ($expectedValue !== null && ($command[$optionIndex + 1] ?? null) !== $expectedValue)) {
-                $violations[] = "invocation {$index} ({$executable}) lacks {$option}"
-                    .($expectedValue === null ? '' : " {$expectedValue}");
+        foreach (['-protocol_whitelist' => 'file', '-map_metadata' => '-1'] as $option => $expectedValue) {
+            if ($executable !== 'ffmpeg' && $option === '-map_metadata') {
+                continue;
             }
+
+            if (compiledEffectiveOptionValue($command, $option) !== $expectedValue) {
+                $violations[] = "invocation {$index} ({$executable}) effective {$option} is not {$expectedValue}";
+            }
+        }
+
+        if ($executable !== 'ffmpeg') {
+            continue;
+        }
+
+        $duration = compiledEffectiveOptionValue($command, '-t');
+
+        if ($duration === null || ! is_numeric($duration) || (float) $duration <= 0 || (float) $duration > 86_400) {
+            $violations[] = "invocation {$index} ({$executable}) effective -t exceeds 86400";
+        }
+
+        $fileSize = compiledEffectiveOptionValue($command, '-fs');
+
+        if ($fileSize === null || ! ctype_digit($fileSize) || (int) $fileSize < 1 || (int) $fileSize > 17_179_869_184) {
+            $violations[] = "invocation {$index} ({$executable}) effective -fs exceeds 17179869184";
         }
     }
 
     return $violations;
+}
+
+/** @param non-empty-list<string> $command */
+function compiledEffectiveOptionValue(array $command, string $option): ?string
+{
+    $effectiveValue = null;
+
+    foreach ($command as $index => $argument) {
+        if ($argument === $option && isset($command[$index + 1])) {
+            $effectiveValue = $command[$index + 1];
+        }
+    }
+
+    return $effectiveValue;
 }
 
 test('registers production compilers for every shipped operation', function (): void {
@@ -132,10 +167,23 @@ test('registers production compilers for every shipped operation', function (): 
                 AudioBitrate::Kbps128,
                 $scratch->file('concat.mp3'),
             ),
+            new AudioConcat(
+                [new AudioConcatInput($input)],
+                AudioConcatMode::Copy,
+                AudioBitrate::Kbps128,
+                $scratch->file('concat-copy.mp3'),
+            ),
             new AudioPad($input, $scratch->file('padded.mp3'), 0.25, 0.5, AudioBitrate::Kbps128),
             $stillClip,
             $slice,
             $mux,
+            VideoClip::coarse(
+                $videoOutput,
+                100_000,
+                1_000_000,
+                2.0,
+                $scratch->file('coarse.mp4'),
+            ),
             VideoClip::precise($videoOutput, 0, 1_000_000, $scratch->file('clipped.mp4')),
             new VideoTrim($video, 24, 24, $scratch->file('trimmed.mp4')),
             new VideoTransitionSegment(
@@ -145,6 +193,16 @@ test('registers production compilers for every shipped operation', function (): 
                 [$video, $secondVideo], VideoConcatMode::Xfade,
                 VideoTransition::Fade, 0.5, true, QualityTier::Delivery, 24,
                 $scratch->file('joined.mp4'),
+            ),
+            new VideoConcat(
+                [$video, $secondVideo], VideoConcatMode::Xfade,
+                VideoTransition::Fade, 0.5, false, QualityTier::Delivery, 24,
+                $scratch->file('joined-hard-cut-audio.mp4'),
+            ),
+            new VideoConcat(
+                [$video, $secondVideo], VideoConcatMode::Copy,
+                null, 0.0, false, QualityTier::Delivery, 24,
+                $scratch->file('joined-copy.mp4'),
             ),
             new OverlayImage(
                 $video, $image, $scratch->file('overlay.mp4'), 0, 0,
@@ -175,17 +233,45 @@ test('registers production compilers for every shipped operation', function (): 
             $diagnostics->encoders()->command(),
             $diagnostics->luma(null)->command(),
         );
+        $runtimeInput = $scratch->file('runtime-input.mp4');
+        file_put_contents($runtimeInput->writablePath(), 'runtime video');
+        $runtimeDriver = new FakeDriver(
+            new DriverResult('0, 0, 0, 0, 0, d41d8cd98f00b204e9800998ecf8427e'),
+            new DriverResult(pack('v', 1)),
+            new DriverResult(errorOutput: 'lavfi.signalstats.YAVG=42'),
+        );
+        $verifier = new BenchmarkOutputVerifier($runtimeDriver, new FfmpegDiagnostics);
+        $verifier->frameHashes($runtimeInput);
+        $verifier->audioSamples($runtimeInput);
+        $verifier->frameLuma($runtimeInput, 0.1);
+        array_push(
+            $commands,
+            ...array_map(
+                static fn ($recipe): array => $recipe->command(),
+                $runtimeDriver->recipes(),
+            ),
+        );
         $executables = array_map(static fn (array $command): string => basename($command[0]), $commands);
-        $positiveControl = [['/runtime/ffmpeg/bin/ffmpeg', '-i', '/tmp/input.mp4', '/tmp/output.mp4']];
+        $missingControl = [['/runtime/ffmpeg/bin/ffmpeg', '-i', '/tmp/input.mp4', '/tmp/output.mp4']];
+        $overrideControl = [[
+            '/runtime/ffmpeg/bin/ffmpeg', '-nostdin', '-protocol_whitelist', 'file',
+            '-map_metadata', '-1', '-t', '86400', '-fs', '17179869184',
+            '-t', '200000', '-fs', '20000000000', '/tmp/output.mp4',
+        ]];
 
         expect(app()->getProviders(DriverServiceProvider::class))->toHaveCount(1)
             ->and($compiler)->toBeInstanceOf(RecipeCompiler::class)
             ->and(compiledInvocationHardeningViolations($commands))->toBe([])
-            ->and(compiledInvocationHardeningViolations($positiveControl))->not->toBe([])
+            ->and(compiledInvocationHardeningViolations($missingControl))->not->toBe([])
+            ->and(compiledInvocationHardeningViolations($overrideControl))->toBe([
+                'invocation 0 (ffmpeg) effective -t exceeds 86400',
+                'invocation 0 (ffmpeg) effective -fs exceeds 17179869184',
+            ])
             ->and($executables)->toBe([
                 'ffprobe', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg',
                 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg',
                 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg',
+                'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg', 'ffmpeg',
             ]);
     });
 });

@@ -35,15 +35,16 @@ final readonly class VideoTrimCompiler implements CompilesOperation
         $seek = $operation->startFrame === 0
             ? CompiledArgument::literal(CompiledLiteral::Zero)
             : CompiledArgument::seconds($operation->startSeconds());
+        $input = CompiledInput::slateVideo($operation->input->path);
 
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, [
             CompiledArgument::option(CompiledOption::Overwrite),
             CompiledArgument::option(CompiledOption::Seek),
             $seek,
-            CompiledInput::ffmpeg($operation->input->path),
+            $input,
             CompiledArgument::option(CompiledOption::VideoFrames),
             CompiledArgument::unsignedInteger($operation->frameCount),
-            CompiledOutput::copiedVideo($operation->output, $operation->durationSeconds()),
+            CompiledOutput::copiedVideo($input, $operation->output, $operation->durationSeconds()),
         ]);
     }
 }

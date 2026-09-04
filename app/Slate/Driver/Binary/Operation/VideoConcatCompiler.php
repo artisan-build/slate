@@ -62,14 +62,16 @@ final readonly class VideoConcatCompiler implements CompilesOperation
             throw new RuntimeException('Unable to write the compiler-owned video concat manifest.');
         }
 
+        $input = CompiledInput::slateVideo($manifest);
+
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, [
             CompiledArgument::option(CompiledOption::Overwrite),
             CompiledArgument::option(CompiledOption::Format),
             CompiledArgument::literal(CompiledLiteral::Concat),
             CompiledArgument::option(CompiledOption::Safe),
             CompiledArgument::literal(CompiledLiteral::Zero),
-            CompiledInput::ffmpeg($manifest),
-            CompiledOutput::copiedVideo($operation->output),
+            $input,
+            CompiledOutput::copiedVideo($input, $operation->output),
         ]);
     }
 
