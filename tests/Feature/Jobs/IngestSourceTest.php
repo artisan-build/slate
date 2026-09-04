@@ -25,6 +25,7 @@ final class IngestSourceTest extends TestCase
 
     public function test_resumes_uploaded_bucket_parts_and_uses_ingest_queue_runtime(): void
     {
+        $this->travelTo('2026-09-04 12:00:00');
         $this->configureQueueRuntime();
         config()->set('slate.ingest.part_size_bytes', 5 * 1024 * 1024);
         $run = Run::factory()->create();
@@ -43,11 +44,18 @@ final class IngestSourceTest extends TestCase
         $job = new IngestSource($ingest->id);
 
         $job->handle($this->app->make(ResumableIngestTransfer::class));
+        $retryUntil = $job->retryUntil();
+        $this->travel(30)->minutes();
+        $redeliveredJob = unserialize(serialize($job));
 
         $ingest->refresh();
+        self::assertInstanceOf(IngestSource::class, $redeliveredJob);
         self::assertSame('ingest', $job->queue);
         self::assertSame(890, $job->timeout);
         self::assertSame(880, $job->sourceRequestTimeout);
+        self::assertSame('2026-09-04 13:06:00', $retryUntil->format('Y-m-d H:i:s'));
+        self::assertSame($retryUntil->getTimestamp(), $redeliveredJob->retryUntil()->getTimestamp());
+        self::assertFalse(property_exists($job, 'tries'));
         self::assertSame([[5 * 1024 * 1024, (5 * 1024 * 1024) + 3, 880]], $reader->ranges);
         self::assertSame([1 => '"part-1"', 2 => '"part-2"'], $storage->completedParts);
         self::assertSame(IngestStatus::Succeeded, $ingest->status);
@@ -60,10 +68,46 @@ final class IngestSourceTest extends TestCase
     {
         $this->configureQueueRuntime();
         $ingest = Ingest::factory()->create();
+        $metadata = new SourceMetadata(5 * 1024 * 1024, 'ETag', '"source-etag"');
+        $ingest->beginUpload($metadata, 5 * 1024 * 1024, 'upload-123');
+        $storage = new MemoryIngestStorage;
+        $storage->objectExists = true;
+        $storage->objectSize = $metadata->bytes;
+        $this->app->instance(IngestStorage::class, $storage);
 
         (new IngestSource($ingest->id))->failed(new \RuntimeException('network unavailable'));
 
         self::assertSame(IngestStatus::Failed, $ingest->fresh()?->status);
+        self::assertSame(['upload-123'], $storage->abortedUploadIds);
+        self::assertSame([$ingest->object_key], $storage->deletedKeys);
+    }
+
+    public function test_existing_object_does_not_bypass_persisted_source_validator(): void
+    {
+        config()->set('slate.ingest.part_size_bytes', 5 * 1024 * 1024);
+        $run = Run::factory()->create();
+        $ingest = Ingest::expectSource(
+            $run,
+            RunObjectKeys::input($run->id, 1, 'source.mp4'),
+            'https://source.example/video.mp4',
+        );
+        $staleIngest = Ingest::query()->findOrFail($ingest->id);
+        $ingest->beginUpload(
+            new SourceMetadata(5 * 1024 * 1024, 'ETag', '"first-etag"'),
+            5 * 1024 * 1024,
+            'upload-123',
+        );
+        $storage = new MemoryIngestStorage;
+        $storage->objectExists = true;
+        $storage->objectSize = 5 * 1024 * 1024;
+        $reader = new RecordingSourceReader(
+            new SourceMetadata(5 * 1024 * 1024, 'ETag', '"changed-etag"'),
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('source changed while resuming ingest');
+
+        (new ResumableIngestTransfer($storage, $reader))->handle($staleIngest, 160);
     }
 
     private function configureQueueRuntime(): void
@@ -113,7 +157,15 @@ final class MemoryIngestStorage implements IngestStorage
     /** @var array<int, string> */
     public array $completedParts = [];
 
-    private bool $objectExists = false;
+    public bool $objectExists = false;
+
+    public int $objectSize = 0;
+
+    /** @var list<string> */
+    public array $abortedUploadIds = [];
+
+    /** @var list<string> */
+    public array $deletedKeys = [];
 
     public function exists(ObjectKey $objectKey): bool
     {
@@ -122,12 +174,18 @@ final class MemoryIngestStorage implements IngestStorage
 
     public function size(ObjectKey $objectKey): int
     {
-        return array_sum(array_column($this->parts, 'size'));
+        return $this->objectExists ? $this->objectSize : array_sum(array_column($this->parts, 'size'));
     }
 
     public function beginMultipartUpload(ObjectKey $objectKey): string
     {
         return 'upload-123';
+    }
+
+    public function abortMultipartUpload(ObjectKey $objectKey, string $uploadId): void
+    {
+        $this->abortedUploadIds[] = $uploadId;
+        $this->parts = [];
     }
 
     public function uploadedParts(ObjectKey $objectKey, string $uploadId): array
@@ -155,6 +213,14 @@ final class MemoryIngestStorage implements IngestStorage
     ): void {
         $this->completedParts = $etagsByPartNumber;
         $this->objectExists = true;
+        $this->objectSize = array_sum(array_column($this->parts, 'size'));
+    }
+
+    public function delete(ObjectKey $objectKey): void
+    {
+        $this->deletedKeys[] = $objectKey->value();
+        $this->objectExists = false;
+        $this->objectSize = 0;
     }
 
     public function temporaryUploadUrl(ObjectKey $objectKey, DateTimeInterface $expiration): array

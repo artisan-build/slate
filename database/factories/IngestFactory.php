@@ -31,6 +31,7 @@ class IngestFactory extends Factory
             'mode' => IngestMode::Source,
             'status' => IngestStatus::Expected,
             'source_url' => fake()->url(),
+            'retry_until' => now()->addSeconds((int) config('slate.ingest.retry_deadline_seconds')),
         ];
     }
 }

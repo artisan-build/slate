@@ -5,17 +5,18 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Models\Ingest;
+use App\Services\IngestCleanup;
 use App\Slate\Execution\QueueRuntimePolicy;
 use App\Slate\Ingest\ResumableIngestTransfer;
+use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use LogicException;
 use Throwable;
 
 final class IngestSource implements ShouldQueue
 {
     use Queueable;
-
-    public int $tries = 3;
 
     public int $timeout;
 
@@ -42,8 +43,19 @@ final class IngestSource implements ShouldQueue
         $ingest->markSucceeded();
     }
 
+    public function retryUntil(): DateTimeInterface
+    {
+        $retryUntil = Ingest::query()->findOrFail($this->ingestId)->retry_until;
+
+        if (! $retryUntil instanceof DateTimeInterface) {
+            throw new LogicException('A source ingest requires a persisted retry deadline.');
+        }
+
+        return $retryUntil;
+    }
+
     public function failed(?Throwable $exception): void
     {
-        Ingest::query()->find($this->ingestId)?->markFailed();
+        resolve(IngestCleanup::class)->fail($this->ingestId);
     }
 }

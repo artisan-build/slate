@@ -31,7 +31,9 @@ final readonly class ResumableIngestTransfer
         }
 
         $metadata = $this->sourceReader->metadata($ingest->sourceUrl(), $sourceRequestTimeoutSeconds);
+        $ingest->refresh();
         $objectKey = $ingest->objectKey();
+        $ingest->assertSourceMetadata($metadata);
 
         if ($this->storage->exists($objectKey)) {
             if ($this->storage->size($objectKey) !== $metadata->bytes) {
@@ -103,15 +105,41 @@ final readonly class ResumableIngestTransfer
     /** @return array{Ingest, string, int} */
     private function initializeUpload(Ingest $ingest, SourceMetadata $metadata): array
     {
-        return DB::transaction(function () use ($ingest, $metadata): array {
-            $lockedIngest = Ingest::query()->lockForUpdate()->findOrFail($ingest->id);
-            $partSizeBytes = $lockedIngest->part_size_bytes ?? $this->partSize($metadata->bytes);
-            $uploadId = $lockedIngest->multipart_upload_id
-                ?? $this->storage->beginMultipartUpload($lockedIngest->objectKey());
-            $lockedIngest->beginUpload($metadata, $partSizeBytes, $uploadId);
+        $createdUploadId = null;
 
-            return [$lockedIngest, $uploadId, $partSizeBytes];
-        });
+        try {
+            return DB::transaction(function () use ($ingest, $metadata, &$createdUploadId): array {
+                $lockedIngest = Ingest::query()->lockForUpdate()->findOrFail($ingest->id);
+                $partSizeBytes = $lockedIngest->part_size_bytes ?? $this->partSize($metadata->bytes);
+                $uploadId = $lockedIngest->multipart_upload_id;
+
+                if ($uploadId === null) {
+                    $uploadId = $this->storage->beginMultipartUpload($lockedIngest->objectKey());
+                    $createdUploadId = $uploadId;
+                }
+
+                $lockedIngest->beginUpload($metadata, $partSizeBytes, $uploadId);
+
+                return [$lockedIngest, $uploadId, $partSizeBytes];
+            });
+        } catch (Throwable $exception) {
+            if ($createdUploadId === null) {
+                throw $exception;
+            }
+
+            try {
+                $this->storage->abortMultipartUpload($ingest->objectKey(), $createdUploadId);
+            } catch (Throwable $abortException) {
+                report($exception);
+
+                throw new RuntimeException(
+                    'Unable to compensate multipart ingest after state persistence failed.',
+                    previous: $abortException,
+                );
+            }
+
+            throw $exception;
+        }
     }
 
     private function partSize(int $sourceBytes): int

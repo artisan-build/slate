@@ -22,6 +22,7 @@ final class IngestManagerTest extends TestCase
 
     public function test_records_source_expectation_before_dispatching_the_ingest_job(): void
     {
+        $this->travelTo('2026-09-04 12:00:00');
         Queue::fake([IngestSource::class]);
         config()->set('slate.execution.ingest_queue', 'ingest');
         $run = Run::factory()->create();
@@ -35,6 +36,7 @@ final class IngestManagerTest extends TestCase
         self::assertSame(IngestStatus::Expected, $ingest->status);
         self::assertSame($expectedKey, $ingest->object_key);
         self::assertSame($sourceUrl, $ingest->sourceUrl());
+        self::assertSame('2026-09-04T13:06:00.000000Z', $ingest->retry_until?->toISOString());
         self::assertNotSame(
             $sourceUrl,
             DB::table('ingests')->where('id', $ingest->id)->value('source_url'),
@@ -47,6 +49,7 @@ final class IngestManagerTest extends TestCase
 
     public function test_records_expected_object_and_returns_direct_bucket_put_instructions(): void
     {
+        $this->travelTo('2026-09-04 12:00:00');
         $run = Run::factory()->create();
         $expiration = now()->addMinutes(5);
         $expectedKey = RunObjectKeys::input($run->id, 4, 'narration.mp3');
@@ -65,6 +68,7 @@ final class IngestManagerTest extends TestCase
         $ingest = Ingest::query()->findOrFail($upload->ingestId);
         self::assertSame(IngestMode::Direct, $ingest->mode);
         self::assertSame(IngestStatus::Expected, $ingest->status);
+        self::assertSame($expiration->toISOString(), $ingest->expires_at?->toISOString());
         self::assertSame($expectedKey->value(), $ingest->object_key);
         self::assertSame($expectedKey->value(), $upload->objectKey->value());
         self::assertSame('https://bucket.example/presigned-put', $upload->url);

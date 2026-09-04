@@ -15,6 +15,8 @@ interface IngestStorage
 
     public function beginMultipartUpload(ObjectKey $objectKey): string;
 
+    public function abortMultipartUpload(ObjectKey $objectKey, string $uploadId): void;
+
     /** @return array<int, array{etag: string, size: int}> */
     public function uploadedParts(ObjectKey $objectKey, string $uploadId): array;
 
@@ -32,6 +34,8 @@ interface IngestStorage
         string $uploadId,
         array $etagsByPartNumber,
     ): void;
+
+    public function delete(ObjectKey $objectKey): void;
 
     /** @return array{url: string, headers: array<string, list<string>>} */
     public function temporaryUploadUrl(ObjectKey $objectKey, DateTimeInterface $expiration): array;

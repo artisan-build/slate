@@ -23,7 +23,10 @@ return new class extends Migration
             $table->text('source_validator')->nullable();
             $table->unsignedBigInteger('part_size_bytes')->nullable();
             $table->text('multipart_upload_id')->nullable();
+            $table->timestamp('retry_until')->nullable();
+            $table->timestamp('expires_at')->nullable();
             $table->timestamps();
+            $table->index(['mode', 'status', 'expires_at']);
         });
     }
 

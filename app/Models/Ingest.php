@@ -5,12 +5,15 @@ namespace App\Models;
 use App\Slate\Ingest\SourceMetadata;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\RunObjectKeys;
+use Carbon\CarbonImmutable;
 use Database\Factories\IngestFactory;
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use LogicException;
 use RuntimeException;
@@ -27,6 +30,8 @@ use RuntimeException;
  * @property string|null $source_validator
  * @property int|null $part_size_bytes
  * @property string|null $multipart_upload_id
+ * @property CarbonImmutable|null $retry_until
+ * @property CarbonImmutable|null $expires_at
  *
  * @mixin IdeHelperIngest
  */
@@ -45,12 +50,28 @@ final class Ingest extends Model
             throw new InvalidArgumentException('A source ingest requires a URL.');
         }
 
-        return self::expect($run, $objectKey, IngestMode::Source, $sourceUrl);
+        $retryDeadlineSeconds = config('slate.ingest.retry_deadline_seconds');
+
+        if (! is_int($retryDeadlineSeconds) || $retryDeadlineSeconds < 1) {
+            throw new InvalidArgumentException('Source ingest retry deadline must be a positive integer.');
+        }
+
+        return self::expect(
+            $run,
+            $objectKey,
+            IngestMode::Source,
+            $sourceUrl,
+            now()->addSeconds($retryDeadlineSeconds),
+            null,
+        );
     }
 
-    public static function expectDirect(Run $run, ObjectKey $objectKey): self
-    {
-        return self::expect($run, $objectKey, IngestMode::Direct, null);
+    public static function expectDirect(
+        Run $run,
+        ObjectKey $objectKey,
+        DateTimeInterface $expiration,
+    ): self {
+        return self::expect($run, $objectKey, IngestMode::Direct, null, null, $expiration);
     }
 
     public function objectKey(): ObjectKey
@@ -73,15 +94,11 @@ final class Ingest extends Model
             throw new LogicException('Only source ingests can begin a multipart upload.');
         }
 
-        if ($this->expected_bytes !== null && $this->expected_bytes !== $metadata->bytes) {
-            throw new RuntimeException('The source size changed while resuming ingest.');
+        if ($this->status->isTerminal()) {
+            throw new LogicException('A terminal ingest cannot begin a multipart upload.');
         }
 
-        if ($this->source_validator_header !== null
-            && ($this->source_validator_header !== $metadata->validatorHeader
-                || $this->source_validator !== $metadata->validator)) {
-            throw new RuntimeException('The source changed while resuming ingest.');
-        }
+        $this->assertSourceMetadata($metadata);
 
         $this->expected_bytes = $metadata->bytes;
         $this->source_validator_header = $metadata->validatorHeader;
@@ -92,20 +109,58 @@ final class Ingest extends Model
         $this->save();
     }
 
-    public function markSucceeded(): void
+    public function assertSourceMetadata(SourceMetadata $metadata): void
     {
-        $this->status = IngestStatus::Succeeded;
-        $this->source_url = null;
-        $this->multipart_upload_id = null;
-        $this->save();
+        if ($this->expected_bytes !== null && $this->expected_bytes !== $metadata->bytes) {
+            throw new RuntimeException('The source size changed while resuming ingest.');
+        }
+
+        if ($this->source_validator_header !== null
+            && ($this->source_validator_header !== $metadata->validatorHeader
+                || $this->source_validator !== $metadata->validator)) {
+            throw new RuntimeException('The source changed while resuming ingest.');
+        }
     }
 
-    public function markFailed(): void
+    public function markSucceeded(): bool
     {
-        if ($this->status !== IngestStatus::Succeeded) {
-            $this->status = IngestStatus::Failed;
-            $this->save();
-        }
+        return $this->transitionTo(IngestStatus::Succeeded);
+    }
+
+    public function markFailed(): bool
+    {
+        return $this->transitionTo(IngestStatus::Failed);
+    }
+
+    public function transitionTo(IngestStatus $nextStatus): bool
+    {
+        $changed = DB::transaction(function () use ($nextStatus): bool {
+            $ingest = self::query()->lockForUpdate()->findOrFail($this->getKey());
+
+            if ($ingest->status === $nextStatus || $ingest->status->isTerminal()) {
+                return false;
+            }
+
+            if (($ingest->status === IngestStatus::Expected
+                && ! in_array($nextStatus, [IngestStatus::Uploading, IngestStatus::Succeeded, IngestStatus::Failed], true))
+                || ($ingest->status === IngestStatus::Uploading
+                    && ! in_array($nextStatus, [IngestStatus::Succeeded, IngestStatus::Failed], true))) {
+                throw new LogicException("Ingest cannot transition from {$ingest->status->value} to {$nextStatus->value}.");
+            }
+
+            $ingest->status = $nextStatus;
+
+            if ($nextStatus === IngestStatus::Succeeded) {
+                $ingest->source_url = null;
+                $ingest->multipart_upload_id = null;
+            }
+
+            return $ingest->save();
+        });
+
+        $this->refresh();
+
+        return $changed;
     }
 
     /** @return BelongsTo<Run, $this> */
@@ -123,6 +178,8 @@ final class Ingest extends Model
             'source_url' => 'encrypted',
             'source_validator' => 'encrypted',
             'multipart_upload_id' => 'encrypted',
+            'retry_until' => 'immutable_datetime',
+            'expires_at' => 'immutable_datetime',
         ];
     }
 
@@ -131,6 +188,8 @@ final class Ingest extends Model
         ObjectKey $objectKey,
         IngestMode $mode,
         ?string $sourceUrl,
+        ?DateTimeInterface $retryUntil,
+        ?DateTimeInterface $expiresAt,
     ): self {
         if (! $run->exists || $objectKey->value() !== ObjectKey::withinPrefix(
             RunObjectKeys::prefix($run->id),
@@ -145,6 +204,8 @@ final class Ingest extends Model
         $ingest->mode = $mode;
         $ingest->status = IngestStatus::Expected;
         $ingest->source_url = $sourceUrl;
+        $ingest->retry_until = $retryUntil === null ? null : CarbonImmutable::instance($retryUntil);
+        $ingest->expires_at = $expiresAt === null ? null : CarbonImmutable::instance($expiresAt);
         $ingest->save();
 
         return $ingest;

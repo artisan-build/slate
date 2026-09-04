@@ -47,5 +47,7 @@ return [
     ],
     'ingest' => [
         'part_size_bytes' => 8 * 1024 * 1024,
+        // 22 attempts x 170s of work exceeds the intended 3600s, across 22 observed 180s windows.
+        'retry_deadline_seconds' => 22 * 180,
     ],
 ];

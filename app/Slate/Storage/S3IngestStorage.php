@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Slate\Storage;
 
+use Aws\S3\Exception\S3Exception;
 use DateTimeInterface;
 use Illuminate\Filesystem\AwsS3V3Adapter;
 use League\Flysystem\PathPrefixer;
@@ -71,6 +72,24 @@ final readonly class S3IngestStorage implements IngestStorage
         return $parts;
     }
 
+    public function abortMultipartUpload(ObjectKey $objectKey, string $uploadId): void
+    {
+        try {
+            $this->filesystem->getClient()->abortMultipartUpload([
+                ...$this->objectArguments($objectKey),
+                'UploadId' => $uploadId,
+            ]);
+        } catch (S3Exception $exception) {
+            if ($exception->getAwsErrorCode() === 'NoSuchUpload') {
+                return;
+            }
+
+            throw new RuntimeException("Unable to abort multipart ingest: {$objectKey->value()}", previous: $exception);
+        } catch (Throwable $exception) {
+            throw new RuntimeException("Unable to abort multipart ingest: {$objectKey->value()}", previous: $exception);
+        }
+    }
+
     public function uploadPart(
         ObjectKey $objectKey,
         string $uploadId,
@@ -131,6 +150,17 @@ final readonly class S3IngestStorage implements IngestStorage
         $upload = $this->filesystem->temporaryUploadUrl($objectKey->value(), $expiration);
 
         return $upload;
+    }
+
+    public function delete(ObjectKey $objectKey): void
+    {
+        try {
+            if (! $this->filesystem->delete($objectKey->value())) {
+                throw new RuntimeException("Unable to delete ingest object: {$objectKey->value()}");
+            }
+        } catch (Throwable $exception) {
+            throw new RuntimeException("Unable to delete ingest object: {$objectKey->value()}", previous: $exception);
+        }
     }
 
     /** @return array{Bucket: string, Key: string} */

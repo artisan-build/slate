@@ -4,7 +4,9 @@ use App\Jobs\IngestSource;
 use App\Jobs\RenderFanoutOperation;
 use App\Models\Ingest;
 use App\Models\IngestMode;
+use App\Models\IngestStatus;
 use App\Models\Run;
+use App\Services\IngestCleanup;
 use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Driver\Driver;
@@ -137,7 +139,8 @@ test('round-trips and accepts a presigned PUT through MinIO without application 
 
         $run = Run::factory()->create();
         $manager = new IngestManager(resolve(IngestStorage::class));
-        $upload = $manager->presignedPut($run, 9, 'direct.bin', now()->addMinutes(5));
+        $expiration = now()->addMinutes(5);
+        $upload = $manager->presignedPut($run, 9, 'direct.bin', $expiration);
         $put = Http::withHeaders($upload->headers)
             ->withBody('client bytes sent directly to MinIO')
             ->put($upload->url);
@@ -147,7 +150,11 @@ test('round-trips and accepts a presigned PUT through MinIO without application 
             ->toBe('client bytes sent directly to MinIO')
             ->and(Ingest::query()->findOrFail($upload->ingestId)->mode)->toBe(IngestMode::Direct);
 
-        Storage::disk()->delete($upload->objectKey->value());
+        $pruned = resolve(IngestCleanup::class)->sweepAbandoned($expiration->addSecond());
+
+        expect($pruned)->toBe(1)
+            ->and(Storage::disk()->exists($upload->objectKey->value()))->toBeFalse()
+            ->and(Ingest::query()->findOrFail($upload->ingestId)->status)->toBe(IngestStatus::Failed);
     } finally {
         Storage::disk()->delete($objectKey->value());
         Storage::disk()->delete('minio-tests/memory-probe.bin');
@@ -328,8 +335,64 @@ test('moves queued work and resumes a partially uploaded ingest through MinIO', 
             ->and(hash('sha256', Storage::disk()->get($targetKey->value())))
             ->toBe(hash('sha256', Storage::disk()->get($sourceKey->value())));
 
-        Storage::disk()->delete($sourceKey->value());
         Storage::disk()->delete($targetKey->value());
+
+        $failureRun = Run::factory()->create();
+        $failureKey = RunObjectKeys::input($failureRun->id, 3, 'failed.bin');
+        Storage::disk()->put($failureKey->value(), 'completed object requiring failure cleanup');
+        $failureIngest = Ingest::expectSource($failureRun, $failureKey, $sourceUrl);
+        $failureUploadId = $ingestStorage->beginMultipartUpload($failureKey);
+        $failurePart = $sourceReader->read($sourceUrl, $metadata, 0, (5 * 1024 * 1024) - 1, 60);
+
+        try {
+            $ingestStorage->uploadPart(
+                $failureKey,
+                $failureUploadId,
+                1,
+                $failurePart->stream,
+                $failurePart->bytes,
+            );
+        } finally {
+            $failurePart->close();
+        }
+
+        $failureIngest->beginUpload($metadata, 5 * 1024 * 1024, $failureUploadId);
+        (new IngestSource($failureIngest->id))->failed(new RuntimeException('terminal source failure'));
+        $failureUploads = $client->listMultipartUploads([
+            'Bucket' => $diskConfig['bucket'],
+            'Prefix' => $failureKey->value(),
+        ])['Uploads'] ?? [];
+
+        expect($failureIngest->fresh()?->status)->toBe(IngestStatus::Failed)
+            ->and(Storage::disk()->exists($failureKey->value()))->toBeFalse()
+            ->and($failureUploads)->toBe([]);
+
+        $compensationRun = Run::factory()->create();
+        $compensationKey = RunObjectKeys::input($compensationRun->id, 4, 'compensated.bin');
+        $compensationIngest = Ingest::expectSource($compensationRun, $compensationKey, $sourceUrl);
+        Ingest::saving(static function (Ingest $saving) use ($compensationIngest): void {
+            if ($saving->id === $compensationIngest->id && $saving->multipart_upload_id !== null) {
+                throw new RuntimeException('simulated ingest state persistence failure');
+            }
+        });
+
+        try {
+            expect(fn () => (new ResumableIngestTransfer($ingestStorage, $sourceReader))
+                ->handle($compensationIngest, 60))
+                ->toThrow(RuntimeException::class, 'simulated ingest state persistence failure');
+        } finally {
+            Ingest::flushEventListeners();
+        }
+
+        $compensationUploads = $client->listMultipartUploads([
+            'Bucket' => $diskConfig['bucket'],
+            'Prefix' => $compensationKey->value(),
+        ])['Uploads'] ?? [];
+
+        expect($compensationUploads)->toBe([])
+            ->and(Storage::disk()->exists($compensationKey->value()))->toBeFalse();
+
+        Storage::disk()->delete($sourceKey->value());
     } finally {
         Storage::disk()->deleteDirectory($prefix);
         Storage::forgetDisk('s3');

@@ -38,7 +38,7 @@ final readonly class IngestManager
         DateTimeInterface $expiration,
     ): PresignedUpload {
         $objectKey = RunObjectKeys::input($run->id, $inputIndex, $filename);
-        $ingest = Ingest::expectDirect($run, $objectKey);
+        $ingest = Ingest::expectDirect($run, $objectKey, $expiration);
         $upload = $this->storage->temporaryUploadUrl($objectKey, $expiration);
 
         return new PresignedUpload($ingest->id, $objectKey, $upload['url'], $upload['headers']);
