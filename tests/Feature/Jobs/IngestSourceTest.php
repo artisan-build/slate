@@ -6,6 +6,7 @@ use App\Jobs\IngestSource;
 use App\Models\Ingest;
 use App\Models\IngestStatus;
 use App\Models\Run;
+use App\Slate\Ingest\PermanentIngestException;
 use App\Slate\Ingest\ResumableIngestTransfer;
 use App\Slate\Ingest\SourceMetadata;
 use App\Slate\Ingest\SourcePart;
@@ -16,6 +17,7 @@ use App\Slate\Storage\RunObjectKeys;
 use DateTimeInterface;
 use GuzzleHttp\Psr7\Utils;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\Exceptions;
 use Psr\Http\Message\StreamInterface;
 use Tests\TestCase;
 
@@ -104,10 +106,65 @@ final class IngestSourceTest extends TestCase
             new SourceMetadata(5 * 1024 * 1024, 'ETag', '"changed-etag"'),
         );
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('source changed while resuming ingest');
+        $job = (new IngestSource($ingest->id))->withFakeQueueInteractions();
+
+        try {
+            $job->middleware()[0]->handle(
+                $job,
+                fn () => (new ResumableIngestTransfer($storage, $reader))->handle($staleIngest, 160),
+            );
+            self::fail('Expected changed source metadata to fail permanently.');
+        } catch (PermanentIngestException $exception) {
+            self::assertSame('The source changed while resuming ingest.', $exception->getMessage());
+        }
+
+        $job->assertFailedWith(PermanentIngestException::class);
+        self::assertSame(22, $job->maxExceptions);
+    }
+
+    public function test_failed_reports_original_before_containing_cleanup_failure(): void
+    {
+        $this->configureQueueRuntime();
+        $ingest = Ingest::factory()->create();
+        $ingest->beginUpload(
+            new SourceMetadata(5 * 1024 * 1024, 'ETag', '"source-etag"'),
+            5 * 1024 * 1024,
+            'upload-123',
+        );
+        $storage = new MemoryIngestStorage;
+        $storage->abortFailure = new \RuntimeException('S3 abort unavailable');
+        $this->app->instance(IngestStorage::class, $storage);
+        Exceptions::fake();
+        $original = new \DomainException('source request failed');
+
+        (new IngestSource($ingest->id))->failed($original);
+
+        $reported = Exceptions::reported();
+        self::assertCount(3, $reported);
+        self::assertSame($original, $reported[0]);
+        self::assertSame('S3 abort unavailable', $reported[1]->getMessage());
+        self::assertSame('Unable to clean all storage for failed ingest.', $reported[2]->getMessage());
+    }
+
+    public function test_refresh_stops_before_new_multipart_work_for_a_terminal_ingest(): void
+    {
+        $run = Run::factory()->create();
+        $ingest = Ingest::expectSource(
+            $run,
+            RunObjectKeys::input($run->id, 2, 'source.mp4'),
+            'https://source.example/video.mp4',
+        );
+        $staleIngest = Ingest::query()->findOrFail($ingest->id);
+        $ingest->markFailed();
+        $storage = new MemoryIngestStorage;
+        $reader = new RecordingSourceReader(
+            new SourceMetadata(5 * 1024 * 1024, 'ETag', '"source-etag"'),
+        );
 
         (new ResumableIngestTransfer($storage, $reader))->handle($staleIngest, 160);
+
+        self::assertSame(0, $storage->multipartUploadsStarted);
+        self::assertSame(IngestStatus::Failed, $staleIngest->status);
     }
 
     private function configureQueueRuntime(): void
@@ -167,6 +224,10 @@ final class MemoryIngestStorage implements IngestStorage
     /** @var list<string> */
     public array $deletedKeys = [];
 
+    public ?\Throwable $abortFailure = null;
+
+    public int $multipartUploadsStarted = 0;
+
     public function exists(ObjectKey $objectKey): bool
     {
         return $this->objectExists;
@@ -179,11 +240,17 @@ final class MemoryIngestStorage implements IngestStorage
 
     public function beginMultipartUpload(ObjectKey $objectKey): string
     {
+        $this->multipartUploadsStarted++;
+
         return 'upload-123';
     }
 
     public function abortMultipartUpload(ObjectKey $objectKey, string $uploadId): void
     {
+        if ($this->abortFailure !== null) {
+            throw $this->abortFailure;
+        }
+
         $this->abortedUploadIds[] = $uploadId;
         $this->parts = [];
     }

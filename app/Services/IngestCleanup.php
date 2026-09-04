@@ -55,6 +55,7 @@ final readonly class IngestCleanup
     public function sweepAbandoned(?DateTimeInterface $at = null): int
     {
         $pruned = 0;
+        $failures = [];
         $at ??= now();
 
         foreach (Ingest::query()
@@ -67,8 +68,19 @@ final readonly class IngestCleanup
                     });
             })
             ->lazyById() as $ingest) {
-            $this->fail($ingest->id);
-            $pruned++;
+            try {
+                $this->fail($ingest->id);
+                $pruned++;
+            } catch (Throwable $exception) {
+                $failures[] = $exception;
+            }
+        }
+
+        if ($failures !== []) {
+            throw new RuntimeException(
+                sprintf('Failed to clean %d abandoned ingests after completing the sweep.', count($failures)),
+                previous: $failures[0],
+            );
         }
 
         return $pruned;

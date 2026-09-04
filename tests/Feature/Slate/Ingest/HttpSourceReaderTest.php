@@ -2,10 +2,11 @@
 
 namespace Tests\Feature\Slate\Ingest;
 
+use App\Jobs\IngestSource;
 use App\Slate\Ingest\HttpSourceReader;
+use App\Slate\Ingest\PermanentIngestException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
-use RuntimeException;
 use Tests\TestCase;
 
 final class HttpSourceReaderTest extends TestCase
@@ -47,9 +48,32 @@ final class HttpSourceReaderTest extends TestCase
         Http::preventStrayRequests();
         Http::fake([$sourceUrl => Http::response('whole source', 200)]);
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(PermanentIngestException::class);
         $this->expectExceptionMessage('does not support resumable HTTP range reads');
 
         (new HttpSourceReader)->metadata($sourceUrl, 30);
+    }
+
+    public function test_classifies_forbidden_and_missing_sources_as_permanent(): void
+    {
+        foreach ([403, 404] as $status) {
+            $sourceUrl = "https://source.example/unavailable-{$status}.mp4";
+            Http::preventStrayRequests();
+            Http::fake([$sourceUrl => Http::response('unavailable', $status)]);
+            $job = (new IngestSource('11111111-1111-4111-8111-111111111111'))
+                ->withFakeQueueInteractions();
+
+            try {
+                $job->middleware()[0]->handle(
+                    $job,
+                    fn () => (new HttpSourceReader)->metadata($sourceUrl, 30),
+                );
+                self::fail("Expected HTTP {$status} to be permanent.");
+            } catch (PermanentIngestException $exception) {
+                self::assertSame("The source returned permanent HTTP status {$status}.", $exception->getMessage());
+            }
+
+            $job->assertFailedWith(PermanentIngestException::class);
+        }
     }
 }

@@ -28,7 +28,7 @@ final class HttpSourceReader implements SourceReader
                 return new SourceMetadata($bytes, 'Last-Modified', $lastModified);
             }
 
-            throw new RuntimeException('The source does not expose a stable HTTP validator for resumable ingest.');
+            throw new PermanentIngestException('The source does not expose a stable HTTP validator for resumable ingest.');
         } finally {
             $response->close();
         }
@@ -55,7 +55,7 @@ final class HttpSourceReader implements SourceReader
             $bytes = $this->assertPartialResponse($response, $startByte, $endByte);
 
             if ($bytes !== $metadata->bytes) {
-                throw new RuntimeException('The source size changed while reading a resumable range.');
+                throw new PermanentIngestException('The source size changed while reading a resumable range.');
             }
 
             return new SourcePart(
@@ -76,24 +76,32 @@ final class HttpSourceReader implements SourceReader
             throw new RuntimeException('Source request timeout must be positive.');
         }
 
-        return Http::withHeaders([...$headers, 'Accept-Encoding' => 'identity'])
+        $response = Http::withHeaders([...$headers, 'Accept-Encoding' => 'identity'])
             ->withOptions(['stream' => true])
             ->timeout($timeoutSeconds)
-            ->get($sourceUrl)
-            ->throw();
+            ->get($sourceUrl);
+
+        if (in_array($response->status(), [400, 401, 403, 404, 410, 416], true)) {
+            $status = $response->status();
+            $response->close();
+
+            throw new PermanentIngestException("The source returned permanent HTTP status {$status}.");
+        }
+
+        return $response->throw();
     }
 
     private function assertPartialResponse(Response $response, int $startByte, int $endByte): int
     {
         if ($response->status() !== 206) {
-            throw new RuntimeException('The source does not support resumable HTTP range reads.');
+            throw new PermanentIngestException('The source does not support resumable HTTP range reads.');
         }
 
         $contentRange = $response->header('Content-Range');
         $pattern = sprintf('/^bytes %d-%d\/(\d+)$/', $startByte, $endByte);
 
         if (preg_match($pattern, $contentRange, $matches) !== 1 || (int) $matches[1] < 1) {
-            throw new RuntimeException('The source returned an invalid Content-Range header.');
+            throw new PermanentIngestException('The source returned an invalid Content-Range header.');
         }
 
         return (int) $matches[1];

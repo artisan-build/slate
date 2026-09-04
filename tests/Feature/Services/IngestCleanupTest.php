@@ -11,6 +11,7 @@ use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\RunObjectKeys;
 use DateTimeInterface;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\Exceptions;
 use Psr\Http\Message\StreamInterface;
 use Tests\TestCase;
 
@@ -64,6 +65,44 @@ final class IngestCleanupTest extends TestCase
         self::assertSame(IngestStatus::Succeeded, $staleFailure->status);
         self::assertSame(IngestStatus::Succeeded, $ingest->fresh()?->status);
     }
+
+    public function test_sweep_processes_later_rows_before_reporting_cleanup_failures(): void
+    {
+        $run = Run::factory()->create();
+        $ingests = [
+            Ingest::expectDirect(
+                $run,
+                RunObjectKeys::input($run->id, 3, 'first.bin'),
+                now()->subMinute(),
+            ),
+            Ingest::expectDirect(
+                $run,
+                RunObjectKeys::input($run->id, 4, 'second.bin'),
+                now()->subMinute(),
+            ),
+        ];
+        usort($ingests, static fn (Ingest $first, Ingest $second): int => $first->id <=> $second->id);
+        [$failingIngest, $successfulIngest] = $ingests;
+        $storage = new CleanupIngestStorage;
+        $storage->objects[$failingIngest->object_key] = true;
+        $storage->objects[$successfulIngest->object_key] = true;
+        $storage->deleteFailures[$failingIngest->object_key] = true;
+        Exceptions::fake();
+
+        try {
+            (new IngestCleanup($storage))->sweepAbandoned();
+            self::fail('Expected the completed sweep to report its cleanup failure.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame(
+                'Failed to clean 1 abandoned ingests after completing the sweep.',
+                $exception->getMessage(),
+            );
+        }
+
+        self::assertSame([$successfulIngest->object_key], $storage->deletedKeys);
+        self::assertTrue($storage->objects[$failingIngest->object_key]);
+        self::assertFalse($storage->objects[$successfulIngest->object_key]);
+    }
 }
 
 final class CleanupIngestStorage implements IngestStorage
@@ -73,6 +112,9 @@ final class CleanupIngestStorage implements IngestStorage
 
     /** @var list<string> */
     public array $deletedKeys = [];
+
+    /** @var array<string, bool> */
+    public array $deleteFailures = [];
 
     public function exists(ObjectKey $objectKey): bool
     {
@@ -116,6 +158,10 @@ final class CleanupIngestStorage implements IngestStorage
 
     public function delete(ObjectKey $objectKey): void
     {
+        if ($this->deleteFailures[$objectKey->value()] ?? false) {
+            throw new \RuntimeException('S3 delete unavailable');
+        }
+
         $this->deletedKeys[] = $objectKey->value();
         $this->objects[$objectKey->value()] = false;
     }

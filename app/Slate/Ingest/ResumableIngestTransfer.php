@@ -32,12 +32,17 @@ final readonly class ResumableIngestTransfer
 
         $metadata = $this->sourceReader->metadata($ingest->sourceUrl(), $sourceRequestTimeoutSeconds);
         $ingest->refresh();
+
+        if ($ingest->status->isTerminal()) {
+            return;
+        }
+
         $objectKey = $ingest->objectKey();
         $ingest->assertSourceMetadata($metadata);
 
         if ($this->storage->exists($objectKey)) {
             if ($this->storage->size($objectKey) !== $metadata->bytes) {
-                throw new RuntimeException('An ingest object already exists with an unexpected size.');
+                throw new PermanentIngestException('An ingest object already exists with an unexpected size.');
             }
 
             return;

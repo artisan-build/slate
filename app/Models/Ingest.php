@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Slate\Ingest\PermanentIngestException;
 use App\Slate\Ingest\SourceMetadata;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\RunObjectKeys;
@@ -16,7 +17,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use LogicException;
-use RuntimeException;
 
 /**
  * @property string $id
@@ -112,13 +112,13 @@ final class Ingest extends Model
     public function assertSourceMetadata(SourceMetadata $metadata): void
     {
         if ($this->expected_bytes !== null && $this->expected_bytes !== $metadata->bytes) {
-            throw new RuntimeException('The source size changed while resuming ingest.');
+            throw new PermanentIngestException('The source size changed while resuming ingest.');
         }
 
         if ($this->source_validator_header !== null
             && ($this->source_validator_header !== $metadata->validatorHeader
                 || $this->source_validator !== $metadata->validator)) {
-            throw new RuntimeException('The source changed while resuming ingest.');
+            throw new PermanentIngestException('The source changed while resuming ingest.');
         }
     }
 

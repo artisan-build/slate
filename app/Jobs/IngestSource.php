@@ -7,10 +7,12 @@ namespace App\Jobs;
 use App\Models\Ingest;
 use App\Services\IngestCleanup;
 use App\Slate\Execution\QueueRuntimePolicy;
+use App\Slate\Ingest\PermanentIngestException;
 use App\Slate\Ingest\ResumableIngestTransfer;
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\Middleware\FailOnException;
 use LogicException;
 use Throwable;
 
@@ -21,6 +23,8 @@ final class IngestSource implements ShouldQueue
     public int $timeout;
 
     public int $sourceRequestTimeout;
+
+    public int $maxExceptions = 22;
 
     /** @var list<int> */
     public array $backoff = [1, 5];
@@ -54,8 +58,22 @@ final class IngestSource implements ShouldQueue
         return $retryUntil;
     }
 
+    /** @return list<FailOnException> */
+    public function middleware(): array
+    {
+        return [new FailOnException([PermanentIngestException::class])];
+    }
+
     public function failed(?Throwable $exception): void
     {
-        resolve(IngestCleanup::class)->fail($this->ingestId);
+        if ($exception !== null) {
+            report($exception);
+        }
+
+        try {
+            resolve(IngestCleanup::class)->fail($this->ingestId);
+        } catch (Throwable $cleanupException) {
+            report($cleanupException);
+        }
     }
 }
