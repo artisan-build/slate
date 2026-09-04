@@ -58,6 +58,8 @@ namespace App\Models{
 /**
  * @property string $id
  * @property RunStatus $status
+ * @property RunTrust $trust
+ * @property InputRejectionReason|null $rejection_reason
  * @property-read RunRecipe $recipe
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
@@ -68,7 +70,9 @@ namespace App\Models{
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereCreatedAt($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereId($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereRecipe($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereRejectionReason($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereStatus($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereTrust($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Run whereUpdatedAt($value)
  * @mixin \Eloquent
  */

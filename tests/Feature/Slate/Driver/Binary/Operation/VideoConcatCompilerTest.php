@@ -124,11 +124,15 @@ test('compiles copy mode with a compiler-owned concat manifest', function (): vo
             new FfmpegLocator('Linux', 'arm64', '/runtime'),
             new FilterGraphCompiler,
         ))->compile($operation)->command();
-        $manifestPath = $command[7];
+        $inputIndex = array_search('-i', $command, true);
+        expect($inputIndex)->toBeInt();
+        $manifestPath = $command[$inputIndex + 1];
 
         expect($command)->toBe([
-            '/runtime/ffmpeg/bin/ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', $manifestPath,
-            '-c', 'copy', $output->writablePath(),
+            '/runtime/ffmpeg/bin/ffmpeg', ...ffmpegInvocationHardeningArguments(),
+            '-y', '-f', 'concat', '-safe', '0', ...ffmpegFileInputHardeningArguments(), '-i', $manifestPath,
+            ...ffmpegOutputHardeningArguments(),
+            '-map', '0:v:0', '-map', '0:a?', '-c', 'copy', $output->writablePath(),
         ])->and(file_get_contents($manifestPath))->toBe(
             "ffconcat version 1.0\nfile '{$first->path->readablePath()}'\nfile '"
             .dirname($second->path->readablePath())."/second'\\''s.mp4'\n",

@@ -31,11 +31,15 @@ final readonly class VideoAudioMuxCompiler implements CompilesOperation
             throw new InvalidArgumentException('VideoAudioMuxCompiler can compile only VideoAudioMux operations.');
         }
 
+        $videoInput = CompiledInput::slateVideo($operation->video->path);
+
         return new CompiledRecipe($this->locator, BinaryExecutable::Ffmpeg, [
             CompiledArgument::option(CompiledOption::Overwrite),
-            CompiledInput::ffmpeg($operation->video->path),
+            $videoInput,
             CompiledInput::ffmpeg($operation->audio),
             CompiledOutput::muxedVideo(
+                $videoInput,
+                0,
                 $operation->audioBitrate,
                 $operation->video->durationSeconds,
                 $operation->output,

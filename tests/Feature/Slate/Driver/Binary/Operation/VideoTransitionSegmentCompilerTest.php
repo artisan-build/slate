@@ -40,9 +40,10 @@ test('compiles exact tail and head ranges into one short crossfade', function ()
         ))->compile($operation)->command();
         $filterIndex = array_search('-filter_complex', $command, true);
 
-        expect(array_slice($command, 0, 8))->toBe([
-            '/runtime/ffmpeg/bin/ffmpeg', '-y', '-ss', '2', '-i', $from->path->readablePath(),
-            '-i', $to->path->readablePath(),
+        expect(array_slice($command, 0, 13))->toBe([
+            '/runtime/ffmpeg/bin/ffmpeg', ...ffmpegInvocationHardeningArguments(),
+            '-y', '-ss', '2', ...ffmpegFileInputHardeningArguments(), '-i', $from->path->readablePath(),
+            ...ffmpegFileInputHardeningArguments(), '-i', $to->path->readablePath(),
         ])->and($filterIndex)->toBeInt()
             ->and($command[$filterIndex + 1])->toBe(
                 '[0:v]trim=end_frame=24,setpts=PTS-STARTPTS[from_video];'

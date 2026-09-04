@@ -13,6 +13,7 @@ enum OperationName: string
     case VideoStillClip = 'video.still_clip';
     case VideoStillClipSlice = 'video.still_clip_slice';
     case VideoAudioMux = 'video.audio_mux';
+    case VideoClip = 'video.clip';
     case VideoTrim = 'video.trim';
     case VideoTransitionSegment = 'video.transition_segment';
     case VideoConcat = 'video.concat';

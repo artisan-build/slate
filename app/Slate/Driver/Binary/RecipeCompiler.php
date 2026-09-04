@@ -11,6 +11,7 @@ use App\Slate\Driver\Binary\Operation\OverlayImageCompiler;
 use App\Slate\Driver\Binary\Operation\ProbeCompiler;
 use App\Slate\Driver\Binary\Operation\TimedWordsCompiler;
 use App\Slate\Driver\Binary\Operation\VideoAudioMuxCompiler;
+use App\Slate\Driver\Binary\Operation\VideoClipCompiler;
 use App\Slate\Driver\Binary\Operation\VideoConcatCompiler;
 use App\Slate\Driver\Binary\Operation\VideoStillClipCompiler;
 use App\Slate\Driver\Binary\Operation\VideoStillClipSliceCompiler;
@@ -47,6 +48,7 @@ final readonly class RecipeCompiler
             new VideoStillClipCompiler($locator, $filterGraphCompiler),
             new VideoStillClipSliceCompiler($locator, $filterGraphCompiler),
             new VideoAudioMuxCompiler($locator),
+            new VideoClipCompiler($locator, $filterGraphCompiler),
             new VideoTrimCompiler($locator),
             new VideoTransitionSegmentCompiler($locator, $filterGraphCompiler),
             new VideoConcatCompiler($locator, $filterGraphCompiler),

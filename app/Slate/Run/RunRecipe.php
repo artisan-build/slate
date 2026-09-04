@@ -48,6 +48,7 @@ final readonly class RunRecipe implements Arrayable, JsonSerializable
 
                 return match ($operation['operation'] ?? null) {
                     'video.still_clip' => RunStillClip::fromArray($operation, $runPrefix),
+                    'video.clip' => RunVideoClip::fromArray($operation, $runPrefix),
                     default => throw new InvalidArgumentException('Run recipe contains an unsupported operation.'),
                 };
             },

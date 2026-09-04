@@ -46,6 +46,11 @@ final class RunObjectKeys
         return self::operationKey($runId, $operationIndex, sprintf('subclips/%04d.mp4', $subIndex));
     }
 
+    public static function coarseClip(string $runId, int $operationIndex): ObjectKey
+    {
+        return self::operationKey($runId, $operationIndex, 'coarse.mp4');
+    }
+
     public static function silentConcat(string $runId, int $operationIndex): ObjectKey
     {
         return self::operationKey($runId, $operationIndex, 'silent.mp4');

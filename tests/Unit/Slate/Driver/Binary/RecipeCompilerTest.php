@@ -50,7 +50,10 @@ test('dispatches a typed timed-word operation to its one registered compiler', f
     $recipe = (new RecipeCompiler($operationCompiler))->compile($operation);
 
     expect($operation->words)->toBe($words)
-        ->and($recipe->command())->toBe(['/runtime/ffmpeg/bin/ffmpeg', '-version']);
+        ->and($recipe->command())->toBe([
+            '/runtime/ffmpeg/bin/ffmpeg', ...ffmpegInvocationHardeningArguments(),
+            ...ffmpegFileInputHardeningArguments(), '-version', ...ffmpegOutputHardeningArguments(),
+        ]);
 });
 
 test('rejects an operation without an explicitly registered compiler', function (): void {

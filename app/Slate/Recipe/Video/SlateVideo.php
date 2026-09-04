@@ -36,7 +36,7 @@ final readonly class SlateVideo
     ) {}
 
     public static function render(
-        VideoStillClip|VideoStillClipSlice|VideoAudioMux|VideoTrim|VideoTransitionSegment|VideoConcat|OverlayImage|TimedWords $operation,
+        VideoStillClip|VideoStillClipSlice|VideoAudioMux|VideoClip|VideoTrim|VideoTransitionSegment|VideoConcat|OverlayImage|TimedWords $operation,
         RecipeCompiler $compiler,
         Driver $driver,
     ): self {
@@ -83,6 +83,16 @@ final readonly class SlateVideo
                 $operation->video->qualityTier,
                 $operation->video->keyframeIntervalFrames,
                 true,
+            ],
+            $operation instanceof VideoClip => [
+                $operation->width,
+                $operation->height,
+                $operation->framesPerSecond,
+                null,
+                $operation->durationSeconds,
+                $operation->qualityTier,
+                H264OutputContract::keyframeIntervalFrames($operation->framesPerSecond),
+                null,
             ],
             $operation instanceof VideoConcat => [
                 $operation->width(),
@@ -189,7 +199,7 @@ final readonly class SlateVideo
         float $expectedDurationSeconds,
         QualityTier $qualityTier,
         ?int $keyframeIntervalFrames,
-        bool $expectedAudio,
+        ?bool $expectedAudio,
         RecipeCompiler $compiler,
         Driver $driver,
     ): self {
@@ -238,13 +248,13 @@ final readonly class SlateVideo
             );
         }
 
-        if ($expectedAudio && ! in_array(H264OutputContract::audioEncoder(), $audioCodecs, true)) {
+        if ($expectedAudio === true && ! in_array(H264OutputContract::audioEncoder(), $audioCodecs, true)) {
             $contractFailures[] = sprintf(
                 'audio.codec_name expected to include %s, probed %s',
                 self::probeValue(H264OutputContract::audioEncoder()),
                 self::probeValue($audioCodecs),
             );
-        } elseif (! $expectedAudio && $audioCodecs !== []) {
+        } elseif ($expectedAudio === false && $audioCodecs !== []) {
             $contractFailures[] = sprintf(
                 'audio.codec_name expected no audio stream, probed %s',
                 self::probeValue($audioCodecs),
@@ -321,7 +331,7 @@ final readonly class SlateVideo
             $durationSeconds,
             $qualityTier,
             $keyframeIntervalFrames,
-            $expectedAudio,
+            $audioCodecs !== [],
         );
     }
 

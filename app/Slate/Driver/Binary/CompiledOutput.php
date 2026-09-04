@@ -8,17 +8,58 @@ use App\Slate\Recipe\Audio\AudioBitrate;
 use App\Slate\Recipe\Audio\AudioChannelLayout;
 use App\Slate\Recipe\QualityTier;
 use App\Slate\Storage\ScratchPath;
+use LogicException;
 
 /** An atomic ordered output scope containing its codec selection and destination path. */
 final readonly class CompiledOutput
 {
-    /**
-     * @param  non-empty-list<string>  $commandValues
-     */
+    private const int MaximumOutputBytes = 16 * 1024 * 1024 * 1024;
+
+    private const int MaximumOutputDurationSeconds = 86_400;
+
+    /** @var non-empty-list<string> */
+    private array $commandValues;
+
+    /** @param non-empty-list<string> $commandValues */
     private function __construct(
-        private array $commandValues,
+        array $commandValues,
         private ?CompiledFilterType $videoFilterType = null,
-    ) {}
+        private ?CompiledInput $copiedVideoInput = null,
+        private ?int $copiedVideoInputIndex = null,
+        bool $consumerDeliverable = false,
+    ) {
+        if (($copiedVideoInput === null) !== ($copiedVideoInputIndex === null)
+            || ($copiedVideoInputIndex !== null && $copiedVideoInputIndex < 0)) {
+            throw new LogicException('A copied video output requires a non-negative bound input index.');
+        }
+
+        if ($copiedVideoInput !== null && $copiedVideoInput->videoOrigin() === null) {
+            throw new LogicException('A copied video output requires typed input provenance.');
+        }
+
+        if ($consumerDeliverable
+            && $copiedVideoInput?->videoOrigin() === CompiledVideoOrigin::SourceDerived) {
+            throw new LogicException('A consumer deliverable cannot stream-copy source-derived video bytes.');
+        }
+
+        $this->commandValues = [
+            ...self::hardeningCommandValues(),
+            ...$commandValues,
+        ];
+    }
+
+    /** @return list<string> */
+    public static function hardeningCommandValues(): array
+    {
+        return [
+            CompiledOption::MapMetadata->value,
+            CompiledLiteral::NegativeOne->value,
+            CompiledOption::Duration->value,
+            (string) self::MaximumOutputDurationSeconds,
+            CompiledOption::MaximumFileSize->value,
+            (string) self::MaximumOutputBytes,
+        ];
+    }
 
     public static function h264(
         CompiledH264FilterGraph $filterGraph,
@@ -68,13 +109,15 @@ final readonly class CompiledOutput
     }
 
     public static function muxedVideo(
+        CompiledInput $videoInput,
+        int $videoInputIndex,
         AudioBitrate $audioBitrate,
         float $durationSeconds,
         ScratchPath $output,
     ): self {
         return new self([
             '-map',
-            CompiledLiteral::VideoInputZero->value,
+            self::videoStream($videoInputIndex),
             '-map',
             CompiledLiteral::AudioInputOne->value,
             '-c:v',
@@ -86,13 +129,14 @@ final readonly class CompiledOutput
             '-t',
             CompiledArgument::seconds($durationSeconds)->value(),
             $output->writablePath(),
-        ]);
+        ], copiedVideoInput: $videoInput, copiedVideoInputIndex: $videoInputIndex, consumerDeliverable: true);
     }
 
     public static function mp3(
         AudioBitrate $bitrate,
         ScratchPath $output,
         ?AudioChannelLayout $channels = null,
+        ?float $durationSeconds = null,
     ): self {
         $channelValues = match ($channels) {
             AudioChannelLayout::Mono => ['-ac', '1'],
@@ -101,6 +145,10 @@ final readonly class CompiledOutput
         };
 
         return new self([
+            ...($durationSeconds === null ? [] : [
+                CompiledOption::Duration->value,
+                CompiledArgument::seconds($durationSeconds)->value(),
+            ]),
             '-c:a',
             CompiledLiteral::Libmp3lame->value,
             ...$channelValues,
@@ -123,13 +171,46 @@ final readonly class CompiledOutput
         ]);
     }
 
-    public static function copiedVideo(ScratchPath $output): self
-    {
+    public static function copiedVideo(
+        CompiledInput $videoInput,
+        int $videoInputIndex,
+        ScratchPath $output,
+        ?float $durationSeconds = null,
+    ): self {
         return new self([
+            ...($durationSeconds === null ? [] : [
+                CompiledOption::Duration->value,
+                CompiledArgument::seconds($durationSeconds)->value(),
+            ]),
+            '-map',
+            self::videoStream($videoInputIndex),
+            '-map',
+            self::optionalAudioStream($videoInputIndex),
             '-c',
             CompiledLiteral::Copy->value,
             $output->writablePath(),
-        ]);
+        ], copiedVideoInput: $videoInput, copiedVideoInputIndex: $videoInputIndex, consumerDeliverable: true);
+    }
+
+    public static function copiedIntermediateVideo(
+        CompiledInput $videoInput,
+        int $videoInputIndex,
+        ScratchPath $output,
+        ?float $durationSeconds = null,
+    ): self {
+        return new self([
+            ...($durationSeconds === null ? [] : [
+                CompiledOption::Duration->value,
+                CompiledArgument::seconds($durationSeconds)->value(),
+            ]),
+            '-map',
+            self::videoStream($videoInputIndex),
+            '-map',
+            self::optionalAudioStream($videoInputIndex),
+            '-c',
+            CompiledLiteral::Copy->value,
+            $output->writablePath(),
+        ], copiedVideoInput: $videoInput, copiedVideoInputIndex: $videoInputIndex);
     }
 
     public static function jpeg(ScratchPath $output): self
@@ -183,5 +264,25 @@ final readonly class CompiledOutput
     public function videoFilterType(): ?CompiledFilterType
     {
         return $this->videoFilterType;
+    }
+
+    public function copiedVideoInput(): ?CompiledInput
+    {
+        return $this->copiedVideoInput;
+    }
+
+    public function copiedVideoInputIndex(): ?int
+    {
+        return $this->copiedVideoInputIndex;
+    }
+
+    private static function videoStream(int $inputIndex): string
+    {
+        return $inputIndex.':v:0';
+    }
+
+    private static function optionalAudioStream(int $inputIndex): string
+    {
+        return $inputIndex.':a?';
     }
 }

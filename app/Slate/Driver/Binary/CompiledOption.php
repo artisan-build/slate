@@ -19,10 +19,14 @@ enum CompiledOption: string
     case LogLevel = '-loglevel';
     case Loop = '-loop';
     case Map = '-map';
+    case MapMetadata = '-map_metadata';
+    case MaximumFileSize = '-fs';
+    case NoStdin = '-nostdin';
     case OutputFormat = '-of';
     case OutputFrameRate = '-r';
     case Overwrite = '-y';
     case PixelFormat = '-pix_fmt';
+    case ProtocolWhitelist = '-protocol_whitelist';
     case RateControlMode = '-rc_mode';
     case Safe = '-safe';
     case Seek = '-ss';
@@ -53,6 +57,7 @@ enum CompiledOption: string
             self::Encoders,
             self::Filters,
             self::HideBanner,
+            self::NoStdin,
             self::Overwrite,
             self::ShowFormat,
             self::ShowStreams,

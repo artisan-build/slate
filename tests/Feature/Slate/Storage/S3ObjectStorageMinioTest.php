@@ -19,6 +19,7 @@ use App\Slate\Ingest\ResumableIngestTransfer;
 use App\Slate\Ingest\SourceMetadata;
 use App\Slate\Ingest\SourcePart;
 use App\Slate\Ingest\SourceReader;
+use App\Slate\Input\InputAdmission;
 use App\Slate\Recipe\QualityTier;
 use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\IngestStorage;
@@ -269,8 +270,10 @@ test('moves queued work and resumes a partially uploaded ingest through MinIO', 
         $sourceBytes = (10 * 1024 * 1024) + 17;
         $sourceStream = fopen('php://temp/maxmemory:1048576', 'w+b');
         expect($sourceStream)->toBeResource();
+        $magic = "\0\0\0\x18ftypisom\0\0\0\0isom";
+        fwrite($sourceStream, $magic);
 
-        for ($remaining = $sourceBytes; $remaining > 0; $remaining -= min($remaining, 1024 * 1024)) {
+        for ($remaining = $sourceBytes - strlen($magic); $remaining > 0; $remaining -= min($remaining, 1024 * 1024)) {
             $bytes = min($remaining, 1024 * 1024);
             fwrite($sourceStream, str_repeat('r', $bytes));
         }
@@ -326,9 +329,14 @@ test('moves queued work and resumes a partially uploaded ingest through MinIO', 
             }
         };
 
-        (new IngestSource($ingest->id))->handle(new ResumableIngestTransfer($ingestStorage, $recordingReader));
+        (new IngestSource($ingest->id))->handle(new ResumableIngestTransfer(
+            $ingestStorage,
+            $recordingReader,
+            new InputAdmission,
+        ));
 
         expect($recordingReader->ranges)->toBe([
+            [0, (64 * 1024) - 1],
             [5 * 1024 * 1024, (10 * 1024 * 1024) - 1],
             [10 * 1024 * 1024, $sourceBytes - 1],
         ])->and(Storage::disk()->size($targetKey->value()))->toBe($sourceBytes)
@@ -377,7 +385,7 @@ test('moves queued work and resumes a partially uploaded ingest through MinIO', 
         });
 
         try {
-            expect(fn () => (new ResumableIngestTransfer($ingestStorage, $sourceReader))
+            expect(fn () => (new ResumableIngestTransfer($ingestStorage, $sourceReader, new InputAdmission))
                 ->handle($compensationIngest, 60))
                 ->toThrow(RuntimeException::class, 'simulated ingest state persistence failure');
         } finally {

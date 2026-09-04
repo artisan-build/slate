@@ -6,16 +6,21 @@ namespace App\Services;
 
 use App\Models\Run;
 use App\Models\RunStatus;
+use App\Slate\Input\InputRejectionReason;
 
 final readonly class RunFailure
 {
     public function __construct(private RunCleanup $cleanup) {}
 
-    public function handle(string $runId): void
+    public function handle(string $runId, ?InputRejectionReason $rejectionReason = null): void
     {
         $run = Run::query()->findOrFail($runId);
 
-        $run->transitionTo(RunStatus::Failed);
+        if ($rejectionReason === null) {
+            $run->transitionTo(RunStatus::Failed);
+        } else {
+            $run->reject($rejectionReason);
+        }
 
         if ($run->status === RunStatus::Failed) {
             $this->cleanup->allObjects($run);

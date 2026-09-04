@@ -18,11 +18,14 @@ test('compiles leading and trailing padding to a bounded audio filter', function
 
         expect($recipe->command())->toBe([
             '/runtime/ffmpeg/bin/ffmpeg',
+            ...ffmpegInvocationHardeningArguments(),
             '-y',
+            ...ffmpegFileInputHardeningArguments(),
             '-i',
             $input->readablePath(),
             '-af',
             'adelay=delays=350:all=1,apad=pad_dur=1.25',
+            ...ffmpegOutputHardeningArguments(),
             '-c:a',
             'libmp3lame',
             '-b:a',

@@ -6,11 +6,15 @@ use App\Jobs\IngestSource;
 use App\Models\Ingest;
 use App\Models\IngestStatus;
 use App\Models\Run;
+use App\Models\RunStatus;
 use App\Slate\Ingest\PermanentIngestException;
 use App\Slate\Ingest\ResumableIngestTransfer;
 use App\Slate\Ingest\SourceMetadata;
 use App\Slate\Ingest\SourcePart;
 use App\Slate\Ingest\SourceReader;
+use App\Slate\Input\InputAdmission;
+use App\Slate\Input\InputRejectedException;
+use App\Slate\Input\InputRejectionReason;
 use App\Slate\Storage\IngestStorage;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\RunObjectKeys;
@@ -58,7 +62,10 @@ final class IngestSourceTest extends TestCase
         self::assertSame('2026-09-04 13:06:00', $retryUntil->format('Y-m-d H:i:s'));
         self::assertSame($retryUntil->getTimestamp(), $redeliveredJob->retryUntil()->getTimestamp());
         self::assertFalse(property_exists($job, 'tries'));
-        self::assertSame([[5 * 1024 * 1024, (5 * 1024 * 1024) + 3, 880]], $reader->ranges);
+        self::assertSame([
+            [0, (64 * 1024) - 1, 880],
+            [5 * 1024 * 1024, (5 * 1024 * 1024) + 3, 880],
+        ], $reader->ranges);
         self::assertSame([1 => '"part-1"', 2 => '"part-2"'], $storage->completedParts);
         self::assertSame(IngestStatus::Succeeded, $ingest->status);
         self::assertNull($ingest->source_url);
@@ -111,7 +118,7 @@ final class IngestSourceTest extends TestCase
         try {
             $job->middleware()[0]->handle(
                 $job,
-                fn () => (new ResumableIngestTransfer($storage, $reader))->handle($staleIngest, 160),
+                fn () => (new ResumableIngestTransfer($storage, $reader, new InputAdmission))->handle($staleIngest, 160),
             );
             self::fail('Expected changed source metadata to fail permanently.');
         } catch (PermanentIngestException $exception) {
@@ -161,10 +168,35 @@ final class IngestSourceTest extends TestCase
             new SourceMetadata(5 * 1024 * 1024, 'ETag', '"source-etag"'),
         );
 
-        (new ResumableIngestTransfer($storage, $reader))->handle($staleIngest, 160);
+        (new ResumableIngestTransfer($storage, $reader, new InputAdmission))->handle($staleIngest, 160);
 
         self::assertSame(0, $storage->multipartUploadsStarted);
         self::assertSame(IngestStatus::Failed, $staleIngest->status);
+    }
+
+    public function test_rejects_an_oversized_source_before_starting_multipart_upload(): void
+    {
+        config()->set('slate.ingest.maximum_source_bytes', 1024);
+        $ingest = Ingest::factory()->create();
+        $storage = new MemoryIngestStorage;
+        $reader = new RecordingSourceReader(new SourceMetadata(1025, 'ETag', '"large"'));
+
+        try {
+            (new IngestSource($ingest->id))->handle(
+                new ResumableIngestTransfer($storage, $reader, new InputAdmission),
+            );
+            self::fail('Expected oversized source rejection.');
+        } catch (InputRejectedException $exception) {
+            self::assertSame(InputRejectionReason::SourceTooLarge, $exception->reason);
+        }
+
+        self::assertSame(0, $storage->multipartUploadsStarted);
+        self::assertSame([], $reader->ranges);
+        self::assertSame(RunStatus::Failed, $ingest->run()->firstOrFail()->status);
+        self::assertSame(
+            InputRejectionReason::SourceTooLarge,
+            $ingest->run()->firstOrFail()->rejection_reason,
+        );
     }
 
     private function configureQueueRuntime(): void
@@ -186,7 +218,10 @@ final class RecordingSourceReader implements SourceReader
     /** @var list<array{int, int, int}> */
     public array $ranges = [];
 
-    public function __construct(private readonly SourceMetadata $sourceMetadata) {}
+    public function __construct(
+        private readonly SourceMetadata $sourceMetadata,
+        private readonly string $initialBytes = "\0\0\0\x18ftypisom\0\0\0\0isom",
+    ) {}
 
     public function metadata(string $sourceUrl, int $timeoutSeconds): SourceMetadata
     {
@@ -202,7 +237,10 @@ final class RecordingSourceReader implements SourceReader
     ): SourcePart {
         $this->ranges[] = [$startByte, $endByte, $timeoutSeconds];
 
-        return new SourcePart(Utils::streamFor('remaining source bytes'), $endByte - $startByte + 1);
+        return new SourcePart(
+            Utils::streamFor($startByte === 0 ? $this->initialBytes : 'remaining source bytes'),
+            $endByte - $startByte + 1,
+        );
     }
 }
 

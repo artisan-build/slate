@@ -9,6 +9,8 @@ use App\Slate\Driver\Binary\CompiledArgument;
 use App\Slate\Driver\Binary\CompiledArgumentKind;
 use App\Slate\Driver\Binary\CompiledFilterType;
 use App\Slate\Driver\Binary\CompiledInput;
+use App\Slate\Driver\Binary\CompiledLiteral;
+use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\CompiledOutput;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use InvalidArgumentException;
@@ -25,6 +27,11 @@ final readonly class CompiledRecipe
         array $arguments,
         private ?string $workingDirectory = null,
     ) {
+        $compiledInputs = array_values(array_filter(
+            $arguments,
+            static fn (mixed $argument): bool => $argument instanceof CompiledInput,
+        ));
+
         foreach ($arguments as $argument) {
             if (! $argument instanceof CompiledArgument
                 && ! $argument instanceof CompiledInput
@@ -34,6 +41,12 @@ final readonly class CompiledRecipe
 
             if ($argument instanceof CompiledInput && ! $argument->supports($executable)) {
                 throw new LogicException('A compiled input cannot be used with a different executable.');
+            }
+
+            if ($argument instanceof CompiledOutput
+                && $argument->copiedVideoInput() !== null
+                && ($compiledInputs[$argument->copiedVideoInputIndex()] ?? null) !== $argument->copiedVideoInput()) {
+                throw new LogicException('A copied video output map must select its exact bound input index.');
             }
         }
 
@@ -116,6 +129,10 @@ final readonly class CompiledRecipe
             $arguments,
             static fn (CompiledArgument|CompiledInput|CompiledOutput $argument): bool => $argument instanceof CompiledOutput,
         );
+        $hasInput = array_any(
+            $arguments,
+            static fn (CompiledArgument|CompiledInput|CompiledOutput $argument): bool => $argument instanceof CompiledInput,
+        );
 
         if ($hasDiagnosticOption && $hasFileOutput) {
             throw new LogicException('Diagnostic early-exit options cannot be combined with a file output.');
@@ -127,7 +144,16 @@ final readonly class CompiledRecipe
 
         $this->command = [
             $executable->path($locator),
+            ...($executable === BinaryExecutable::Ffmpeg
+                ? [CompiledOption::NoStdin->value]
+                : []),
+            ...($executable === BinaryExecutable::Ffmpeg && ! $hasInput
+                ? [CompiledOption::ProtocolWhitelist->value, CompiledLiteral::FileProtocol->value]
+                : []),
             ...$argumentValues,
+            ...($executable === BinaryExecutable::Ffmpeg && ! $hasFileOutput
+                ? CompiledOutput::hardeningCommandValues()
+                : []),
         ];
     }
 

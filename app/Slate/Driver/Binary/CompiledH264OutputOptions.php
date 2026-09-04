@@ -54,6 +54,14 @@ final readonly class CompiledH264OutputOptions
         ]);
     }
 
+    public static function videoClip(float $durationSeconds): self
+    {
+        return new self([
+            '-t',
+            CompiledArgument::seconds($durationSeconds)->value(),
+        ]);
+    }
+
     public static function concat(): self
     {
         return new self(['-map', CompiledLiteral::AudioOutputLabel->value]);

@@ -13,6 +13,7 @@ test('exposes only the named v1 operation allowlist', function (): void {
         'video.still_clip',
         'video.still_clip_slice',
         'video.audio_mux',
+        'video.clip',
         'video.trim',
         'video.transition_segment',
         'video.concat',

@@ -34,6 +34,7 @@ test('compiles a media probe and matches only the concrete probe operation', fun
                 '-show_streams',
                 '-of',
                 'json',
+                ...ffmpegFileInputHardeningArguments(),
                 $input->readablePath(),
             ]);
     });

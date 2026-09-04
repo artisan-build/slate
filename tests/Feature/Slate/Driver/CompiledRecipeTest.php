@@ -26,7 +26,14 @@ test('accepts compiler-owned scratch paths as local binary arguments', function 
             [CompiledInput::ffmpeg($input)],
         );
 
-        expect($recipe->command())->toBe(['/runtime/ffmpeg/bin/ffmpeg', '-i', $input->readablePath()]);
+        expect($recipe->command())->toBe([
+            '/runtime/ffmpeg/bin/ffmpeg',
+            ...ffmpegInvocationHardeningArguments(),
+            ...ffmpegFileInputHardeningArguments(),
+            '-i',
+            $input->readablePath(),
+            ...ffmpegOutputHardeningArguments(),
+        ]);
     });
 });
 
@@ -195,6 +202,9 @@ test('keeps codec selection inside the same ordered output unit as its path', fu
 
         expect($recipe->command())->toBe([
             '/runtime/ffmpeg/bin/ffmpeg',
+            ...ffmpegInvocationHardeningArguments(),
+            ...ffmpegFileInputHardeningArguments(),
+            ...ffmpegOutputHardeningArguments(),
             '-c:v',
             'mjpeg',
             '-f',
@@ -220,9 +230,76 @@ test('supports multiple independently scoped outputs with different media codecs
 
         expect($recipe->command())->toBe([
             '/runtime/ffmpeg/bin/ffmpeg',
+            ...ffmpegInvocationHardeningArguments(),
+            ...ffmpegFileInputHardeningArguments(),
+            ...ffmpegOutputHardeningArguments(),
             '-c:a', 'copy', '-f', 'mp3', $audio->writablePath(),
+            ...ffmpegOutputHardeningArguments(),
             '-c:v', 'mjpeg', '-f', 'image2', $image->writablePath(),
         ]);
+    });
+});
+
+test('rejects source-derived video copy into a consumer deliverable but permits a typed intermediate', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $source = $scratch->file('source.mp4');
+        file_put_contents($source->writablePath(), 'source video');
+        $sourceInput = CompiledInput::sourceVideo($source);
+        $intermediate = CompiledOutput::copiedIntermediateVideo(
+            $sourceInput,
+            0,
+            $scratch->file('coarse.mp4'),
+            10.0,
+        );
+
+        $recipe = new CompiledRecipe(
+            new FfmpegLocator('Linux', 'arm64', '/runtime'),
+            BinaryExecutable::Ffmpeg,
+            [$sourceInput, $intermediate],
+        );
+
+        expect($recipe->command())->toContain('-c', 'copy')
+            ->and(fn (): CompiledOutput => CompiledOutput::copiedVideo(
+                $sourceInput,
+                0,
+                $scratch->file('deliverable.mp4'),
+                10.0,
+            ))->toThrow(LogicException::class, 'cannot stream-copy source-derived video bytes');
+    });
+});
+
+test('rejects a two-input copy whose map does not select its bound input', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $sourceVideo = $scratch->file('source.mp4');
+        $slateVideo = $scratch->file('slate.mp4');
+        file_put_contents($sourceVideo->writablePath(), 'source video');
+        file_put_contents($slateVideo->writablePath(), 'slate video');
+        $sourceInput = CompiledInput::sourceVideo($sourceVideo);
+        $boundInput = CompiledInput::slateVideo($slateVideo);
+        $mismatchedOutput = CompiledOutput::copiedVideo(
+            $boundInput,
+            0,
+            $scratch->file('mismatched.mp4'),
+        );
+
+        expect(fn (): CompiledRecipe => new CompiledRecipe(
+            new FfmpegLocator('Linux', 'arm64', '/runtime'),
+            BinaryExecutable::Ffmpeg,
+            [$sourceInput, $boundInput, $mismatchedOutput],
+        ))->toThrow(LogicException::class, 'map must select its exact bound input index');
+
+        $mappedOutput = CompiledOutput::copiedVideo(
+            $boundInput,
+            1,
+            $scratch->file('mapped.mp4'),
+        );
+        $mappedRecipe = new CompiledRecipe(
+            new FfmpegLocator('Linux', 'arm64', '/runtime'),
+            BinaryExecutable::Ffmpeg,
+            [$sourceInput, $boundInput, $mappedOutput],
+        );
+
+        expect($mappedRecipe->command())->toContain('-map', '1:v:0', '1:a?');
     });
 });
 

@@ -26,17 +26,22 @@ test('compiles copy mode with a compiler-owned concat manifest', function (): vo
 
         $recipe = (new AudioConcatCompiler(new FfmpegLocator('Linux', 'arm64', '/runtime')))->compile($operation);
         $command = $recipe->command();
-        $manifestPath = $command[7];
+        $inputIndex = array_search('-i', $command, true);
+        expect($inputIndex)->toBeInt();
+        $manifestPath = $command[$inputIndex + 1];
 
         expect($command)->toBe([
             '/runtime/ffmpeg/bin/ffmpeg',
+            ...ffmpegInvocationHardeningArguments(),
             '-y',
             '-f',
             'concat',
             '-safe',
             '0',
+            ...ffmpegFileInputHardeningArguments(),
             '-i',
             $manifestPath,
+            ...ffmpegOutputHardeningArguments(),
             '-c:a',
             'copy',
             '-f',
@@ -67,21 +72,26 @@ test('compiles reencode mode with inline silence in item order', function (): vo
 
         expect($recipe->command())->toBe([
             '/runtime/ffmpeg/bin/ffmpeg',
+            ...ffmpegInvocationHardeningArguments(),
             '-y',
+            ...ffmpegFileInputHardeningArguments(),
             '-i',
             $first->readablePath(),
             '-f',
             'lavfi',
             '-t',
             '0.75',
+            ...ffmpegFileInputHardeningArguments(),
             '-i',
             'anullsrc=r=44100:cl=mono',
+            ...ffmpegFileInputHardeningArguments(),
             '-i',
             $second->readablePath(),
             '-filter_complex',
             '[0:a][1:a][2:a]concat=n=3:v=0:a=1[audio]',
             '-map',
             '[audio]',
+            ...ffmpegOutputHardeningArguments(),
             '-c:a',
             'libmp3lame',
             '-b:a',

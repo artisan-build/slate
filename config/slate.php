@@ -47,7 +47,19 @@ return [
     ],
     'ingest' => [
         'part_size_bytes' => 8 * 1024 * 1024,
-        // 22 attempts x 170s of work exceeds the intended 3600s, across 22 observed 180s windows.
+        'maximum_source_bytes' => 8 * 1024 * 1024 * 1024,
+        // 8 GiB in 3740s of available work requires 2.19 MiB/s; the remaining 220s cover redelivery.
         'retry_deadline_seconds' => 22 * 180,
+    ],
+    'input' => [
+        'maximum_duration_seconds' => 4 * 60 * 60,
+        'maximum_width' => 4096,
+        'maximum_height' => 4096,
+        'maximum_streams' => 8,
+        'maximum_frame_rate' => 60,
+        'decode_codecs' => [
+            'aac', 'av1', 'flac', 'h264', 'hevc', 'mjpeg', 'mp3', 'mpeg4', 'opus', 'pcm_s16le',
+            'pcm_s24le', 'prores', 'vorbis', 'vp8', 'vp9',
+        ],
     ],
 ];

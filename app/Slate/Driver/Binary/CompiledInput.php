@@ -13,21 +13,53 @@ final readonly class CompiledInput
     private function __construct(
         private array $commandValues,
         private BinaryExecutable $executable,
+        private ?CompiledVideoOrigin $videoOrigin = null,
     ) {}
 
     public static function ffmpeg(ScratchPath $input): self
     {
-        return new self(['-i', $input->readablePath()], BinaryExecutable::Ffmpeg);
+        return self::ffmpegFile($input);
+    }
+
+    public static function slateVideo(ScratchPath $input): self
+    {
+        return self::ffmpegFile($input, CompiledVideoOrigin::SlateEncoded);
+    }
+
+    public static function sourceVideo(ScratchPath $input): self
+    {
+        return self::ffmpegFile($input, CompiledVideoOrigin::SourceDerived);
+    }
+
+    private static function ffmpegFile(
+        ScratchPath $input,
+        ?CompiledVideoOrigin $videoOrigin = null,
+    ): self {
+        return new self([
+            CompiledOption::ProtocolWhitelist->value,
+            CompiledLiteral::FileProtocol->value,
+            '-i',
+            $input->readablePath(),
+        ], BinaryExecutable::Ffmpeg, $videoOrigin);
     }
 
     public static function lavfi(LavfiInput $input): self
     {
-        return new self(['-i', $input->value], BinaryExecutable::Ffmpeg);
+        return new self([
+            CompiledOption::ProtocolWhitelist->value,
+            CompiledLiteral::FileProtocol->value,
+            '-i',
+            $input->value,
+        ], BinaryExecutable::Ffmpeg);
     }
 
     public static function ffprobe(ScratchPath $input): self
     {
-        return new self([$input->readablePath()], BinaryExecutable::Ffprobe);
+        return new self([
+            CompiledOption::ProtocolWhitelist->value,
+            CompiledLiteral::FileProtocol->value,
+            $input->readablePath(),
+        ], BinaryExecutable::Ffprobe);
     }
 
     /** @return non-empty-list<string> */
@@ -39,5 +71,10 @@ final readonly class CompiledInput
     public function supports(BinaryExecutable $executable): bool
     {
         return $this->executable === $executable;
+    }
+
+    public function videoOrigin(): ?CompiledVideoOrigin
+    {
+        return $this->videoOrigin;
     }
 }
