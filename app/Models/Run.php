@@ -47,7 +47,7 @@ final class Run extends Model
         return $this->recipe;
     }
 
-    public function getRecipeAttribute(mixed $value): RunRecipe
+    protected function getRecipeAttribute(mixed $value): RunRecipe
     {
         if (! is_string($value)) {
             throw new InvalidArgumentException('Stored run recipe must be JSON.');

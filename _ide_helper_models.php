@@ -15,7 +15,7 @@ namespace App\Models{
 /**
  * @property string $id
  * @property RunStatus $status
- * @property string $recipe
+ * @property-read RunRecipe $recipe
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  * @method static \Database\Factories\RunFactory factory($count = null, $state = [])
