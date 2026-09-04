@@ -23,6 +23,20 @@ final class RunObjectKeys
         return self::operationKey($runId, $operationIndex, 'output.mp4');
     }
 
+    public static function input(string $runId, int $inputIndex, string $filename): ObjectKey
+    {
+        if ($inputIndex < 0 || $filename === '' || basename($filename) !== $filename) {
+            throw new InvalidArgumentException('Run input keys require a non-negative index and plain filename.');
+        }
+
+        $prefix = self::prefix($runId);
+
+        return ObjectKey::withinPrefix(
+            $prefix,
+            sprintf('%s/inputs/%04d/%s', $prefix, $inputIndex, $filename),
+        );
+    }
+
     public static function subClip(string $runId, int $operationIndex, int $subIndex): ObjectKey
     {
         if ($subIndex < 0) {

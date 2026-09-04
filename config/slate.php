@@ -23,8 +23,14 @@ return [
         'font_path' => resource_path('fonts/NotoSans[wdth,wght].ttf'),
     ],
     'execution' => [
-        'render_queue' => 'render',
+        'render_queue' => 'default',
+        'ingest_queue' => 'ingest',
         'visibility_window_fallback_seconds' => 180,
+        'visibility_window_fallback_seconds_by_queue' => [
+            'default' => 180,
+            // Intended: 3600. The Cloud CLI cannot set this; raising it requires a Cloud dashboard change.
+            'ingest' => 180,
+        ],
         'job_timeout_margin_seconds' => 10,
         'driver_timeout_margin_seconds' => 10,
         'output_budget_margin' => 0.8,
@@ -38,5 +44,10 @@ return [
     'storage' => [
         'scratch_path' => storage_path('app/slate-jobs'),
         'allow_host_local_fanout' => env('SLATE_ALLOW_HOST_LOCAL_FANOUT', false),
+    ],
+    'ingest' => [
+        'part_size_bytes' => 8 * 1024 * 1024,
+        // 22 attempts x 170s of work exceeds the intended 3600s, across 22 observed 180s windows.
+        'retry_deadline_seconds' => 22 * 180,
     ],
 ];

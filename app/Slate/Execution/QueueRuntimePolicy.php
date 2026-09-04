@@ -81,7 +81,7 @@ final readonly class QueueRuntimePolicy
     {
         if ($this->config->get("queue.connections.{$connection}.driver") === 'cloud') {
             return [
-                $this->positiveIntConfig('slate.execution.visibility_window_fallback_seconds'),
+                $this->fallbackVisibilityWindow($queue),
                 VisibilityWindowSource::ConfiguredFallback,
             ];
         }
@@ -103,9 +103,18 @@ final readonly class QueueRuntimePolicy
         }
 
         return [
-            $this->positiveIntConfig('slate.execution.visibility_window_fallback_seconds'),
+            $this->fallbackVisibilityWindow($queue),
             VisibilityWindowSource::ConfiguredFallback,
         ];
+    }
+
+    private function fallbackVisibilityWindow(string $queue): int
+    {
+        $namedWindow = $this->positiveInt($this->config->get(
+            "slate.execution.visibility_window_fallback_seconds_by_queue.{$queue}",
+        ));
+
+        return $namedWindow ?? $this->positiveIntConfig('slate.execution.visibility_window_fallback_seconds');
     }
 
     private function positiveIntConfig(string $key): int

@@ -20,6 +20,7 @@ function configuredQueueRuntime(
     float $intermediateRate = 0.389,
 ): QueueRuntimeSettings {
     config()->set('queue.default', 'policy_test');
+    config()->set('slate.execution.render_queue', 'render');
     config()->set('queue.connections.policy_test', [
         'driver' => 'database',
         'retry_after' => $window + 30,
@@ -100,6 +101,27 @@ test('uses the observable fallback instead of interpreting an unknown cloud queu
     expect($settings->visibilityWindowSeconds)->toBe(240)
         ->and($settings->visibilityWindowSource)->toBe(VisibilityWindowSource::ConfiguredFallback)
         ->and($settings->usedFallback())->toBeTrue();
+});
+
+test('derives separate cloud runtime limits from the configured render and ingest queue windows', function (): void {
+    config()->set('queue.default', 'cloud_test');
+    config()->set('queue.connections.cloud_test', ['driver' => 'cloud']);
+    config()->set('slate.execution.visibility_window_fallback_seconds_by_queue', [
+        'default' => 180,
+        'ingest' => 3600,
+    ]);
+
+    $render = resolve(QueueRuntimePolicy::class)->forQueue('default');
+    $ingest = resolve(QueueRuntimePolicy::class)->forQueue('ingest');
+
+    expect($render->queue)->toBe('default')
+        ->and($render->visibilityWindowSeconds)->toBe(180)
+        ->and($render->jobTimeoutSeconds)->toBe(170)
+        ->and($render->driverTimeoutSeconds)->toBe(160)
+        ->and($ingest->queue)->toBe('ingest')
+        ->and($ingest->visibilityWindowSeconds)->toBe(3600)
+        ->and($ingest->jobTimeoutSeconds)->toBe(3590)
+        ->and($ingest->driverTimeoutSeconds)->toBe(3580);
 });
 
 test('reports the configured conservative fallback when the queue exposes no window', function (): void {

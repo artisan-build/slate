@@ -14,6 +14,49 @@
 namespace App\Models{
 /**
  * @property string $id
+ * @property string $run_id
+ * @property string $object_key
+ * @property IngestMode $mode
+ * @property IngestStatus $status
+ * @property string|null $source_url
+ * @property int|null $expected_bytes
+ * @property string|null $source_validator_header
+ * @property string|null $source_validator
+ * @property int|null $part_size_bytes
+ * @property string|null $multipart_upload_id
+ * @property CarbonImmutable|null $retry_until
+ * @property CarbonImmutable|null $expires_at
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property-read \App\Models\Run $run
+ * @method static \Database\Factories\IngestFactory factory($count = null, $state = [])
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest newModelQuery()
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest newQuery()
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest query()
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereCreatedAt($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereExpectedBytes($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereExpiresAt($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereId($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereMode($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereMultipartUploadId($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereObjectKey($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest wherePartSizeBytes($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereRetryUntil($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereRunId($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereSourceUrl($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereSourceValidator($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereSourceValidatorHeader($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereStatus($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Ingest whereUpdatedAt($value)
+ * @mixin \Eloquent
+ */
+	#[\AllowDynamicProperties]
+	final class IdeHelperIngest {}
+}
+
+namespace App\Models{
+/**
+ * @property string $id
  * @property RunStatus $status
  * @property-read RunRecipe $recipe
  * @property \Illuminate\Support\Carbon|null $created_at
