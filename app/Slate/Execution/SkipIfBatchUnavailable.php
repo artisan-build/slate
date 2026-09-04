@@ -4,16 +4,17 @@ declare(strict_types=1);
 
 namespace App\Slate\Execution;
 
+use App\Jobs\RenderFanoutOperation;
 use App\Jobs\RenderRunOperation;
 use Closure;
 
 final class SkipIfBatchUnavailable
 {
-    public function handle(RenderRunOperation $job, Closure $next): mixed
+    public function handle(RenderFanoutOperation|RenderRunOperation $job, Closure $next): mixed
     {
         $batch = $job->batch();
 
-        if ($job->batchId !== null && ($batch === null || $batch->cancelled())) {
+        if ($batch?->cancelled() || ($job->batchId !== null && $batch === null)) {
             return null;
         }
 

@@ -11,6 +11,7 @@ use App\Jobs\RenderRunSubClip;
 use App\Models\Run;
 use App\Models\RunStatus;
 use App\Services\RunFailure;
+use App\Slate\Run\RunRecipe;
 use App\Slate\Run\RunStillClip;
 use App\Slate\Storage\RunObjectKeys;
 use Illuminate\Bus\Batch;
@@ -49,6 +50,7 @@ final readonly class RunExecutor
     {
         $runId = $this->persistedRunId($run);
         $settings = $this->runtimePolicy->forQueue((string) config('slate.execution.render_queue'));
+        $recipe = $run->recipe();
 
         if ($settings->usedFallback()) {
             Log::warning('slate.execution.visibility_window_fallback', [
@@ -58,10 +60,10 @@ final readonly class RunExecutor
             ]);
         }
 
-        $strategy = $this->selectStrategy($run, $settings);
+        $strategy = $this->selectStrategy($recipe, $settings);
         $operations = [];
 
-        foreach ($run->recipe()->operations as $operationIndex => $recipeOperation) {
+        foreach ($recipe->operations as $operationIndex => $recipeOperation) {
             if (! $recipeOperation instanceof RunStillClip) {
                 throw new InvalidArgumentException('Run executor received an unsupported persisted operation.');
             }
@@ -87,16 +89,16 @@ final readonly class RunExecutor
         return new ExecutionPlan($strategy, $operations, $settings);
     }
 
-    private function selectStrategy(Run $run, QueueRuntimeSettings $settings): ExecutorStrategy
+    private function selectStrategy(RunRecipe $recipe, QueueRuntimeSettings $settings): ExecutorStrategy
     {
-        foreach ($run->recipe()->operations as $operation) {
+        foreach ($recipe->operations as $operation) {
             if ($operation->durationMicroseconds()
                 > $settings->outputSecondsPerJob($operation->qualityTier()) * 1_000_000) {
                 return ExecutorStrategy::SubOperationSplit;
             }
         }
 
-        return count($run->recipe()->operations) === 1
+        return count($recipe->operations) === 1
             ? ExecutorStrategy::SingleJob
             : ExecutorStrategy::Fanout;
     }
@@ -189,8 +191,13 @@ final readonly class RunExecutor
                 try {
                     Bus::dispatch(new CompleteRun($runId));
                 } catch (Throwable $exception) {
-                    resolve(RunFailure::class)->handle($runId);
                     report($exception);
+
+                    try {
+                        resolve(RunFailure::class)->handle($runId);
+                    } catch (Throwable $failureException) {
+                        report($failureException);
+                    }
                 }
             })
             ->onQueue($plan->runtimeSettings->queue)

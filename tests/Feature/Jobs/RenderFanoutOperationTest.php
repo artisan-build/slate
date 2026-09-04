@@ -5,6 +5,7 @@ use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Driver\Driver;
 use App\Slate\Driver\DriverResult;
+use App\Slate\Execution\SkipIfBatchUnavailable;
 use App\Slate\Fanout\BucketVideoTrim;
 use App\Slate\Fanout\FanoutReceipt;
 use App\Slate\Fanout\FanoutRunId;
@@ -109,5 +110,6 @@ test('stages bucket inputs into invocation scratch and overwrites deterministic 
     expect($receipt->operationIndex)->toBe(0)
         ->and($receipt->operation->value)->toBe('video.trim')
         ->and($receipt->hostname)->not->toBe('')
-        ->and($receipt->outputSizeBytes)->toBeGreaterThan(0);
+        ->and($receipt->outputSizeBytes)->toBeGreaterThan(0)
+        ->and($job->middleware()[0])->toBeInstanceOf(SkipIfBatchUnavailable::class);
 });

@@ -31,10 +31,10 @@ use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\RunObjectKeys;
+use Carbon\CarbonImmutable;
 use Illuminate\Bus\Batch;
 use Illuminate\Bus\PendingBatch;
-use Illuminate\Database\Eloquent\MassAssignmentException;
-use Illuminate\Database\Eloquent\Model;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
@@ -282,22 +282,18 @@ test('does not dispatch a run whose running transition is a redelivery no op', f
     Bus::assertBatchCount(0);
 });
 
-test('executes the refreshed persisted recipe after a rejected update attempt', function (): void {
+test('executes the persisted recipe when in-memory raw state differs before transition', function (): void {
     configureExecutorPolicy();
     Bus::fake();
     $runId = '23232323-2323-4323-8323-232323232323';
     $foreignRunId = '24242424-2424-4424-8424-242424242424';
     $original = executorRecipeOperation($runId, 0, 30_000_000);
     $run = executorRun([$original], $runId);
-    Model::preventSilentlyDiscardingAttributes();
-
-    try {
-        expect(fn () => $run->update([
-            'recipe' => new RunRecipe([executorRecipeOperation($foreignRunId, 0, 30_000_000)]),
-        ]))->toThrow(MassAssignmentException::class);
-    } finally {
-        Model::preventSilentlyDiscardingAttributes(false);
-    }
+    $attributes = $run->getAttributes();
+    $attributes['recipe'] = (new RunRecipe([
+        executorRecipeOperation($foreignRunId, 0, 30_000_000),
+    ]))->toJson();
+    $run->setRawAttributes($attributes);
 
     resolve(RunExecutor::class)->execute($run);
 
@@ -306,6 +302,27 @@ test('executes the refreshed persisted recipe after a rejected update attempt', 
             === $original->image->value(),
         CompleteRun::class,
     ]);
+});
+
+test('failure cleanup does not delete outputs when the failure transition resolves to succeeded', function (): void {
+    configureExecutorPolicy();
+    Storage::fake();
+    config()->set('slate.storage.allow_host_local_fanout', true);
+    $runId = '31313131-3131-4131-8131-313131313131';
+    $run = executorRun([executorRecipeOperation($runId, 0, 30_000_000)], $runId);
+    $run->transitionTo(RunStatus::Running);
+    $output = RunObjectKeys::operationOutput($runId, 0);
+    Storage::disk()->put($output->value(), 'completed output');
+    Run::saving(static function (Run $saving): void {
+        if ($saving->status === RunStatus::Failed) {
+            $saving->status = RunStatus::Succeeded;
+        }
+    });
+
+    resolve(RunFailure::class)->handle($runId);
+
+    expect($run->fresh()->status)->toBe(RunStatus::Succeeded)
+        ->and(Storage::disk()->get($output->value()))->toBe('completed output');
 });
 
 test('completion preserves every output from the create-only recipe', function (): void {
@@ -433,6 +450,39 @@ test('moves a run to durable failure when completion dispatch fails in a success
         ->and(Storage::disk()->allFiles($prefix))->toBe([]);
 });
 
+test('reports completion dispatch failure before containing failure cleanup errors', function (): void {
+    configureExecutorPolicy();
+    Storage::fake();
+    config()->set('slate.storage.allow_host_local_fanout', false);
+    Bus::fake();
+    $runId = '32323232-3232-4232-8232-323232323232';
+    $run = executorRun([
+        executorRecipeOperation($runId, 0, 30_000_000),
+        executorRecipeOperation($runId, 1, 20_000_000),
+    ], $runId);
+    resolve(RunExecutor::class)->execute($run);
+    $finally = null;
+    Bus::assertBatched(function (PendingBatch $pendingBatch) use (&$finally): bool {
+        $finally = $pendingBatch->finallyCallbacks()[0];
+
+        return true;
+    });
+    $dispatchFailure = new RuntimeException('completion queue unavailable');
+    Bus::shouldReceive('dispatch')->once()->andThrow($dispatchFailure);
+    $handler = Mockery::mock(ExceptionHandler::class);
+    $handler->shouldReceive('report')->once()->with($dispatchFailure)->ordered();
+    $handler->shouldReceive('report')->once()->with(Mockery::on(
+        static fn (Throwable $exception): bool => str_contains($exception->getMessage(), 'requires an S3-backed'),
+    ))->ordered();
+    app()->instance(ExceptionHandler::class, $handler);
+    $settledBatch = Mockery::mock(Batch::class);
+    $settledBatch->shouldReceive('hasFailures')->once()->andReturnFalse();
+
+    $finally($settledBatch);
+
+    expect($run->fresh()->status)->toBe(RunStatus::Failed);
+});
+
 test('skips an SQS accepted batch member after partial bulk failure deletes its batch record', function (): void {
     configureExecutorPolicy();
     $runId = '26262626-2626-4626-8626-262626262626';
@@ -448,6 +498,31 @@ test('skips an SQS accepted batch member after partial bulk failure deletes its 
 
     expect($job->batch())->toBeNull()
         ->and($handled)->toBeFalse();
+});
+
+test('batch middleware runs jobs without a batch id and skips cancelled batches', function (): void {
+    configureExecutorPolicy();
+    $runId = '33333333-3333-4333-8333-333333333334';
+    $run = executorRun([executorRecipeOperation($runId, 0, 30_000_000)], $runId);
+    $operation = resolve(RunExecutor::class)->plan($run)->operations[0];
+    expect($operation)->toBeInstanceOf(WholeOperation::class);
+    $middleware = new SkipIfBatchUnavailable;
+    $unbatchedHandled = false;
+    $unbatched = new RenderRunOperation($runId, $operation);
+    $middleware->handle($unbatched, function () use (&$unbatchedHandled): void {
+        $unbatchedHandled = true;
+    });
+    [$cancelled] = (new RenderRunOperation($runId, $operation))->withFakeBatch(
+        cancelledAt: CarbonImmutable::now(),
+    );
+    $cancelledHandled = false;
+    $middleware->handle($cancelled, function () use (&$cancelledHandled): void {
+        $cancelledHandled = true;
+    });
+
+    expect($unbatched->batchId)->toBeNull()
+        ->and($unbatchedHandled)->toBeTrue()
+        ->and($cancelledHandled)->toBeFalse();
 });
 
 test('dispatches executable sub clip jobs and finalization behind a split run', function (): void {

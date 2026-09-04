@@ -18,6 +18,7 @@ use LogicException;
 /**
  * @property string $id
  * @property RunStatus $status
+ * @property-read RunRecipe $recipe
  *
  * @mixin IdeHelperRun
  */
@@ -43,13 +44,38 @@ final class Run extends Model
 
     public function recipe(): RunRecipe
     {
-        $recipe = $this->getRawOriginal('recipe');
+        return $this->recipe;
+    }
 
-        if (! is_string($recipe)) {
+    public function getRecipeAttribute(mixed $value): RunRecipe
+    {
+        if (! is_string($value)) {
             throw new InvalidArgumentException('Stored run recipe must be JSON.');
         }
 
-        return RunRecipe::fromJson($recipe, RunObjectKeys::prefix($this->id));
+        return RunRecipe::fromJson($value, RunObjectKeys::prefix($this->id));
+    }
+
+    public function setAttribute(mixed $key, mixed $value): mixed
+    {
+        if ($key === 'recipe') {
+            if ($this->exists) {
+                throw new LogicException('A persisted Run recipe is immutable.');
+            }
+
+            $runId = $this->getAttribute('id');
+
+            if (! is_string($runId) || ! is_string($value)) {
+                throw new InvalidArgumentException('Run recipe creation requires its UUID and JSON payload.');
+            }
+
+            self::assertRecipeObjectOwnership(
+                $runId,
+                RunRecipe::fromJson($value, RunObjectKeys::prefix($runId)),
+            );
+        }
+
+        return parent::setAttribute($key, $value);
     }
 
     public function transitionTo(RunStatus $nextStatus): bool

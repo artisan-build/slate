@@ -10,8 +10,6 @@ use App\Slate\Run\RunRecipe;
 use App\Slate\Run\RunStillClip;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\RunObjectKeys;
-use Illuminate\Database\Eloquent\MassAssignmentException;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -79,22 +77,50 @@ test('rejects foreign object keys at the only typed recipe creation seam', funct
     expect(DB::table('runs')->where('id', $runId)->exists())->toBeFalse();
 });
 
-test('exposes the typed recipe only at creation and as a read method afterwards', function (): void {
+test('rejects ordinary recipe assignment on a persisted run', function (): void {
     $runId = '22222222-2222-4222-8222-222222222224';
     $recipe = persistedRunRecipe($runId);
     $run = Run::createWithRecipe($runId, $recipe);
-    Model::preventSilentlyDiscardingAttributes();
+    $shrunkenRecipe = new RunRecipe([$recipe->operations[0]]);
 
-    try {
-        expect(fn () => $run->update(['recipe' => persistedRunRecipe($runId)]))
-            ->toThrow(MassAssignmentException::class);
-    } finally {
-        Model::preventSilentlyDiscardingAttributes(false);
-    }
+    expect(function () use ($run, $shrunkenRecipe): void {
+        $run->recipe = $shrunkenRecipe->toJson();
+        $run->save();
+    })->toThrow(LogicException::class, 'persisted Run recipe is immutable');
+
+    expect($run->fresh()->recipe()->toArray())->toBe($recipe->toArray());
+});
+
+test('rejects force-filled recipe assignment on a persisted run', function (): void {
+    $runId = '28282828-2828-4828-8828-282828282828';
+    $recipe = persistedRunRecipe($runId);
+    $run = Run::createWithRecipe($runId, $recipe);
+    $shrunkenRecipe = new RunRecipe([$recipe->operations[0]]);
+
+    expect(fn () => $run->forceFill(['recipe' => $shrunkenRecipe->toJson()])->save())
+        ->toThrow(LogicException::class, 'persisted Run recipe is immutable');
+
+    expect($run->fresh()->recipe()->toArray())->toBe($recipe->toArray());
+});
+
+test('rejects a foreign recipe supplied through an unguarded factory creation', function (): void {
+    $runId = '29292929-2929-4929-8929-292929292929';
+    $foreignRunId = '30303030-3030-4030-8030-303030303030';
+
+    expect(fn () => Run::factory()->create([
+        'id' => $runId,
+        'recipe' => persistedRunRecipe($foreignRunId)->toJson(),
+    ]))->toThrow(InvalidArgumentException::class, 'Object key must remain within the caller prefix');
+
+    expect(DB::table('runs')->where('id', $runId)->exists())->toBeFalse();
+});
+
+test('exposes recipe as a read-only typed model property', function (): void {
+    $run = Run::factory()->create();
 
     expect($run->getFillable())->toBe(['status'])
         ->and($run->getCasts())->not->toHaveKey('recipe')
-        ->and($run->fresh()->recipe()->toArray())->toBe($recipe->toArray());
+        ->and($run->recipe)->toBeInstanceOf(RunRecipe::class);
 });
 
 test('hydrates a typed recipe after database JSON key reordering', function (): void {
