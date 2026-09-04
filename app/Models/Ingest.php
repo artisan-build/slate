@@ -27,6 +27,8 @@ use RuntimeException;
  * @property string|null $source_validator
  * @property int|null $part_size_bytes
  * @property string|null $multipart_upload_id
+ *
+ * @mixin IdeHelperIngest
  */
 #[Fillable([])]
 final class Ingest extends Model

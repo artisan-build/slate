@@ -26,7 +26,7 @@ final readonly class IngestManager
             RunObjectKeys::input($run->id, $inputIndex, $filename),
             $sourceUrl,
         );
-        IngestSource::dispatch($ingest->id)->afterCommit();
+        dispatch(new IngestSource($ingest->id))->afterCommit();
 
         return $ingest;
     }

@@ -18,7 +18,6 @@ final class StorageServiceProvider extends ServiceProvider
             fn (): ObjectStorage => new S3ObjectStorage(Storage::disk()),
         );
         $this->app->bind(
-            IngestStorage::class,
             function (): IngestStorage {
                 $filesystem = Storage::disk();
 
