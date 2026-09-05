@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 
 RUN_COUNT="${1:-3}"
+RESULTS_PATH="${2:-}"
 
 if [[ ! "$RUN_COUNT" =~ ^[1-9][0-9]*$ ]]; then
     echo "Run count must be a positive integer." >&2
@@ -10,6 +11,7 @@ if [[ ! "$RUN_COUNT" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RESULTS_PATH="${RESULTS_PATH:-$ROOT/storage/app/benchmark-results/hybrid-queue-$(date -u +%Y%m%dT%H%M%SZ).log}"
 PREFIX="slate-hybrid-$$"
 NETWORK="${PREFIX}-network"
 DATABASE="${PREFIX}-db"
@@ -17,6 +19,9 @@ BUCKET="${PREFIX}-bucket"
 DISPATCHER="${PREFIX}-dispatcher"
 APP_KEY='base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
 CONTAINERS=("$DATABASE" "$BUCKET" "$DISPATCHER")
+
+mkdir -p "$(dirname "$RESULTS_PATH")"
+: > "$RESULTS_PATH"
 
 cleanup() {
     docker rm --force "${CONTAINERS[@]}" >/dev/null 2>&1 || true
@@ -126,7 +131,8 @@ done
 
 wait_for_log "$DISPATCHER" 'ffmpeg provisioning complete'
 
-echo "Running ${RUN_COUNT} production-size queued comparison(s) against four workers."
+echo "Capturing benchmark output in $RESULTS_PATH"
+echo "Running ${RUN_COUNT} production-size queued comparison(s) against four workers." | tee -a "$RESULTS_PATH"
 
 for run in $(seq 1 "$RUN_COUNT"); do
     arms='single,fanout'
@@ -135,13 +141,14 @@ for run in $(seq 1 "$RUN_COUNT"); do
         arms='fanout,single'
     fi
 
-    echo "Measurement ${run}/${RUN_COUNT}; arm order ${arms}; video counts 1,3,5."
+    echo "Measurement ${run}/${RUN_COUNT}; arm order ${arms}; video counts 1,3,5." | tee -a "$RESULTS_PATH"
     docker exec --workdir /app \
         --env SLATE_REQUIRE_MULTI_WORKER=1 \
         --env "SLATE_BENCHMARK_ARMS=$arms" \
         --env SLATE_BENCHMARK_VIDEO_COUNTS=1,3,5 \
         "$DISPATCHER" \
-        vendor/bin/pest tests/Feature/Services/HybridQueueBenchmarkTest.php --group=hybrid-queue-benchmark
+        vendor/bin/pest tests/Feature/Services/HybridQueueBenchmarkTest.php --group=hybrid-queue-benchmark \
+        | tee -a "$RESULTS_PATH"
 done
 
 # This host's measured ceiling is four 1-vCPU/2-GiB workers. Any 10-worker figure derived from these

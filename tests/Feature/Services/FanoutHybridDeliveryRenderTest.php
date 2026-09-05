@@ -184,6 +184,7 @@ test('queued segment jobs match synchronous hybrid output through one final copy
             24,
             QualityTier::Delivery,
         );
+        Bus::fake();
         (new RenderSingleJobHybridDelivery($singleRun))->handle(
             $objectStorage,
             $jobScratch,
@@ -193,6 +194,8 @@ test('queued segment jobs match synchronous hybrid output through one final copy
             $cleanup,
             resolve(FanoutStorageGuard::class),
         );
+        Bus::assertNothingDispatched();
+        Bus::assertBatchCount(0);
         $singleOutput = $scratch->file('single-job.mp4');
         $singleResultPath = $scratch->file('single-job-result.json');
         $objectStorage->stageIn($singleRun->outputKey(), $singleOutput);
@@ -206,6 +209,10 @@ test('queued segment jobs match synchronous hybrid output through one final copy
         expect($verifier->frameHashes($singleOutput))
             ->toBe($verifier->frameHashes($synchronous['output']->path))
             ->and(data_get($singleResult, 'output.frame_count'))->toBe($synchronous['output']->frameCount)
+            ->and(data_get($singleResult, 'worker_hostnames'))->toBe(array_values(array_unique([
+                ...array_column(data_get($singleResult, 'operations'), 'hostname'),
+                data_get($singleResult, 'final_concat.hostname'),
+            ])))
             ->and(data_get($singleResult, 'distinct_worker_count'))->toBe(1)
             ->and(data_get($singleResult, 'multi_host_observed'))->toBeFalse()
             ->and(data_get($singleResult, 'job_processing_duration_ms'))->toBeGreaterThan(0)

@@ -125,6 +125,17 @@ final class RenderSingleJobHybridDelivery implements ShouldQueue
 
             $output = $hybrid['output'];
             $objectStorage->stageOut($output->path, $this->run->outputKey());
+            $finalConcatEvidence = [
+                'operation' => $concatMeasurement['operation'],
+                'mode' => 'copy',
+                'processing_duration_ms' => $concatMeasurement['processing_duration_ms'],
+                'hostname' => $hostname,
+            ];
+            $workerHostnames = array_values(array_unique([
+                ...array_column($operationEvidence, 'hostname'),
+                $finalConcatEvidence['hostname'],
+            ]));
+            sort($workerHostnames);
             $result = [
                 'status' => 'completed',
                 'run_id' => $this->run->id->value(),
@@ -136,16 +147,11 @@ final class RenderSingleJobHybridDelivery implements ShouldQueue
                     'height' => $output->height,
                 ],
                 'operations' => $operationEvidence,
-                'worker_hostnames' => [$hostname],
-                'distinct_worker_count' => 1,
-                'multi_host_observed' => false,
+                'worker_hostnames' => $workerHostnames,
+                'distinct_worker_count' => count($workerHostnames),
+                'multi_host_observed' => count($workerHostnames) > 1,
                 'job_processing_duration_ms' => self::monotonicMilliseconds() - $startedAtMs,
-                'final_concat' => [
-                    'operation' => $concatMeasurement['operation'],
-                    'mode' => 'copy',
-                    'processing_duration_ms' => $concatMeasurement['processing_duration_ms'],
-                    'hostname' => $hostname,
-                ],
+                'final_concat' => $finalConcatEvidence,
             ];
             $resultPath = $scratch->file('result.json');
             file_put_contents(

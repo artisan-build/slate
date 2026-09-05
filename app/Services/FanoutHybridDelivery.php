@@ -38,9 +38,10 @@ final readonly class FanoutHybridDelivery
     ) {}
 
     /**
-     * Fan-out remains the default after the production-size queued comparison: it materially reduced
-     * one-video latency and drain time, stayed near-flat at three, and traded slower five-video latency
-     * for faster drain. That is a below-saturation and scale-to-zero choice, not a throughput claim.
+     * Fan-out remains the default after three production-size comparison runs: the one-video medians
+     * were lower while the three- and five-video effects stayed within observed noise. The suggestive
+     * latency and drain result complements its failure-granularity and timeout benefits, but needs more
+     * samples before claiming an effect and is not a throughput claim.
      *
      * @param  non-empty-list<SlateVideo>  $inputs
      */
