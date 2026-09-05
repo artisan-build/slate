@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\RenderFanoutOperation;
+use App\Jobs\RenderSingleJobHybridDelivery;
 use App\Services\FanoutHybridDelivery;
 use App\Slate\Fanout\BucketOperation;
 use App\Slate\Fanout\BucketVideoTransitionSegment;
@@ -115,6 +116,38 @@ test('uses deterministic run and operation indexes for every transient object', 
             'slate-runs/22222222-2222-4222-8222-222222222222/work/receipts/0002.json',
         ]);
     });
+});
+
+test('stages the same typed hybrid run and dispatches it as one queued video job', function (): void {
+    Storage::fake();
+    Bus::fake();
+    config()->set('slate.storage.allow_host_local_fanout', true);
+    $runId = FanoutRunId::fromString('12121212-1212-4121-8121-121212121212');
+
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch) use ($runId): void {
+        $inputs = [
+            fakeRenderedSlateVideo(fanoutDispatchSource($scratch, 'first')),
+            fakeRenderedSlateVideo(fanoutDispatchSource($scratch, 'second')),
+            fakeRenderedSlateVideo(fanoutDispatchSource($scratch, 'third')),
+        ];
+
+        $run = resolve(FanoutHybridDelivery::class)->queueSingle(
+            $inputs,
+            24,
+            QualityTier::Delivery,
+            $runId,
+        );
+
+        expect($run->operations)->toHaveCount(5);
+
+        foreach ($run->inputs as $input) {
+            Storage::disk()->assertExists($input->objectKey->value());
+        }
+    });
+
+    Bus::assertDispatched(fn (RenderSingleJobHybridDelivery $job): bool => $job->run->id === $runId
+        && count($job->run->operations) === 5);
+    Bus::assertNothingBatched();
 });
 
 test('refuses to stage or dispatch fan-out work on a host-local default disk', function (): void {

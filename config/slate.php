@@ -49,6 +49,8 @@ return [
         'result_url_ttl_seconds' => 15 * 60,
         'webhook_connect_timeout_seconds' => 3,
         'webhook_timeout_seconds' => 10,
+        // Keep the 10-worker fan-out ceiling: the four-worker production-size comparison favored
+        // below-saturation latency and drain, while saturated latency was flat to modestly worse.
         // Ten workers times ten fair-share waves bounds one run to 100 queued execution jobs.
         'worker_ceiling' => 10,
         'maximum_queue_waves_per_run' => 10,

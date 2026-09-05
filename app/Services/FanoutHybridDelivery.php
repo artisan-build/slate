@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Jobs\FinalizeFanoutRun;
 use App\Jobs\RenderFanoutOperation;
+use App\Jobs\RenderSingleJobHybridDelivery;
 use App\Slate\Fanout\BucketOperation;
 use App\Slate\Fanout\BucketVideoTransitionSegment;
 use App\Slate\Fanout\BucketVideoTrim;
@@ -36,7 +37,13 @@ final readonly class FanoutHybridDelivery
         private FanoutStorageGuard $storageGuard,
     ) {}
 
-    /** @param non-empty-list<SlateVideo> $inputs */
+    /**
+     * Fan-out remains the default after the production-size queued comparison: it materially reduced
+     * one-video latency and drain time, stayed near-flat at three, and traded slower five-video latency
+     * for faster drain. That is a below-saturation and scale-to-zero choice, not a throughput claim.
+     *
+     * @param  non-empty-list<SlateVideo>  $inputs
+     */
     public function queue(
         array $inputs,
         int $transitionFrameCount,
@@ -47,6 +54,27 @@ final readonly class FanoutHybridDelivery
         $run = $this->prepare($inputs, $transitionFrameCount, $qualityTier, $runId);
 
         $this->dispatch($run);
+
+        return $run;
+    }
+
+    /** @param non-empty-list<SlateVideo> $inputs */
+    public function queueSingle(
+        array $inputs,
+        int $transitionFrameCount,
+        QualityTier $qualityTier,
+        ?FanoutRunId $runId = null,
+    ): FanoutRun {
+        $this->storageGuard->assertSafe();
+        $run = $this->prepare($inputs, $transitionFrameCount, $qualityTier, $runId);
+
+        try {
+            Bus::dispatch(new RenderSingleJobHybridDelivery($run));
+        } catch (Throwable $exception) {
+            $this->cleanup->allObjects($run);
+
+            throw $exception;
+        }
 
         return $run;
     }

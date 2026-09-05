@@ -2,6 +2,7 @@
 
 use App\Jobs\FinalizeFanoutRun;
 use App\Jobs\RenderFanoutOperation;
+use App\Jobs\RenderSingleJobHybridDelivery;
 use App\Services\FanoutHybridDelivery;
 use App\Services\FanoutRunCleanup;
 use App\Services\HybridDeliveryAssembly;
@@ -177,5 +178,38 @@ test('queued segment jobs match synchronous hybrid output through one final copy
             ->and(data_get($result, 'multi_host_observed'))->toBeFalse()
             ->and(data_get($result, 'final_concat.mode'))->toBe('copy')
             ->and(data_get($result, 'operations'))->toHaveCount(3);
+
+        $singleRun = resolve(FanoutHybridDelivery::class)->queueSingle(
+            [$first, $second],
+            24,
+            QualityTier::Delivery,
+        );
+        (new RenderSingleJobHybridDelivery($singleRun))->handle(
+            $objectStorage,
+            $jobScratch,
+            $compiler,
+            $driver,
+            resolve(HybridDeliveryAssembly::class),
+            $cleanup,
+            resolve(FanoutStorageGuard::class),
+        );
+        $singleOutput = $scratch->file('single-job.mp4');
+        $singleResultPath = $scratch->file('single-job-result.json');
+        $objectStorage->stageIn($singleRun->outputKey(), $singleOutput);
+        $objectStorage->stageIn($singleRun->resultKey(), $singleResultPath);
+        $singleResult = json_decode(
+            file_get_contents($singleResultPath->readablePath()),
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+
+        expect($verifier->frameHashes($singleOutput))
+            ->toBe($verifier->frameHashes($synchronous['output']->path))
+            ->and(data_get($singleResult, 'output.frame_count'))->toBe($synchronous['output']->frameCount)
+            ->and(data_get($singleResult, 'distinct_worker_count'))->toBe(1)
+            ->and(data_get($singleResult, 'multi_host_observed'))->toBeFalse()
+            ->and(data_get($singleResult, 'job_processing_duration_ms'))->toBeGreaterThan(0)
+            ->and(data_get($singleResult, 'final_concat.mode'))->toBe('copy')
+            ->and(data_get($singleResult, 'operations'))->toHaveCount(3);
     });
 })->group('ffmpeg-render');

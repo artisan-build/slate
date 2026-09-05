@@ -54,6 +54,7 @@ final class FinalizeFanoutRun implements ShouldQueue
         FanoutStorageGuard $storageGuard,
     ): void {
         $storageGuard->assertSafe();
+        $startedAtMs = self::monotonicMilliseconds();
 
         if ($this->batchFailed) {
             $cleanup->allObjects($this->run);
@@ -73,7 +74,12 @@ final class FinalizeFanoutRun implements ShouldQueue
             return;
         }
 
-        $jobScratch->run(function (ScratchDirectory $scratch) use ($objectStorage, $compiler, $driver): void {
+        $jobScratch->run(function (ScratchDirectory $scratch) use (
+            $objectStorage,
+            $compiler,
+            $driver,
+            $startedAtMs,
+        ): void {
             $segments = [];
             $receipts = [];
 
@@ -128,6 +134,7 @@ final class FinalizeFanoutRun implements ShouldQueue
                 'worker_hostnames' => $workerHostnames,
                 'distinct_worker_count' => count($workerHostnames),
                 'multi_host_observed' => count($workerHostnames) > 1,
+                'job_processing_duration_ms' => self::monotonicMilliseconds() - $startedAtMs,
                 'final_concat' => [
                     'operation' => 'video.concat',
                     'mode' => 'copy',
