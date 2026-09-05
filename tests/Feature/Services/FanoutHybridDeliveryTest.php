@@ -1,7 +1,14 @@
 <?php
 
 use App\Jobs\RenderFanoutOperation;
+use App\Jobs\RenderSingleJobHybridDelivery;
 use App\Services\FanoutHybridDelivery;
+use App\Services\FanoutRunCleanup;
+use App\Services\HybridDeliveryAssembly;
+use App\Slate\Driver\Binary\RecipeCompiler;
+use App\Slate\Driver\CompiledRecipe;
+use App\Slate\Driver\Driver;
+use App\Slate\Driver\DriverResult;
 use App\Slate\Fanout\BucketOperation;
 use App\Slate\Fanout\BucketVideoTransitionSegment;
 use App\Slate\Fanout\BucketVideoTrim;
@@ -14,8 +21,10 @@ use App\Slate\Recipe\Video\StillMotion;
 use App\Slate\Recipe\Video\VideoColor;
 use App\Slate\Recipe\Video\VideoFit;
 use App\Slate\Recipe\Video\VideoStillClip;
+use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectKey;
+use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\ScratchDirectory;
 use Illuminate\Bus\PendingBatch;
 use Illuminate\Support\Facades\Bus;
@@ -114,6 +123,112 @@ test('uses deterministic run and operation indexes for every transient object', 
             'slate-runs/22222222-2222-4222-8222-222222222222/work/operations/0002.mp4',
             'slate-runs/22222222-2222-4222-8222-222222222222/work/receipts/0002.json',
         ]);
+    });
+});
+
+test('stages the same typed hybrid run and dispatches it as one queued video job', function (): void {
+    Storage::fake();
+    Bus::fake();
+    config()->set('slate.storage.allow_host_local_fanout', true);
+    $runId = FanoutRunId::fromString('12121212-1212-4121-8121-121212121212');
+
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch) use ($runId): void {
+        $inputs = [
+            fakeRenderedSlateVideo(fanoutDispatchSource($scratch, 'first')),
+            fakeRenderedSlateVideo(fanoutDispatchSource($scratch, 'second')),
+            fakeRenderedSlateVideo(fanoutDispatchSource($scratch, 'third')),
+        ];
+
+        $run = resolve(FanoutHybridDelivery::class)->queueSingle(
+            $inputs,
+            24,
+            QualityTier::Delivery,
+            $runId,
+        );
+
+        expect($run->operations)->toHaveCount(5);
+
+        foreach ($run->inputs as $input) {
+            Storage::disk()->assertExists($input->objectKey->value());
+        }
+    });
+
+    Bus::assertDispatched(fn (RenderSingleJobHybridDelivery $job): bool => $job->run->id === $runId
+        && count($job->run->operations) === 5);
+    Bus::assertNothingBatched();
+});
+
+test('single video job body dispatches no child jobs or batches', function (): void {
+    Storage::fake();
+    Bus::fake();
+    config()->set('slate.storage.allow_host_local_fanout', true);
+    $driver = new readonly class implements Driver
+    {
+        public function run(CompiledRecipe $recipe): DriverResult
+        {
+            $command = $recipe->command();
+            $output = $command[count($command) - 1];
+
+            if (in_array('-show_format', $command, true)) {
+                $frameCount = match (basename($output)) {
+                    'input-00.mp4', 'input-01.mp4' => 72,
+                    'hybrid-body-00.mp4', 'hybrid-body-01.mp4' => 48,
+                    'hybrid-junction-00.mp4' => 24,
+                    'output.mp4' => 120,
+                    default => throw new RuntimeException('Unexpected single-job probe output.'),
+                };
+                $properties = [
+                    'streams' => [
+                        [
+                            'codec_type' => 'video',
+                            'codec_name' => 'h264',
+                            'width' => 1536,
+                            'height' => 1024,
+                            'avg_frame_rate' => '24/1',
+                            'pix_fmt' => 'yuv420p',
+                            'color_range' => 'tv',
+                            'nb_frames' => (string) $frameCount,
+                        ],
+                        ['codec_type' => 'audio', 'codec_name' => 'aac'],
+                    ],
+                    'format' => ['duration' => number_format($frameCount / 24, 6, '.', '')],
+                ];
+
+                return new DriverResult(json_encode($properties, JSON_THROW_ON_ERROR));
+            }
+
+            file_put_contents($output, 'rendered single-job operation');
+
+            return new DriverResult;
+        }
+    };
+
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch) use ($driver): void {
+        $inputs = [
+            fakeRenderedSlateVideo(fanoutDispatchSource($scratch, 'first')),
+            fakeRenderedSlateVideo(fanoutDispatchSource($scratch, 'second')),
+        ];
+        $run = resolve(FanoutHybridDelivery::class)->queueSingle(
+            $inputs,
+            24,
+            QualityTier::Delivery,
+        );
+        $compiler = RecipeCompiler::fromSystem();
+        $job = new RenderSingleJobHybridDelivery($run);
+        Bus::fake();
+
+        $job->handle(
+            resolve(ObjectStorage::class),
+            resolve(JobScratch::class),
+            $compiler,
+            $driver,
+            new HybridDeliveryAssembly($compiler, $driver),
+            resolve(FanoutRunCleanup::class),
+            resolve(FanoutStorageGuard::class),
+        );
+
+        Bus::assertNothingDispatched();
+        Bus::assertBatchCount(0);
     });
 });
 

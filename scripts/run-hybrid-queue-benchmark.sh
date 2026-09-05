@@ -2,33 +2,26 @@
 
 set -Eeuo pipefail
 
-WORKER_COUNT="${1:-4}"
-VIDEO_COUNT="${2:-1}"
-RUN_COUNT="${3:-3}"
+RUN_COUNT="${1:-3}"
+RESULTS_PATH="${2:-}"
 
-case "$WORKER_COUNT" in
-    1|2|4) ;;
-    *)
-        echo "Worker count must be 1, 2, or 4." >&2
-        exit 2
-        ;;
-esac
-
-for value in "$VIDEO_COUNT" "$RUN_COUNT"; do
-    if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
-        echo "Video and run counts must be positive integers." >&2
-        exit 2
-    fi
-done
+if [[ ! "$RUN_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Run count must be a positive integer." >&2
+    exit 2
+fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PREFIX="slate-fanout-$$"
+RESULTS_PATH="${RESULTS_PATH:-$ROOT/storage/app/benchmark-results/hybrid-queue-$(date -u +%Y%m%dT%H%M%SZ).log}"
+PREFIX="slate-hybrid-$$"
 NETWORK="${PREFIX}-network"
 DATABASE="${PREFIX}-db"
 BUCKET="${PREFIX}-bucket"
 DISPATCHER="${PREFIX}-dispatcher"
 APP_KEY='base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
 CONTAINERS=("$DATABASE" "$BUCKET" "$DISPATCHER")
+
+mkdir -p "$(dirname "$RESULTS_PATH")"
+: > "$RESULTS_PATH"
 
 cleanup() {
     docker rm --force "${CONTAINERS[@]}" >/dev/null 2>&1 || true
@@ -56,13 +49,15 @@ wait_for_log() {
 
 APP_ENV=(
     --env "APP_KEY=$APP_KEY"
-    --env DB_CONNECTION=mysql
+    --env DB_CONNECTION=pgsql
+    --env DB_URL=
     --env "DB_HOST=$DATABASE"
-    --env DB_PORT=3306
+    --env DB_PORT=5432
     --env DB_DATABASE=slate
     --env DB_USERNAME=slate
     --env DB_PASSWORD=slate-pass
     --env QUEUE_CONNECTION=database
+    --env DB_QUEUE_RETRY_AFTER=180
     --env FILESYSTEM_DISK=s3
     --env AWS_ACCESS_KEY_ID=slate-minio
     --env AWS_SECRET_ACCESS_KEY=slate-minio-secret
@@ -73,14 +68,21 @@ APP_ENV=(
 )
 
 docker info >/dev/null
+RUNNING_CONTAINERS="$(docker ps --format '{{.Names}}')"
+
+if [[ -n "$RUNNING_CONTAINERS" ]]; then
+    echo "Refusing to measure while other containers are running:" >&2
+    echo "$RUNNING_CONTAINERS" >&2
+    exit 1
+fi
+
 docker network create "$NETWORK" >/dev/null
 
 docker run --detach --name "$DATABASE" --network "$NETWORK" \
-    --env MYSQL_ROOT_PASSWORD=slate-root \
-    --env MYSQL_DATABASE=slate \
-    --env MYSQL_USER=slate \
-    --env MYSQL_PASSWORD=slate-pass \
-    mysql:8.4 >/dev/null
+    --env POSTGRES_DB=slate \
+    --env POSTGRES_USER=slate \
+    --env POSTGRES_PASSWORD=slate-pass \
+    postgres:17 >/dev/null
 
 docker run --detach --name "$BUCKET" --network "$NETWORK" \
     --env MINIO_ROOT_USER=slate-minio \
@@ -88,14 +90,14 @@ docker run --detach --name "$BUCKET" --network "$NETWORK" \
     minio/minio:latest server /data >/dev/null
 
 for _ in {1..120}; do
-    if docker exec "$DATABASE" mysqladmin ping -h 127.0.0.1 -uslate -pslate-pass --silent >/dev/null 2>&1; then
+    if docker exec "$DATABASE" pg_isready -U slate -d slate >/dev/null 2>&1; then
         break
     fi
 
     sleep 1
 done
 
-docker exec "$DATABASE" mysqladmin ping -h 127.0.0.1 -uslate -pslate-pass --silent >/dev/null
+docker exec "$DATABASE" pg_isready -U slate -d slate >/dev/null
 wait_for_log "$BUCKET" 'API:'
 
 docker run --rm --platform linux/arm64 --user root --network "$NETWORK" \
@@ -104,7 +106,7 @@ docker run --rm --platform linux/arm64 --user root --network "$NETWORK" \
     serversideup/php:8.4-cli \
     sh -c 'cp -a /src /app && cd /app && php artisan migrate --force' >/dev/null
 
-for worker in $(seq 1 "$WORKER_COUNT"); do
+for worker in {1..4}; do
     name="${PREFIX}-worker-${worker}"
     CONTAINERS+=("$name")
 
@@ -113,7 +115,7 @@ for worker in $(seq 1 "$WORKER_COUNT"); do
         "${APP_ENV[@]}" \
         --volume "$ROOT:/src:ro" \
         serversideup/php:8.4-cli \
-        sh -c 'apt-get update -qq && apt-get install -y -qq fontconfig fonts-dejavu-core >/dev/null 2>&1; cp -a /src /app && cd /app; php artisan slate:provision-ffmpeg --force; php artisan queue:work --sleep=1 --timeout=60 --tries=3' >/dev/null
+        sh -c 'apt-get update -qq && apt-get install -y -qq fontconfig fonts-dejavu-core >/dev/null 2>&1; cp -a /src /app && cd /app; php artisan slate:provision-ffmpeg --force; php artisan queue:work --sleep=1 --timeout=170 --tries=3' >/dev/null
 done
 
 docker run --detach --name "$DISPATCHER" --hostname slate-dispatcher \
@@ -123,27 +125,31 @@ docker run --detach --name "$DISPATCHER" --hostname slate-dispatcher \
     serversideup/php:8.4-cli \
     sh -c 'apt-get update -qq && apt-get install -y -qq fontconfig fonts-dejavu-core >/dev/null 2>&1; cp -a /src /app && cd /app; php artisan slate:provision-ffmpeg --force; sleep infinity' >/dev/null
 
-for worker in $(seq 1 "$WORKER_COUNT"); do
+for worker in {1..4}; do
     wait_for_log "${PREFIX}-worker-${worker}" 'ffmpeg provisioning complete'
 done
 
 wait_for_log "$DISPATCHER" 'ffmpeg provisioning complete'
 
-echo "Running ${RUN_COUNT} measured run(s): ${VIDEO_COUNT} video(s), ${WORKER_COUNT} worker(s)."
+echo "Capturing benchmark output in $RESULTS_PATH"
+echo "Running ${RUN_COUNT} production-size queued comparison(s) against four workers." | tee -a "$RESULTS_PATH"
 
 for run in $(seq 1 "$RUN_COUNT"); do
-    echo "Measurement ${run}/${RUN_COUNT}"
+    arms='single,fanout'
+
+    if (( run % 2 == 0 )); then
+        arms='fanout,single'
+    fi
+
+    echo "Measurement ${run}/${RUN_COUNT}; arm order ${arms}; video counts 1,3,5." | tee -a "$RESULTS_PATH"
     docker exec --workdir /app \
         --env SLATE_REQUIRE_MULTI_WORKER=1 \
-        --env "SLATE_FANOUT_VIDEO_COUNT=$VIDEO_COUNT" \
-        --env "SLATE_EXPECT_DISTINCT_WORKERS=$WORKER_COUNT" \
+        --env "SLATE_BENCHMARK_ARMS=$arms" \
+        --env SLATE_BENCHMARK_VIDEO_COUNTS=1,3,5 \
         "$DISPATCHER" \
-        vendor/bin/pest tests/Feature/Services/FanoutMultiWorkerTest.php --group=fanout-multi-worker
+        vendor/bin/pest tests/Feature/Services/HybridQueueBenchmarkTest.php --group=hybrid-queue-benchmark \
+        | tee -a "$RESULTS_PATH"
 done
 
-# Reproduce the measured curve with:
-#   scripts/run-fanout-multi-worker.sh 1 1 3
-#   scripts/run-fanout-multi-worker.sh 2 1 3
-#   scripts/run-fanout-multi-worker.sh 4 1 3
-#   scripts/run-fanout-multi-worker.sh 4 5 3
-# This 8-core/16-GB host cannot honestly run the 10-worker/50-video saturation case.
+# This host's measured ceiling is four 1-vCPU/2-GiB workers. Any 10-worker figure derived from these
+# records is extrapolated and must be labelled EXTRAPOLATED.

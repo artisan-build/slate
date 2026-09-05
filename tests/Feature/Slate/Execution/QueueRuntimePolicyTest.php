@@ -2,6 +2,7 @@
 
 use App\Jobs\FinalizeFanoutRun;
 use App\Jobs\RenderFanoutOperation;
+use App\Jobs\RenderSingleJobHybridDelivery;
 use App\Slate\Driver\Binary\BinaryDriver;
 use App\Slate\Driver\Driver;
 use App\Slate\Execution\QueueRuntimePolicy;
@@ -141,12 +142,15 @@ test('derives both queued job timeouts and the bound driver timeout from the cur
     $run = policyFanoutRun();
     $render = new RenderFanoutOperation($run->id, $run->operations[0]);
     $finalize = new FinalizeFanoutRun($run, false);
+    $single = new RenderSingleJobHybridDelivery($run);
     $timeoutProperty = new ReflectionProperty(BinaryDriver::class, 'timeoutSeconds');
 
     expect($render->timeout)->toBe($firstSettings->jobTimeoutSeconds)
         ->and($finalize->timeout)->toBe($firstSettings->jobTimeoutSeconds)
+        ->and($single->timeout)->toBe($firstSettings->jobTimeoutSeconds)
         ->and($render->queue)->toBe('render')
         ->and($finalize->queue)->toBe('render')
+        ->and($single->queue)->toBe('render')
         ->and($timeoutProperty->getValue(resolve(Driver::class)))->toBe($firstSettings->driverTimeoutSeconds);
 
     $secondSettings = configuredQueueRuntime(300);
@@ -154,5 +158,6 @@ test('derives both queued job timeouts and the bound driver timeout from the cur
     expect((new RenderFanoutOperation($run->id, $run->operations[0]))->timeout)
         ->toBe($secondSettings->jobTimeoutSeconds)
         ->and((new FinalizeFanoutRun($run, false))->timeout)->toBe($secondSettings->jobTimeoutSeconds)
+        ->and((new RenderSingleJobHybridDelivery($run))->timeout)->toBe($secondSettings->jobTimeoutSeconds)
         ->and($timeoutProperty->getValue(resolve(Driver::class)))->toBe($secondSettings->driverTimeoutSeconds);
 });

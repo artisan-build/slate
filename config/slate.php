@@ -49,6 +49,8 @@ return [
         'result_url_ttl_seconds' => 15 * 60,
         'webhook_connect_timeout_seconds' => 3,
         'webhook_timeout_seconds' => 10,
+        // Keep the 10-worker fan-out ceiling: three four-worker runs suggested better one-video latency
+        // and drain, but every comparison range overlapped and needs more samples before claiming an effect.
         // Ten workers times ten fair-share waves bounds one run to 100 queued execution jobs.
         'worker_ceiling' => 10,
         'maximum_queue_waves_per_run' => 10,
