@@ -216,7 +216,7 @@ function hybridBenchmarkOptions(string $environmentName, string $default): array
 {
     $value = getenv($environmentName) ?: $default;
 
-    return array_values(array_filter(array_map('trim', explode(',', $value))));
+    return array_values(array_filter(array_map(trim(...), explode(',', $value))));
 }
 
 /**
