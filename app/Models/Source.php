@@ -41,6 +41,8 @@ use LogicException;
  * @property string|null $multipart_upload_id
  * @property CarbonImmutable|null $retry_until
  * @property CarbonImmutable|null $expires_at
+ *
+ * @mixin IdeHelperSource
  */
 #[Fillable([])]
 final class Source extends Model

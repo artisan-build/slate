@@ -90,6 +90,34 @@ namespace App\Models{
 
 namespace App\Models{
 /**
+ * @property string $id
+ * @property SubjectType $owner_subject_type
+ * @property string $owner_subject_ref
+ * @property string $object_key
+ * @property IngestMode $mode
+ * @property SourceStatus $status
+ * @property InputRejectionReason|null $rejection_reason
+ * @property string|null $source_url
+ * @property int $bytes
+ * @property string|null $content_type
+ * @property string|null $source_validator_header
+ * @property string|null $source_validator
+ * @property int|null $part_size_bytes
+ * @property string|null $multipart_upload_id
+ * @property CarbonImmutable|null $retry_until
+ * @property CarbonImmutable|null $expires_at
+ * @method static \Database\Factories\SourceFactory factory($count = null, $state = [])
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source newModelQuery()
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source newQuery()
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source query()
+ * @mixin \Eloquent
+ */
+	#[\AllowDynamicProperties]
+	final class IdeHelperSource {}
+}
+
+namespace App\Models{
+/**
  * @property int $id
  * @property string $name
  * @property string $email
