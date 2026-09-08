@@ -16,6 +16,18 @@ test('the application registers the Built for Cloud credential guard', function 
     expect(auth()->guard('bfc'))->toBeInstanceOf(CredentialGuard::class);
 });
 
+test('an HTTP request succeeds with the committed session driver', function (): void {
+    $exampleEnvironment = parse_ini_file(base_path('.env.example'));
+
+    self::assertIsArray($exampleEnvironment);
+    $committedDriver = $exampleEnvironment['SESSION_DRIVER'] ?? null;
+    config()->set('session.driver', $committedDriver);
+
+    expect($committedDriver)->toBe('cookie')
+        ->and(file_get_contents(config_path('session.php')))->toContain("env('SESSION_DRIVER', 'cookie')");
+    $this->get('/up')->assertOk();
+});
+
 test('administrator status is guarded and cast to a boolean', function (): void {
     $user = new User;
     $user->forceFill(['is_admin' => 1]);
