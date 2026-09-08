@@ -166,8 +166,11 @@ final class CleanupIngestStorage implements IngestStorage
         $this->objects[$objectKey->value()] = false;
     }
 
-    public function temporaryUploadUrl(ObjectKey $objectKey, DateTimeInterface $expiration): array
-    {
+    public function temporaryUploadUrl(
+        ObjectKey $objectKey,
+        DateTimeInterface $expiration,
+        bool $singleUse = false,
+    ): array {
         throw new \LogicException('Not used by this test.');
     }
 }

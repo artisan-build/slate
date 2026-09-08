@@ -15,6 +15,7 @@ use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\FailOnException;
+use InvalidArgumentException;
 use LogicException;
 use Throwable;
 
@@ -71,7 +72,11 @@ final class IngestSource implements ShouldQueue
     /** @return list<FailOnException> */
     public function middleware(): array
     {
-        return [new FailOnException([PermanentIngestException::class, InputRejectedException::class])];
+        return [new FailOnException([
+            PermanentIngestException::class,
+            InputRejectedException::class,
+            InvalidArgumentException::class,
+        ])];
     }
 
     public function failed(?Throwable $exception): void

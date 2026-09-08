@@ -47,6 +47,7 @@ return [
     ],
     'api' => [
         'result_url_ttl_seconds' => 15 * 60,
+        'source_upload_ttl_seconds' => 15 * 60,
         'webhook_connect_timeout_seconds' => 3,
         'webhook_timeout_seconds' => 10,
         // Keep the 10-worker fan-out ceiling: three four-worker runs suggested better one-video latency
@@ -58,6 +59,7 @@ return [
     'ingest' => [
         'part_size_bytes' => 8 * 1024 * 1024,
         'maximum_source_bytes' => 8 * 1024 * 1024 * 1024,
+        'stale_source_ingesting_seconds' => 2 * 60 * 60,
         // 8 GiB in 3740s of available work requires 2.19 MiB/s; the remaining 220s cover redelivery.
         'retry_deadline_seconds' => 22 * 180,
     ],

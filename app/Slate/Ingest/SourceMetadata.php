@@ -12,10 +12,12 @@ final readonly class SourceMetadata
         public int $bytes,
         public string $validatorHeader,
         public string $validator,
+        public ?string $contentType = null,
     ) {
         if ($bytes < 1
             || ! in_array($validatorHeader, ['ETag', 'Last-Modified'], true)
-            || $validator === '') {
+            || $validator === ''
+            || $contentType === '') {
             throw new InvalidArgumentException('A resumable source requires a positive size and stable HTTP validator.');
         }
     }

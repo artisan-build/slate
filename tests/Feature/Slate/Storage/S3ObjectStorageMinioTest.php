@@ -1,19 +1,27 @@
 <?php
 
+use App\Jobs\FinalizeSource;
+use App\Jobs\IngestRemoteSource;
 use App\Jobs\IngestSource;
 use App\Jobs\RenderFanoutOperation;
 use App\Models\Ingest;
 use App\Models\IngestMode;
 use App\Models\IngestStatus;
 use App\Models\Run;
+use App\Models\Source;
+use App\Models\SourceStatus;
 use App\Services\IngestCleanup;
 use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Driver\Driver;
 use App\Slate\Driver\DriverResult;
+use App\Slate\Driver\FakeDriver;
 use App\Slate\Fanout\BucketVideoTrim;
 use App\Slate\Fanout\FanoutRunId;
 use App\Slate\Fanout\StoredVideo;
+use App\Slate\Http\DestinationGuard;
+use App\Slate\Http\ResolvedDestination;
+use App\Slate\Ingest\HttpSourceReader;
 use App\Slate\Ingest\IngestManager;
 use App\Slate\Ingest\ResumableIngestTransfer;
 use App\Slate\Ingest\SourceMetadata;
@@ -21,6 +29,7 @@ use App\Slate\Ingest\SourcePart;
 use App\Slate\Ingest\SourceReader;
 use App\Slate\Input\InputAdmission;
 use App\Slate\Recipe\QualityTier;
+use App\Slate\Source\SourceAdmission;
 use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\IngestStorage;
 use App\Slate\Storage\JobScratch;
@@ -28,14 +37,58 @@ use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\RunObjectKeys;
 use App\Slate\Storage\ScratchDirectory;
+use App\Slate\Webhook\HostnameResolver;
+use ArtisanBuild\BuiltForCloud\Testing\WithCredentials;
 use Aws\S3\S3Client;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\Support\MinioConfiguration;
 
-uses(LazilyRefreshDatabase::class);
+uses(LazilyRefreshDatabase::class, WithCredentials::class);
+
+function minioSourceDestination(string $url): ResolvedDestination
+{
+    return new ResolvedDestination($url, MinioConfiguration::Host, MinioConfiguration::Host, MinioConfiguration::Port);
+}
+
+function minioDestinationGuard(): DestinationGuard
+{
+    return new DestinationGuard(new MinioHostnameResolver);
+}
+
+final readonly class MinioHostnameResolver implements HostnameResolver
+{
+    public function resolve(string $hostname): array
+    {
+        return ['93.184.216.34'];
+    }
+}
+
+final readonly class MinioPinnedSourceReader implements SourceReader
+{
+    public function __construct(
+        private SourceReader $reader,
+        private ResolvedDestination $servedSource,
+    ) {}
+
+    public function metadata(ResolvedDestination $source, int $timeoutSeconds): SourceMetadata
+    {
+        return $this->reader->metadata($this->servedSource, $timeoutSeconds);
+    }
+
+    public function read(
+        ResolvedDestination $source,
+        SourceMetadata $metadata,
+        int $startByte,
+        int $endByte,
+        int $timeoutSeconds,
+    ): SourcePart {
+        return $this->reader->read($this->servedSource, $metadata, $startByte, $endByte, $timeoutSeconds);
+    }
+}
 
 /**
  * Exercises the real S3 driver, signing, HTTP transport, streamed reads, and multipart-capable writes.
@@ -149,16 +202,136 @@ test('round-trips and accepts a presigned PUT through MinIO without application 
         expect($put->successful())->toBeTrue($put->body())
             ->and(Storage::disk()->get($upload->objectKey->value()))
             ->toBe('client bytes sent directly to MinIO')
-            ->and(Ingest::query()->findOrFail($upload->ingestId)->mode)->toBe(IngestMode::Direct);
+            ->and(Ingest::query()->findOrFail($upload->id)->mode)->toBe(IngestMode::Direct);
 
         $pruned = resolve(IngestCleanup::class)->sweepAbandoned($expiration->addSecond());
 
         expect($pruned)->toBe(1)
             ->and(Storage::disk()->exists($upload->objectKey->value()))->toBeFalse()
-            ->and(Ingest::query()->findOrFail($upload->ingestId)->status)->toBe(IngestStatus::Failed);
+            ->and(Ingest::query()->findOrFail($upload->id)->status)->toBe(IngestStatus::Failed);
     } finally {
         Storage::disk()->delete($objectKey->value());
         Storage::disk()->delete('minio-tests/memory-probe.bin');
+        Storage::forgetDisk('s3');
+    }
+})->group('minio');
+
+test('both Sources API submit shapes reach ready through MinIO-backed queued admission', function (): void {
+    $socket = @fsockopen(
+        MinioConfiguration::Host,
+        MinioConfiguration::Port,
+        $errorCode,
+        $errorMessage,
+        0.2,
+    );
+
+    if (! is_resource($socket)) {
+        $message = 'MinIO unavailable at '.MinioConfiguration::Endpoint.'; Sources API lane not run.';
+
+        if (filter_var(getenv('SLATE_REQUIRE_MINIO'), FILTER_VALIDATE_BOOL)) {
+            test()->fail($message.' SLATE_REQUIRE_MINIO requires this lane to run.');
+        }
+
+        test()->markTestSkipped($message);
+    }
+
+    fclose($socket);
+    $configuredDisk = config('filesystems.disks.s3');
+    expect($configuredDisk)->toBeArray();
+    $diskConfig = MinioConfiguration::disk($configuredDisk);
+    $client = new S3Client([
+        'version' => 'latest',
+        'region' => $diskConfig['region'],
+        'endpoint' => $diskConfig['endpoint'],
+        'use_path_style_endpoint' => $diskConfig['use_path_style_endpoint'],
+        'credentials' => ['key' => $diskConfig['key'], 'secret' => $diskConfig['secret']],
+    ]);
+
+    if (! $client->doesBucketExist($diskConfig['bucket'])) {
+        $client->createBucket(['Bucket' => $diskConfig['bucket']]);
+    }
+
+    config()->set('filesystems.default', 's3');
+    config()->set('filesystems.disks.s3', $diskConfig);
+    config()->set('slate.ingest.part_size_bytes', 5 * 1024 * 1024);
+    Storage::forgetDisk('s3');
+    Queue::fake([FinalizeSource::class, IngestRemoteSource::class]);
+    $credential = $this->mintCredential(['abilities' => ['consume']]);
+    $media = pack('N', 24).'ftyp'.'isom'.pack('N', 0).'isomiso2'.pack('N', 8).'mdat';
+    $probe = new DriverResult(json_encode([
+        'streams' => [[
+            'codec_type' => 'video',
+            'codec_name' => 'h264',
+            'width' => 1280,
+            'height' => 720,
+            'avg_frame_rate' => '24/1',
+        ]],
+        'format' => ['duration' => '1.000000'],
+    ], JSON_THROW_ON_ERROR));
+    app()->instance(Driver::class, new FakeDriver($probe, $probe));
+    app()->instance(HostnameResolver::class, new MinioHostnameResolver);
+    $pullSourceKey = 'minio-tests/sources-api-pull.mp4';
+
+    try {
+        $uploadResponse = $this->actingAsCredential($credential)->postJson('/api/v1/sources', [
+            'upload' => ['content_type' => 'video/mp4', 'size' => strlen($media)],
+        ]);
+        $uploadResponse->assertCreated();
+        $uploadPut = Http::withHeaders($uploadResponse->json('headers'))
+            ->withBody($media, 'video/mp4')
+            ->put($uploadResponse->json('put_url'));
+
+        expect($uploadPut->successful())->toBeTrue($uploadPut->body())
+            ->and(Storage::disk()->get($uploadResponse->json('object_key')))->toBe($media);
+
+        $this->getJson('/api/v1/sources/'.$uploadResponse->json('id'))
+            ->assertOk()
+            ->assertJsonPath('status', 'ingesting');
+        Queue::assertPushed(FinalizeSource::class, 1);
+        $uploadJob = new FinalizeSource($uploadResponse->json('id'));
+        $uploadJob->handle(resolve(SourceAdmission::class), resolve(IngestCleanup::class));
+        $this->getJson('/api/v1/sources/'.$uploadResponse->json('id'))
+            ->assertOk()
+            ->assertJsonPath('status', 'ready');
+        $replacement = Http::withHeaders($uploadResponse->json('headers'))
+            ->withBody('unadmitted replacement bytes')
+            ->put($uploadResponse->json('put_url'));
+        $replacementWithoutCondition = Http::withBody('condition omitted')
+            ->put($uploadResponse->json('put_url'));
+
+        expect($replacement->status())->toBe(412)
+            ->and($replacementWithoutCondition->status())->toBe(400)
+            ->and(Storage::disk()->get($uploadResponse->json('object_key')))->toBe($media);
+
+        Storage::disk()->put($pullSourceKey, $media);
+        $servedSourceUrl = Storage::disk()->temporaryUrl($pullSourceKey, now()->addMinutes(5));
+        app()->instance(
+            SourceReader::class,
+            new MinioPinnedSourceReader(new HttpSourceReader, minioSourceDestination($servedSourceUrl)),
+        );
+        $pullResponse = $this->postJson('/api/v1/sources', [
+            'url' => 'https://source.example.test/video.mp4',
+        ]);
+        $pullResponse->assertAccepted();
+        Queue::assertPushed(IngestRemoteSource::class, 1);
+        $pullJob = new IngestRemoteSource($pullResponse->json('id'));
+        $pullJob->handle(
+            resolve(ResumableIngestTransfer::class),
+            resolve(SourceAdmission::class),
+            resolve(IngestCleanup::class),
+        );
+
+        $this->getJson('/api/v1/sources/'.$pullResponse->json('id'))
+            ->assertOk()
+            ->assertJsonPath('status', 'ready');
+        expect(Source::query()->findOrFail($pullResponse->json('id'))->status)->toBe(SourceStatus::Ready);
+    } finally {
+        Storage::disk()->delete($pullSourceKey);
+
+        foreach (Source::query()->get() as $source) {
+            Storage::disk()->delete($source->object_key);
+        }
+
         Storage::forgetDisk('s3');
     }
 })->group('minio');
@@ -283,13 +456,16 @@ test('moves queued work and resumes a partially uploaded ingest through MinIO', 
         fclose($sourceStream);
         $run = Run::factory()->create();
         $targetKey = RunObjectKeys::input($run->id, 2, 'resumed.bin');
-        $sourceUrl = Storage::disk()->temporaryUrl($sourceKey->value(), now()->addMinutes(5));
+        $servedSourceUrl = Storage::disk()->temporaryUrl($sourceKey->value(), now()->addMinutes(5));
+        $sourceUrl = 'https://source.example.test/resumable-source.bin';
         $ingest = Ingest::expectSource($run, $targetKey, $sourceUrl);
         $ingestStorage = resolve(IngestStorage::class);
         $sourceReader = resolve(SourceReader::class);
-        $metadata = $sourceReader->metadata($sourceUrl, 60);
+        $sourceDestination = minioSourceDestination($servedSourceUrl);
+        $pinnedSourceReader = new MinioPinnedSourceReader($sourceReader, $sourceDestination);
+        $metadata = $sourceReader->metadata($sourceDestination, 60);
         $uploadId = $ingestStorage->beginMultipartUpload($targetKey);
-        $firstPart = $sourceReader->read($sourceUrl, $metadata, 0, (5 * 1024 * 1024) - 1, 60);
+        $firstPart = $sourceReader->read($sourceDestination, $metadata, 0, (5 * 1024 * 1024) - 1, 60);
 
         try {
             $ingestStorage->uploadPart(
@@ -304,20 +480,20 @@ test('moves queued work and resumes a partially uploaded ingest through MinIO', 
         }
 
         $ingest->beginUpload($metadata, 5 * 1024 * 1024, $uploadId);
-        $recordingReader = new class($sourceReader) implements SourceReader
+        $recordingReader = new class($pinnedSourceReader) implements SourceReader
         {
             /** @var list<array{int, int}> */
             public array $ranges = [];
 
             public function __construct(private readonly SourceReader $reader) {}
 
-            public function metadata(string $sourceUrl, int $timeoutSeconds): SourceMetadata
+            public function metadata(ResolvedDestination $source, int $timeoutSeconds): SourceMetadata
             {
-                return $this->reader->metadata($sourceUrl, $timeoutSeconds);
+                return $this->reader->metadata($source, $timeoutSeconds);
             }
 
             public function read(
-                string $sourceUrl,
+                ResolvedDestination $source,
                 SourceMetadata $metadata,
                 int $startByte,
                 int $endByte,
@@ -325,7 +501,7 @@ test('moves queued work and resumes a partially uploaded ingest through MinIO', 
             ): SourcePart {
                 $this->ranges[] = [$startByte, $endByte];
 
-                return $this->reader->read($sourceUrl, $metadata, $startByte, $endByte, $timeoutSeconds);
+                return $this->reader->read($source, $metadata, $startByte, $endByte, $timeoutSeconds);
             }
         };
 
@@ -333,6 +509,7 @@ test('moves queued work and resumes a partially uploaded ingest through MinIO', 
             $ingestStorage,
             $recordingReader,
             new InputAdmission,
+            minioDestinationGuard(),
         ));
 
         expect($recordingReader->ranges)->toBe([
@@ -350,7 +527,7 @@ test('moves queued work and resumes a partially uploaded ingest through MinIO', 
         Storage::disk()->put($failureKey->value(), 'completed object requiring failure cleanup');
         $failureIngest = Ingest::expectSource($failureRun, $failureKey, $sourceUrl);
         $failureUploadId = $ingestStorage->beginMultipartUpload($failureKey);
-        $failurePart = $sourceReader->read($sourceUrl, $metadata, 0, (5 * 1024 * 1024) - 1, 60);
+        $failurePart = $sourceReader->read($sourceDestination, $metadata, 0, (5 * 1024 * 1024) - 1, 60);
 
         try {
             $ingestStorage->uploadPart(
@@ -385,7 +562,12 @@ test('moves queued work and resumes a partially uploaded ingest through MinIO', 
         });
 
         try {
-            expect(fn () => (new ResumableIngestTransfer($ingestStorage, $sourceReader, new InputAdmission))
+            expect(fn () => (new ResumableIngestTransfer(
+                $ingestStorage,
+                $pinnedSourceReader,
+                new InputAdmission,
+                minioDestinationGuard(),
+            ))
                 ->handle($compensationIngest, 60))
                 ->toThrow(RuntimeException::class, 'simulated ingest state persistence failure');
         } finally {

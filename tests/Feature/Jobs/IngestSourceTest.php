@@ -7,6 +7,8 @@ use App\Models\Ingest;
 use App\Models\IngestStatus;
 use App\Models\Run;
 use App\Models\RunStatus;
+use App\Slate\Http\DestinationGuard;
+use App\Slate\Http\ResolvedDestination;
 use App\Slate\Ingest\PermanentIngestException;
 use App\Slate\Ingest\ResumableIngestTransfer;
 use App\Slate\Ingest\SourceMetadata;
@@ -18,6 +20,7 @@ use App\Slate\Input\InputRejectionReason;
 use App\Slate\Storage\IngestStorage;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\RunObjectKeys;
+use App\Slate\Webhook\HostnameResolver;
 use DateTimeInterface;
 use GuzzleHttp\Psr7\Utils;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -47,6 +50,7 @@ final class IngestSourceTest extends TestCase
         $reader = new RecordingSourceReader($metadata);
         $this->app->instance(IngestStorage::class, $storage);
         $this->app->instance(SourceReader::class, $reader);
+        $this->app->instance(HostnameResolver::class, new PublicSourceHostnameResolver);
         $job = new IngestSource($ingest->id);
 
         $job->handle($this->app->make(ResumableIngestTransfer::class));
@@ -76,7 +80,7 @@ final class IngestSourceTest extends TestCase
     public function test_terminal_job_failure_records_failed_ingest(): void
     {
         $this->configureQueueRuntime();
-        $ingest = Ingest::factory()->create();
+        $ingest = Ingest::factory()->create(['source_url' => 'https://source.example/video.mp4']);
         $metadata = new SourceMetadata(5 * 1024 * 1024, 'ETag', '"source-etag"');
         $ingest->beginUpload($metadata, 5 * 1024 * 1024, 'upload-123');
         $storage = new MemoryIngestStorage;
@@ -118,7 +122,7 @@ final class IngestSourceTest extends TestCase
         try {
             $job->middleware()[0]->handle(
                 $job,
-                fn () => (new ResumableIngestTransfer($storage, $reader, new InputAdmission))->handle($staleIngest, 160),
+                fn () => $this->transfer($storage, $reader)->handle($staleIngest, 160),
             );
             self::fail('Expected changed source metadata to fail permanently.');
         } catch (PermanentIngestException $exception) {
@@ -168,7 +172,7 @@ final class IngestSourceTest extends TestCase
             new SourceMetadata(5 * 1024 * 1024, 'ETag', '"source-etag"'),
         );
 
-        (new ResumableIngestTransfer($storage, $reader, new InputAdmission))->handle($staleIngest, 160);
+        $this->transfer($storage, $reader)->handle($staleIngest, 160);
 
         self::assertSame(0, $storage->multipartUploadsStarted);
         self::assertSame(IngestStatus::Failed, $staleIngest->status);
@@ -177,13 +181,13 @@ final class IngestSourceTest extends TestCase
     public function test_rejects_an_oversized_source_before_starting_multipart_upload(): void
     {
         config()->set('slate.ingest.maximum_source_bytes', 1024);
-        $ingest = Ingest::factory()->create();
+        $ingest = Ingest::factory()->create(['source_url' => 'https://source.example/video.mp4']);
         $storage = new MemoryIngestStorage;
         $reader = new RecordingSourceReader(new SourceMetadata(1025, 'ETag', '"large"'));
 
         try {
             (new IngestSource($ingest->id))->handle(
-                new ResumableIngestTransfer($storage, $reader, new InputAdmission),
+                $this->transfer($storage, $reader),
             );
             self::fail('Expected oversized source rejection.');
         } catch (InputRejectedException $exception) {
@@ -211,6 +215,16 @@ final class IngestSourceTest extends TestCase
             ],
         ]);
     }
+
+    private function transfer(IngestStorage $storage, SourceReader $reader): ResumableIngestTransfer
+    {
+        return new ResumableIngestTransfer(
+            $storage,
+            $reader,
+            new InputAdmission,
+            new DestinationGuard(new PublicSourceHostnameResolver),
+        );
+    }
 }
 
 final class RecordingSourceReader implements SourceReader
@@ -223,13 +237,13 @@ final class RecordingSourceReader implements SourceReader
         private readonly string $initialBytes = "\0\0\0\x18ftypisom\0\0\0\0isom",
     ) {}
 
-    public function metadata(string $sourceUrl, int $timeoutSeconds): SourceMetadata
+    public function metadata(ResolvedDestination $source, int $timeoutSeconds): SourceMetadata
     {
         return $this->sourceMetadata;
     }
 
     public function read(
-        string $sourceUrl,
+        ResolvedDestination $source,
         SourceMetadata $metadata,
         int $startByte,
         int $endByte,
@@ -241,6 +255,14 @@ final class RecordingSourceReader implements SourceReader
             Utils::streamFor($startByte === 0 ? $this->initialBytes : 'remaining source bytes'),
             $endByte - $startByte + 1,
         );
+    }
+}
+
+final readonly class PublicSourceHostnameResolver implements HostnameResolver
+{
+    public function resolve(string $hostname): array
+    {
+        return ['93.184.216.34'];
     }
 }
 
@@ -328,8 +350,11 @@ final class MemoryIngestStorage implements IngestStorage
         $this->objectSize = 0;
     }
 
-    public function temporaryUploadUrl(ObjectKey $objectKey, DateTimeInterface $expiration): array
-    {
+    public function temporaryUploadUrl(
+        ObjectKey $objectKey,
+        DateTimeInterface $expiration,
+        bool $singleUse = false,
+    ): array {
         throw new \LogicException('Not used by this test.');
     }
 }

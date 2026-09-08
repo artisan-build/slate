@@ -6,6 +6,10 @@ namespace App\Slate\Ingest;
 
 use App\Models\Ingest;
 use App\Models\IngestStatus;
+use App\Models\Source;
+use App\Models\SourceStatus;
+use App\Slate\Http\DestinationGuard;
+use App\Slate\Http\ResolvedDestination;
 use App\Slate\Input\InputAdmission;
 use App\Slate\Storage\IngestStorage;
 use Illuminate\Support\Facades\DB;
@@ -24,15 +28,17 @@ final readonly class ResumableIngestTransfer
         private IngestStorage $storage,
         private SourceReader $sourceReader,
         private InputAdmission $inputAdmission,
+        private DestinationGuard $destinationGuard,
     ) {}
 
-    public function handle(Ingest $ingest, int $sourceRequestTimeoutSeconds): void
+    public function handle(Ingest|Source $ingest, int $sourceRequestTimeoutSeconds): void
     {
-        if ($ingest->status === IngestStatus::Succeeded) {
+        if ($ingest->status === IngestStatus::Succeeded || $ingest->status === SourceStatus::Ready) {
             return;
         }
 
-        $metadata = $this->sourceReader->metadata($ingest->sourceUrl(), $sourceRequestTimeoutSeconds);
+        $destination = $this->destinationGuard->resolve($ingest->sourceUrl(), 'source URL');
+        $metadata = $this->sourceReader->metadata($destination, $sourceRequestTimeoutSeconds);
         $this->inputAdmission->inspectSourceMetadata($metadata);
         $ingest->refresh();
 
@@ -42,7 +48,7 @@ final readonly class ResumableIngestTransfer
 
         $objectKey = $ingest->objectKey();
         $ingest->assertSourceMetadata($metadata);
-        $this->inspectInitialBytes($ingest, $metadata, $sourceRequestTimeoutSeconds);
+        $this->inspectInitialBytes($destination, $metadata, $sourceRequestTimeoutSeconds);
 
         if ($this->storage->exists($objectKey)) {
             if ($this->storage->size($objectKey) !== $metadata->bytes) {
@@ -66,7 +72,7 @@ final readonly class ResumableIngestTransfer
             }
 
             $part = $this->sourceReader->read(
-                $ingest->sourceUrl(),
+                $destination,
                 $metadata,
                 $startByte,
                 $endByte,
@@ -112,14 +118,16 @@ final readonly class ResumableIngestTransfer
 
     }
 
-    /** @return array{Ingest, string, int} */
-    private function initializeUpload(Ingest $ingest, SourceMetadata $metadata): array
+    /** @return array{Ingest|Source, string, int} */
+    private function initializeUpload(Ingest|Source $ingest, SourceMetadata $metadata): array
     {
         $createdUploadId = null;
 
         try {
             return DB::transaction(function () use ($ingest, $metadata, &$createdUploadId): array {
-                $lockedIngest = Ingest::query()->lockForUpdate()->findOrFail($ingest->id);
+                $lockedIngest = $ingest instanceof Ingest
+                    ? Ingest::query()->lockForUpdate()->findOrFail($ingest->id)
+                    : Source::query()->lockForUpdate()->findOrFail($ingest->id);
                 $partSizeBytes = $lockedIngest->part_size_bytes ?? $this->partSize($metadata->bytes);
                 $uploadId = $lockedIngest->multipart_upload_id;
 
@@ -170,12 +178,12 @@ final readonly class ResumableIngestTransfer
     }
 
     private function inspectInitialBytes(
-        Ingest $ingest,
+        ResolvedDestination $destination,
         SourceMetadata $metadata,
         int $sourceRequestTimeoutSeconds,
     ): void {
         $sample = $this->sourceReader->read(
-            $ingest->sourceUrl(),
+            $destination,
             $metadata,
             0,
             min($metadata->bytes - 1, 64 * 1024 - 1),

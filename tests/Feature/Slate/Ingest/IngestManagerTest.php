@@ -65,7 +65,7 @@ final class IngestManagerTest extends TestCase
 
         $upload = (new IngestManager($storage))->presignedPut($run, 4, 'narration.mp3', $expiration);
 
-        $ingest = Ingest::query()->findOrFail($upload->ingestId);
+        $ingest = Ingest::query()->findOrFail($upload->id);
         self::assertSame(IngestMode::Direct, $ingest->mode);
         self::assertSame(IngestStatus::Expected, $ingest->status);
         self::assertSame($expiration->toISOString(), $ingest->expires_at?->toISOString());
