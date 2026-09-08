@@ -51,7 +51,7 @@ function httpRequestByteBoundaryViolations(string $root): array
     return $violations;
 }
 
-test('HTTP code cannot directly move source bytes or invoke admission and the scan has a positive control', function (): void {
+test('enumerated HTTP byte movement and admission mechanisms are absent and each has a positive control', function (): void {
     $fixtureViolations = httpRequestByteBoundaryViolations(base_path('tests/Fixtures/HttpBoundary'));
     $labels = array_map(
         static fn (string $violation): string => strstr($violation, ':', true),

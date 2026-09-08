@@ -20,6 +20,10 @@ test('the application registers the Built for Cloud credential guard', function 
 });
 
 test('an HTTP request succeeds with the committed session driver', function (): void {
+    $exampleEnvironment = parse_ini_file(base_path('.env.example'));
+
+    self::assertIsArray($exampleEnvironment);
+    self::assertSame('cookie', $exampleEnvironment['SESSION_DRIVER'] ?? null);
     $filesystem = new Filesystem;
     $environmentPath = sys_get_temp_dir().'/slate-session-fallback-'.Str::uuid();
     $filesystem->ensureDirectoryExists($environmentPath);

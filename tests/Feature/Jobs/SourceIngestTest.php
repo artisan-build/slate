@@ -106,21 +106,32 @@ final class SourceIngestTest extends TestCase
     {
         $this->travelTo('2026-09-08 12:00:00');
         config()->set('slate.ingest.stale_source_ingesting_seconds', 60);
-        $source = Source::expectDirect(
+        $staleSource = Source::expectDirect(
             new Subject(SubjectType::Application, 'stale-claim-owner'),
             'video/mp4',
             32,
             now()->addMinutes(15),
         );
-        self::assertTrue($source->claimForFinalization());
+        self::assertTrue($staleSource->claimForFinalization());
+        $this->travel(30)->seconds();
+        $freshSource = Source::expectDirect(
+            new Subject(SubjectType::Application, 'fresh-claim-owner'),
+            'video/mp4',
+            32,
+            now()->addMinutes(15),
+        );
+        self::assertTrue($freshSource->claimForFinalization());
         $storage = new SourceJobStorage;
-        $storage->objects[$source->object_key] = str_repeat('x', 32);
+        $storage->objects[$staleSource->object_key] = str_repeat('x', 32);
+        $storage->objects[$freshSource->object_key] = str_repeat('y', 32);
 
-        $pruned = (new IngestCleanup($storage))->sweepAbandoned(now()->addSeconds(61));
+        $pruned = (new IngestCleanup($storage))->sweepAbandoned(now()->addSeconds(31));
 
         self::assertSame(1, $pruned);
-        self::assertSame(SourceStatus::Failed, $source->fresh()?->status);
-        self::assertSame([$source->object_key], $storage->deletedKeys);
+        self::assertSame(SourceStatus::Failed, $staleSource->fresh()?->status);
+        self::assertSame([$staleSource->object_key], $storage->deletedKeys);
+        self::assertSame(SourceStatus::Ingesting, $freshSource->fresh()?->status);
+        self::assertArrayHasKey($freshSource->object_key, $storage->objects);
     }
 }
 
