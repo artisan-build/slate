@@ -12,6 +12,7 @@ use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
+use Illuminate\Support\Sleep;
 use Psr\Http\Message\RequestInterface;
 use Tests\TestCase;
 
@@ -146,7 +147,7 @@ final class HttpSourceReaderTest extends TestCase
                 break;
             }
 
-            usleep(25_000);
+            Sleep::usleep(25_000);
         }
 
         self::assertTrue($server->running(), $server->errorOutput());
@@ -159,6 +160,8 @@ final class HttpSourceReaderTest extends TestCase
                 };
             },
         );
+
+        $connectionMarkers = '';
 
         try {
             try {
@@ -174,6 +177,16 @@ final class HttpSourceReaderTest extends TestCase
                 self::assertSame('The source does not support resumable HTTP range reads.', $exception->getMessage());
             }
         } finally {
+            for ($attempt = 0; $attempt < 20; $attempt++) {
+                $connectionMarkers = file_get_contents($counter);
+
+                if ($connectionMarkers !== '') {
+                    break;
+                }
+
+                Sleep::usleep(25_000);
+            }
+
             $server->stop();
         }
 
@@ -184,7 +197,7 @@ final class HttpSourceReaderTest extends TestCase
             ["source.example.test:{$port}:127.0.0.1"],
             $capturedOptions['curl'][CURLOPT_RESOLVE] ?? null,
         );
-        self::assertSame("/range\n", file_get_contents($counter));
+        self::assertSame("request\n", $connectionMarkers);
         unlink($counter);
     }
 }

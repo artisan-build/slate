@@ -9,5 +9,5 @@ if (! is_string($counter) || $counter === '' || ! is_string($privateUrl) || $pri
     return;
 }
 
-file_put_contents($counter, ($_SERVER['REQUEST_URI'] ?? '')."\n", FILE_APPEND | LOCK_EX);
+file_put_contents($counter, "request\n", FILE_APPEND | LOCK_EX);
 header('Location: '.$privateUrl, true, 302);
