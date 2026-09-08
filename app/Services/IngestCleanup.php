@@ -7,6 +7,9 @@ namespace App\Services;
 use App\Models\Ingest;
 use App\Models\IngestMode;
 use App\Models\IngestStatus;
+use App\Models\Source;
+use App\Models\SourceStatus;
+use App\Slate\Input\InputRejectionReason;
 use App\Slate\Storage\IngestStorage;
 use DateTimeInterface;
 use RuntimeException;
@@ -76,6 +79,22 @@ final readonly class IngestCleanup
             }
         }
 
+        foreach (Source::query()
+            ->whereIn('status', [SourceStatus::Failed->value, SourceStatus::Rejected->value])
+            ->orWhere(function ($query) use ($at): void {
+                $query->where('mode', IngestMode::Direct->value)
+                    ->where('status', SourceStatus::Pending->value)
+                    ->where('expires_at', '<=', $at);
+            })
+            ->lazyById() as $source) {
+            try {
+                $this->failSource($source->id);
+                $pruned++;
+            } catch (Throwable $exception) {
+                $failures[] = $exception;
+            }
+        }
+
         if ($failures !== []) {
             throw new RuntimeException(
                 sprintf('Failed to clean %d abandoned ingests after completing the sweep.', count($failures)),
@@ -84,5 +103,58 @@ final readonly class IngestCleanup
         }
 
         return $pruned;
+    }
+
+    public function failSource(string $sourceId): void
+    {
+        $source = Source::query()->findOrFail($sourceId);
+        $source->markFailed();
+
+        if (! in_array($source->status, [SourceStatus::Failed, SourceStatus::Rejected], true)) {
+            return;
+        }
+
+        $this->cleanSourceStorage($source);
+    }
+
+    public function rejectSource(string $sourceId, InputRejectionReason $reason): void
+    {
+        $source = Source::query()->findOrFail($sourceId);
+        $source->reject($reason);
+
+        if ($source->status !== SourceStatus::Rejected) {
+            return;
+        }
+
+        $this->cleanSourceStorage($source);
+    }
+
+    private function cleanSourceStorage(Source $source): void
+    {
+        $failures = [];
+
+        if ($source->multipart_upload_id !== null) {
+            try {
+                $this->storage->abortMultipartUpload($source->objectKey(), $source->multipart_upload_id);
+            } catch (Throwable $exception) {
+                $failures[] = $exception;
+            }
+        }
+
+        try {
+            if ($this->storage->exists($source->objectKey())) {
+                $this->storage->delete($source->objectKey());
+            }
+        } catch (Throwable $exception) {
+            $failures[] = $exception;
+        }
+
+        if ($failures !== []) {
+            foreach ($failures as $failure) {
+                report($failure);
+            }
+
+            throw new RuntimeException('Unable to clean all storage for failed source.', previous: $failures[0]);
+        }
     }
 }

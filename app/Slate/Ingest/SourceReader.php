@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace App\Slate\Ingest;
 
+use App\Slate\Http\ResolvedDestination;
+
 interface SourceReader
 {
-    public function metadata(string $sourceUrl, int $timeoutSeconds): SourceMetadata;
+    public function metadata(ResolvedDestination $source, int $timeoutSeconds): SourceMetadata;
 
     public function read(
-        string $sourceUrl,
+        ResolvedDestination $source,
         SourceMetadata $metadata,
         int $startByte,
         int $endByte,

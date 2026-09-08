@@ -11,13 +11,13 @@ final readonly class PresignedUpload
 {
     /** @param array<string, list<string>> $headers */
     public function __construct(
-        public string $ingestId,
+        public string $id,
         public ObjectKey $objectKey,
         public string $url,
         public array $headers,
     ) {
-        if ($ingestId === '' || $url === '') {
-            throw new InvalidArgumentException('A presigned upload requires an ingest ID and URL.');
+        if ($id === '' || $url === '') {
+            throw new InvalidArgumentException('A presigned upload requires an ID and URL.');
         }
     }
 }

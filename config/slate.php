@@ -47,6 +47,7 @@ return [
     ],
     'api' => [
         'result_url_ttl_seconds' => 15 * 60,
+        'source_upload_ttl_seconds' => 15 * 60,
         'webhook_connect_timeout_seconds' => 3,
         'webhook_timeout_seconds' => 10,
         // Keep the 10-worker fan-out ceiling: three four-worker runs suggested better one-video latency
