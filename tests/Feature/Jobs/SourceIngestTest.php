@@ -101,6 +101,27 @@ final class SourceIngestTest extends TestCase
         self::assertSame([], $storage->deletedKeys);
         self::assertArrayHasKey($source->object_key, $storage->objects);
     }
+
+    public function test_sweep_fails_an_ingesting_source_whose_claim_was_never_dispatched(): void
+    {
+        $this->travelTo('2026-09-08 12:00:00');
+        config()->set('slate.ingest.stale_source_ingesting_seconds', 60);
+        $source = Source::expectDirect(
+            new Subject(SubjectType::Application, 'stale-claim-owner'),
+            'video/mp4',
+            32,
+            now()->addMinutes(15),
+        );
+        self::assertTrue($source->claimForFinalization());
+        $storage = new SourceJobStorage;
+        $storage->objects[$source->object_key] = str_repeat('x', 32);
+
+        $pruned = (new IngestCleanup($storage))->sweepAbandoned(now()->addSeconds(61));
+
+        self::assertSame(1, $pruned);
+        self::assertSame(SourceStatus::Failed, $source->fresh()?->status);
+        self::assertSame([$source->object_key], $storage->deletedKeys);
+    }
 }
 
 final class SourceJobStorage implements IngestStorage
@@ -157,8 +178,11 @@ final class SourceJobStorage implements IngestStorage
         unset($this->objects[$objectKey->value()]);
     }
 
-    public function temporaryUploadUrl(ObjectKey $objectKey, DateTimeInterface $expiration): array
-    {
+    public function temporaryUploadUrl(
+        ObjectKey $objectKey,
+        DateTimeInterface $expiration,
+        bool $singleUse = false,
+    ): array {
         throw new \LogicException('Not used by this test.');
     }
 }

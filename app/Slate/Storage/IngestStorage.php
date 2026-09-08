@@ -38,5 +38,9 @@ interface IngestStorage
     public function delete(ObjectKey $objectKey): void;
 
     /** @return array{url: string, headers: array<string, list<string>>} */
-    public function temporaryUploadUrl(ObjectKey $objectKey, DateTimeInterface $expiration): array;
+    public function temporaryUploadUrl(
+        ObjectKey $objectKey,
+        DateTimeInterface $expiration,
+        bool $singleUse = false,
+    ): array;
 }

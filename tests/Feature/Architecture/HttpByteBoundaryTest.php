@@ -3,9 +3,10 @@
 declare(strict_types=1);
 
 /**
- * Finds source-level byte movement, admission, and driver access directly reachable in the scanned
- * request-layer files. This static reachability scan cannot see a violation hidden behind a container
- * binding resolved by string or behind implementation code outside the scanned tree.
+ * Finds an enumerated set of source-level byte movement, admission, and driver mechanisms directly in
+ * the scanned request-layer files. The enumeration is not exhaustive. This static scan does not follow
+ * first-party call targets, so a controller that invokes a violating service one hop away is invisible;
+ * it also cannot see a violation hidden behind a container binding resolved by string.
  *
  * @return list<string>
  */
@@ -19,7 +20,14 @@ function httpRequestByteBoundaryViolations(string $root): array
     $patterns = [
         'input admission' => '/\bInputAdmission\b/',
         'driver resolution' => '/(?:resolve|app|make)\s*\([^)]*\bDriver::class\b|\bDriver\s+\$/',
-        'byte-reading storage call' => '/->\s*(?:readStream|stageIn|download)\s*\(/',
+        'streamed response' => '/\bStreamedResponse\b/',
+        'read stream' => '/->\s*readStream\s*\(/',
+        'stage in' => '/->\s*stageIn\s*\(/',
+        'download' => '/->\s*download\s*\(/',
+        'storage facade get' => '/\bStorage::disk\s*\([^)]*\)\s*->\s*get\s*\(/',
+        'storage object get' => '/\$(?:storage|filesystem|disk)\w*\s*->\s*get\s*\(/i',
+        'file get contents' => '/\bfile_get_contents\s*\(/',
+        'upload part' => '/->\s*uploadPart\s*\(/',
     ];
 
     foreach ($iterator as $file) {
@@ -45,7 +53,25 @@ function httpRequestByteBoundaryViolations(string $root): array
 
 test('HTTP code cannot directly move source bytes or invoke admission and the scan has a positive control', function (): void {
     $fixtureViolations = httpRequestByteBoundaryViolations(base_path('tests/Fixtures/HttpBoundary'));
+    $labels = array_map(
+        static fn (string $violation): string => strstr($violation, ':', true),
+        $fixtureViolations,
+    );
+    sort($labels);
+    $expectedLabels = [
+        'download',
+        'driver resolution',
+        'file get contents',
+        'input admission',
+        'read stream',
+        'stage in',
+        'storage facade get',
+        'storage object get',
+        'streamed response',
+        'upload part',
+    ];
+    sort($expectedLabels);
 
-    expect($fixtureViolations)->toHaveCount(3)
+    expect($labels)->toBe($expectedLabels)
         ->and(httpRequestByteBoundaryViolations(app_path('Http')))->toBe([]);
 });

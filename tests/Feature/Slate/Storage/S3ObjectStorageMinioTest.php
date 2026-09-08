@@ -277,7 +277,9 @@ test('both Sources API submit shapes reach ready through MinIO-backed queued adm
             'upload' => ['content_type' => 'video/mp4', 'size' => strlen($media)],
         ]);
         $uploadResponse->assertCreated();
-        $uploadPut = Http::withBody($media, 'video/mp4')->put($uploadResponse->json('put_url'));
+        $uploadPut = Http::withHeaders($uploadResponse->json('headers'))
+            ->withBody($media, 'video/mp4')
+            ->put($uploadResponse->json('put_url'));
 
         expect($uploadPut->successful())->toBeTrue($uploadPut->body())
             ->and(Storage::disk()->get($uploadResponse->json('object_key')))->toBe($media);
@@ -291,6 +293,15 @@ test('both Sources API submit shapes reach ready through MinIO-backed queued adm
         $this->getJson('/api/v1/sources/'.$uploadResponse->json('id'))
             ->assertOk()
             ->assertJsonPath('status', 'ready');
+        $replacement = Http::withHeaders($uploadResponse->json('headers'))
+            ->withBody('unadmitted replacement bytes')
+            ->put($uploadResponse->json('put_url'));
+        $replacementWithoutCondition = Http::withBody('condition omitted')
+            ->put($uploadResponse->json('put_url'));
+
+        expect($replacement->status())->toBe(412)
+            ->and($replacementWithoutCondition->status())->toBe(400)
+            ->and(Storage::disk()->get($uploadResponse->json('object_key')))->toBe($media);
 
         Storage::disk()->put($pullSourceKey, $media);
         $servedSourceUrl = Storage::disk()->temporaryUrl($pullSourceKey, now()->addMinutes(5));

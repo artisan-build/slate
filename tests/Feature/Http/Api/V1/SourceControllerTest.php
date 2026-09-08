@@ -41,11 +41,12 @@ final class SourceControllerTest extends TestCase
             'upload' => ['content_type' => 'video/mp4', 'size' => 4096],
         ]);
 
-        $response->assertCreated()->assertJsonStructure(['id', 'put_url', 'expires_at', 'object_key']);
+        $response->assertCreated()->assertJsonStructure(['id', 'put_url', 'headers', 'expires_at', 'object_key']);
         $source = Source::query()->findOrFail($response->json('id'));
         $response->assertExactJson([
             'id' => $source->id,
             'put_url' => 'https://bucket.example.test/presigned-put',
+            'headers' => ['If-None-Match' => ['*']],
             'expires_at' => '2026-09-08T12:15:00.000000Z',
             'object_key' => 'slate-sources/'.$source->id.'/source',
         ]);
@@ -269,13 +270,16 @@ final class SourceControllerStorage implements IngestStorage
         $this->objects[$objectKey->value()] = false;
     }
 
-    public function temporaryUploadUrl(ObjectKey $objectKey, DateTimeInterface $expiration): array
-    {
+    public function temporaryUploadUrl(
+        ObjectKey $objectKey,
+        DateTimeInterface $expiration,
+        bool $singleUse = false,
+    ): array {
         $this->presignedKeys[] = $objectKey->value();
 
         return [
             'url' => 'https://bucket.example.test/presigned-put',
-            'headers' => [],
+            'headers' => $singleUse ? ['If-None-Match' => ['*']] : [],
         ];
     }
 }

@@ -11,6 +11,7 @@ use App\Models\Source;
 use App\Models\SourceStatus;
 use App\Slate\Input\InputRejectionReason;
 use App\Slate\Storage\IngestStorage;
+use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use RuntimeException;
 use Throwable;
@@ -60,6 +61,13 @@ final readonly class IngestCleanup
         $pruned = 0;
         $failures = [];
         $at ??= now();
+        $staleSourceSeconds = config('slate.ingest.stale_source_ingesting_seconds');
+
+        if (! is_int($staleSourceSeconds) || $staleSourceSeconds < 1) {
+            throw new RuntimeException('The stale source ingest threshold must be a positive integer.');
+        }
+
+        $staleSourceBefore = CarbonImmutable::instance($at)->subSeconds($staleSourceSeconds);
 
         foreach (Ingest::query()
             ->where(function ($query) use ($at): void {
@@ -85,6 +93,10 @@ final readonly class IngestCleanup
                 $query->where('mode', IngestMode::Direct->value)
                     ->where('status', SourceStatus::Pending->value)
                     ->where('expires_at', '<=', $at);
+            })
+            ->orWhere(function ($query) use ($staleSourceBefore): void {
+                $query->where('status', SourceStatus::Ingesting->value)
+                    ->where('updated_at', '<=', $staleSourceBefore);
             })
             ->lazyById() as $source) {
             try {

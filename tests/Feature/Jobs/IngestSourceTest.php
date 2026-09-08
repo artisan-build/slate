@@ -350,8 +350,11 @@ final class MemoryIngestStorage implements IngestStorage
         $this->objectSize = 0;
     }
 
-    public function temporaryUploadUrl(ObjectKey $objectKey, DateTimeInterface $expiration): array
-    {
+    public function temporaryUploadUrl(
+        ObjectKey $objectKey,
+        DateTimeInterface $expiration,
+        bool $singleUse = false,
+    ): array {
         throw new \LogicException('Not used by this test.');
     }
 }

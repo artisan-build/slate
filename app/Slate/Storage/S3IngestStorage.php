@@ -12,6 +12,8 @@ use Psr\Http\Message\StreamInterface;
 use RuntimeException;
 use Throwable;
 
+use function Aws\serialize;
+
 final readonly class S3IngestStorage implements IngestStorage
 {
     public function __construct(private AwsS3V3Adapter $filesystem) {}
@@ -144,12 +146,33 @@ final readonly class S3IngestStorage implements IngestStorage
         }
     }
 
-    public function temporaryUploadUrl(ObjectKey $objectKey, DateTimeInterface $expiration): array
-    {
-        /** @var array{url: string, headers: array<string, list<string>>} $upload */
-        $upload = $this->filesystem->temporaryUploadUrl($objectKey->value(), $expiration);
+    public function temporaryUploadUrl(
+        ObjectKey $objectKey,
+        DateTimeInterface $expiration,
+        bool $singleUse = false,
+    ): array {
+        if (! $singleUse) {
+            /** @var array{url: string, headers: array<string, list<string>>} $upload */
+            $upload = $this->filesystem->temporaryUploadUrl($objectKey->value(), $expiration);
 
-        return $upload;
+            return $upload;
+        }
+
+        $client = $this->filesystem->getClient();
+        $command = clone $client->getCommand('PutObject', $this->objectArguments($objectKey));
+        $command->getHandlerList()->remove('signer');
+        $command->getHandlerList()->remove('s3.checksum');
+        $unsignedRequest = serialize($command)->withHeader('If-None-Match', '*');
+        $request = (new ConditionalS3SignatureV4('s3', $client->getRegion()))->presign(
+            $unsignedRequest,
+            $client->getCredentials()->wait(),
+            $expiration,
+        );
+
+        /** @var array<string, list<string>> $headers */
+        $headers = $request->getHeaders();
+
+        return ['url' => (string) $request->getUri(), 'headers' => $headers];
     }
 
     public function delete(ObjectKey $objectKey): void

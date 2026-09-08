@@ -59,6 +59,7 @@ return [
     'ingest' => [
         'part_size_bytes' => 8 * 1024 * 1024,
         'maximum_source_bytes' => 8 * 1024 * 1024 * 1024,
+        'stale_source_ingesting_seconds' => 2 * 60 * 60,
         // 8 GiB in 3740s of available work requires 2.19 MiB/s; the remaining 220s cover redelivery.
         'retry_deadline_seconds' => 22 * 180,
     ],

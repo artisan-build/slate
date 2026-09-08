@@ -42,6 +42,7 @@ final class SourceController extends Controller
         return response()->json([
             'id' => $upload->id,
             'put_url' => $upload->url,
+            'headers' => $upload->headers,
             'expires_at' => $expiration->toISOString(),
             'object_key' => $upload->objectKey->value(),
         ], 201);
