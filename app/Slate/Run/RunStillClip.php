@@ -98,7 +98,13 @@ final readonly class RunStillClip implements RunRecipeOperation
             $data['supersample'],
             $qualityTier,
             $audioBitrate,
-            self::captionsFromArray($data, $runPrefix),
+            self::captionsFromArray(
+                $data,
+                $runPrefix,
+                $data['duration_microseconds'] / 1_000_000,
+                $data['width'],
+                $data['height'],
+            ),
         );
     }
 
@@ -178,8 +184,13 @@ final readonly class RunStillClip implements RunRecipeOperation
     }
 
     /** @param array<string, mixed> $data */
-    private static function captionsFromArray(array $data, string $runPrefix): ?RunTimedCaptions
-    {
+    private static function captionsFromArray(
+        array $data,
+        string $runPrefix,
+        float $durationSeconds,
+        int $width,
+        int $height,
+    ): ?RunTimedCaptions {
         $captions = $data['captions'] ?? null;
 
         if ($captions === null) {
@@ -190,6 +201,6 @@ final readonly class RunStillClip implements RunRecipeOperation
             throw new InvalidArgumentException('Run captions payload must be an object.');
         }
 
-        return RunTimedCaptions::fromStoredArray($captions, $runPrefix);
+        return RunTimedCaptions::fromStoredArray($captions, $runPrefix, $durationSeconds, $width, $height);
     }
 }

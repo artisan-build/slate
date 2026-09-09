@@ -58,6 +58,19 @@ final readonly class RunTimedWord
         );
     }
 
+    public function validateForPage(
+        float $durationSeconds,
+        int $width,
+        int $height,
+        float $dimDurationSeconds,
+    ): void {
+        if ($this->x >= $width || $this->y >= $height || $this->end > $durationSeconds) {
+            throw new InvalidArgumentException('Timed word position and timing must remain within its page.');
+        }
+
+        $this->local($dimDurationSeconds);
+    }
+
     /** @return array{text: string, x: int, y: int, start: float, end: float} */
     public function toArray(): array
     {

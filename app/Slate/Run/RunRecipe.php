@@ -163,7 +163,13 @@ final readonly class RunRecipe implements Arrayable, JsonSerializable
                     1,
                     $qualityTier,
                     AudioBitrate::Kbps192,
-                    self::captionsFromWire($page['captions'] ?? null, $resolveSource),
+                    self::captionsFromWire(
+                        $page['captions'] ?? null,
+                        $resolveSource,
+                        (float) $duration,
+                        $data['width'],
+                        $data['height'],
+                    ),
                 );
             },
             $pages,
@@ -202,8 +208,13 @@ final readonly class RunRecipe implements Arrayable, JsonSerializable
     }
 
     /** @param callable(string): ObjectKey $resolveSource */
-    private static function captionsFromWire(mixed $data, callable $resolveSource): ?RunTimedCaptions
-    {
+    private static function captionsFromWire(
+        mixed $data,
+        callable $resolveSource,
+        float $durationSeconds,
+        int $width,
+        int $height,
+    ): ?RunTimedCaptions {
         if ($data === null) {
             return null;
         }
@@ -228,6 +239,9 @@ final readonly class RunRecipe implements Arrayable, JsonSerializable
 
                 return RunTimedWord::fromArray($word);
             }, $words),
+            $durationSeconds,
+            $width,
+            $height,
         );
     }
 

@@ -23,8 +23,13 @@ final readonly class RunTimedCaptions
     public array $words;
 
     /** @param array<array-key, mixed> $words */
-    public function __construct(public ObjectKey $font, array $words)
-    {
+    public function __construct(
+        public ObjectKey $font,
+        array $words,
+        float $durationSeconds,
+        int $width,
+        int $height,
+    ) {
         if ($words === [] || ! array_is_list($words) || count($words) > 64) {
             throw new InvalidArgumentException('Caption words must be a non-empty ordered list of at most 64 words.');
         }
@@ -35,12 +40,23 @@ final readonly class RunTimedCaptions
             }
         }
 
+        $dimDuration = self::dimDuration($words);
+
+        foreach ($words as $word) {
+            $word->validateForPage($durationSeconds, $width, $height, $dimDuration);
+        }
+
         $this->words = $words;
     }
 
     /** @param array<string, mixed> $data */
-    public static function fromStoredArray(array $data, string $runPrefix): self
-    {
+    public static function fromStoredArray(
+        array $data,
+        string $runPrefix,
+        float $durationSeconds,
+        int $width,
+        int $height,
+    ): self {
         $keys = array_keys($data);
         sort($keys);
         $words = $data['words'] ?? null;
@@ -59,16 +75,15 @@ final readonly class RunTimedCaptions
 
                 return RunTimedWord::fromArray($word);
             }, $words),
+            $durationSeconds,
+            $width,
+            $height,
         );
     }
 
     public function localOperation(SlateVideo $input, ScratchPath $font, ScratchPath $output): TimedWords
     {
-        $shortestWordDuration = min(array_map(
-            static fn (RunTimedWord $word): float => $word->end - $word->start,
-            $this->words,
-        ));
-        $dimDuration = min(0.07, $shortestWordDuration / 4);
+        $dimDuration = self::dimDuration($this->words);
 
         return new TimedWords(
             $input,
@@ -91,5 +106,16 @@ final readonly class RunTimedCaptions
             'font_object_key' => $this->font->value(),
             'words' => array_map(static fn (RunTimedWord $word): array => $word->toArray(), $this->words),
         ];
+    }
+
+    /** @param non-empty-list<RunTimedWord> $words */
+    private static function dimDuration(array $words): float
+    {
+        $shortestWordDuration = min(array_map(
+            static fn (RunTimedWord $word): float => $word->end - $word->start,
+            $words,
+        ));
+
+        return min(0.07, $shortestWordDuration / 4);
     }
 }

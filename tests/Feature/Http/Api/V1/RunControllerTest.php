@@ -161,6 +161,33 @@ final class RunControllerTest extends TestCase
         Bus::assertNothingDispatched();
     }
 
+    #[DataProvider('invalidCaptionProvider')]
+    public function test_invalid_caption_returns_422_without_persisting_or_dispatching(array $word): void
+    {
+        Bus::fake();
+        $runId = '62626262-6262-4262-8262-626262626262';
+        $payload = $this->validPayload($runId);
+        $font = Source::factory()->create([
+            'owner_subject_ref' => 'test-subject',
+            'owner_subject_type' => SubjectType::Application,
+            'status' => SourceStatus::Ready,
+        ]);
+        $payload['recipe']['delivery']['pages'][0]['captions'] = [
+            'font' => $font->id,
+            'words' => [$word],
+        ];
+        $credential = $this->mintCredential(['abilities' => ['consume']]);
+
+        $response = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload);
+
+        $response->assertUnprocessable()
+            ->assertJsonPath('reason', RunApiErrorReason::MalformedRecipe->value)
+            ->assertJsonValidationErrors(['recipe']);
+        self::assertFalse(Run::query()->whereKey($runId)->exists());
+        Bus::assertNothingDispatched();
+        Bus::assertBatchCount(0);
+    }
+
     public function test_unexpected_top_level_field_returns_422_typed_reason(): void
     {
         Bus::fake();
@@ -533,6 +560,22 @@ final class RunControllerTest extends TestCase
             'queued' => [RunStatus::Queued],
             'running' => [RunStatus::Running],
             'succeeded' => [RunStatus::Succeeded],
+        ];
+    }
+
+    /** @return array<string, array{array{text: string, x: int, y: int, start: float, end: float}}> */
+    public static function invalidCaptionProvider(): array
+    {
+        $valid = ['text' => 'Page', 'x' => 120, 'y' => 760, 'start' => 0.25, 'end' => 2.5];
+
+        return [
+            'empty text' => [[...$valid, 'text' => '']],
+            'control character' => [[...$valid, 'text' => "Pa\0ge"]],
+            'oversized text' => [[...$valid, 'text' => str_repeat('a', 129)]],
+            'negative x' => [[...$valid, 'x' => -1]],
+            'x outside page' => [[...$valid, 'x' => 1536]],
+            'y outside page' => [[...$valid, 'y' => 1024]],
+            'end after page' => [[...$valid, 'end' => 4.0]],
         ];
     }
 
