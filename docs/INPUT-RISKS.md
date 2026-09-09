@@ -4,6 +4,11 @@ Slate treats every source as potentially hostile, regardless of whether its decl
 `trusted-origin` or `untrusted`. The declaration is recorded for future policy decisions; it does not
 relax any check today.
 
+Recipes reference source IDs rather than bucket object keys. Slate resolves each ID server-side and
+admits it only when the source belongs to the same authenticated subject as the run and has reached
+`ready`. Foreign and unknown IDs are deliberately indistinguishable. This ownership check prevents a
+recipe from reaching another subject's objects; it does not make the referenced bytes trustworthy.
+
 ## What Slate Checks
 
 Before source ingest starts, Slate enforces the configured byte limit and checks the first 64 KiB for a
