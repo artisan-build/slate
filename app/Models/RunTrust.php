@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
-enum RunTrust: string
+use App\Slate\Http\WireEnum;
+
+enum RunTrust: string implements WireEnum
 {
     case TrustedOrigin = 'trusted-origin';
     case Untrusted = 'untrusted';

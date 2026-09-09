@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Slate\Recipe\Video;
 
-enum VideoTransition: string
+use App\Slate\Http\WireEnum;
+
+enum VideoTransition: string implements WireEnum
 {
     case Fade = 'fade';
 }

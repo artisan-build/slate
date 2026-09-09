@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-enum SourceStatus: string
+use App\Slate\Http\WireEnum;
+
+enum SourceStatus: string implements WireEnum
 {
     case Pending = 'pending';
     case Ingesting = 'ingesting';

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Slate\Input;
 
-enum InputRejectionReason: string
+use App\Slate\Http\WireEnum;
+
+enum InputRejectionReason: string implements WireEnum
 {
     case SourceTooLarge = 'source_too_large';
     case UnsupportedContainer = 'unsupported_container';
