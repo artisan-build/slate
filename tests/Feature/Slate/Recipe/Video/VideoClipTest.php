@@ -39,6 +39,7 @@ final class VideoClipTest extends TestCase
                 'source' => $source->value(),
                 'start' => 12.5,
                 'end' => 19.75,
+                'quality_tier' => 'delivery',
             ]],
         ], $run->recipe()->toArray());
     }
