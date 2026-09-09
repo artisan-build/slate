@@ -2,6 +2,7 @@
 
 use App\Models\Run;
 use App\Models\RunStatus;
+use App\Models\Source;
 use App\Slate\Recipe\Audio\AudioBitrate;
 use App\Slate\Recipe\QualityTier;
 use App\Slate\Recipe\Video\VideoColor;
@@ -81,6 +82,34 @@ test('rejects foreign object keys at the only typed recipe creation seam', funct
 
     expect(fn () => Run::createWithRecipe($runId, persistedRunRecipe($foreignRunId), persistedRunOwner()))
         ->toThrow(InvalidArgumentException::class, 'Object key must remain within the caller prefix');
+
+    expect(DB::table('runs')->where('id', $runId)->exists())->toBeFalse();
+});
+
+test('rejects another subjects source at the typed recipe creation seam', function (): void {
+    $runId = '17171717-1717-4717-8717-171717171717';
+    $foreignSource = Source::factory()->create([
+        'owner_subject_ref' => 'another-subject',
+    ]);
+    $operation = persistedRunRecipe($runId)->operations[0];
+    $recipe = new RunRecipe([
+        new RunStillClip(
+            $foreignSource->objectKey(),
+            $foreignSource->objectKey(),
+            $operation->width,
+            $operation->height,
+            $operation->framesPerSecond,
+            $operation->durationMicroseconds,
+            $operation->fit,
+            $operation->padColor,
+            $operation->supersample,
+            $operation->qualityTier,
+            $operation->audioBitrate,
+        ),
+    ]);
+
+    expect(fn () => Run::createWithRecipe($runId, $recipe, persistedRunOwner()))
+        ->toThrow(InvalidArgumentException::class, 'Run recipe source objects must belong to the run subject.');
 
     expect(DB::table('runs')->where('id', $runId)->exists())->toBeFalse();
 });

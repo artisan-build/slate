@@ -23,6 +23,13 @@ final class RunObjectKeys
         return self::operationKey($runId, $operationIndex, 'output.mp4');
     }
 
+    public static function deliveryOutput(string $runId): ObjectKey
+    {
+        $prefix = self::prefix($runId);
+
+        return ObjectKey::withinPrefix($prefix, $prefix.'/output.mp4');
+    }
+
     public static function input(string $runId, int $inputIndex, string $filename): ObjectKey
     {
         if ($inputIndex < 0 || $filename === '' || basename($filename) !== $filename) {

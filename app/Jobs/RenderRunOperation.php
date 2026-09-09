@@ -57,10 +57,25 @@ final class RenderRunOperation implements ShouldQueue
             $objectStorage->stageIn($recipe->image, $image);
             $objectStorage->stageIn($recipe->audio, $audio);
             $rendered = SlateVideo::render(
-                $recipe->localOperation($image, $audio, $scratch->file('output.mp4')),
+                $recipe->localOperation(
+                    $image,
+                    $audio,
+                    $scratch->file($recipe->captions === null ? 'output.mp4' : 'uncaptioned.mp4'),
+                ),
                 $compiler,
                 $driver,
             );
+
+            if ($recipe->captions !== null) {
+                $font = $scratch->file('font.ttf');
+                $objectStorage->stageIn($recipe->captions->font, $font);
+                $rendered = SlateVideo::render(
+                    $recipe->captions->localOperation($rendered, $font, $scratch->file('output.mp4')),
+                    $compiler,
+                    $driver,
+                );
+            }
+
             $objectStorage->stageOut($rendered->path, $this->operation->outputKey());
         });
     }

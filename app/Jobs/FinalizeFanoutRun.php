@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Services\FanoutRunCleanup;
+use App\Services\RunFailure;
 use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\Driver;
 use App\Slate\Execution\QueueRuntimePolicy;
@@ -59,6 +60,10 @@ final class FinalizeFanoutRun implements ShouldQueue
         if ($this->batchFailed) {
             $cleanup->allObjects($this->run);
 
+            if ($this->run->managedRunId !== null) {
+                resolve(RunFailure::class)->handle($this->run->managedRunId);
+            }
+
             Log::warning('slate.fanout.failed', [
                 'run_id' => $this->run->id->value(),
                 'stage' => 'operation_batch',
@@ -70,6 +75,7 @@ final class FinalizeFanoutRun implements ShouldQueue
         if ($objectStorage->exists($this->run->outputKey())
             && $objectStorage->exists($this->run->resultKey())) {
             $cleanup->workObjects($this->run);
+            $this->completeManagedRun();
 
             return;
         }
@@ -156,11 +162,16 @@ final class FinalizeFanoutRun implements ShouldQueue
             'run_id' => $this->run->id->value(),
             'result_object_key' => $this->run->resultKey()->value(),
         ]);
+        $this->completeManagedRun();
     }
 
     public function failed(?Throwable $exception): void
     {
         resolve(FanoutRunCleanup::class)->allObjects($this->run);
+
+        if ($this->run->managedRunId !== null) {
+            resolve(RunFailure::class)->handle($this->run->managedRunId);
+        }
 
         Log::error('slate.fanout.failed', [
             'run_id' => $this->run->id->value(),
@@ -172,5 +183,12 @@ final class FinalizeFanoutRun implements ShouldQueue
     private static function monotonicMilliseconds(): int
     {
         return intdiv((int) hrtime(true), 1_000_000);
+    }
+
+    private function completeManagedRun(): void
+    {
+        if ($this->run->managedRunId !== null) {
+            dispatch(new CompleteRun($this->run->managedRunId));
+        }
     }
 }

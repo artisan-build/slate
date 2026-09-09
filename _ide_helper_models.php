@@ -106,10 +106,30 @@ namespace App\Models{
  * @property string|null $multipart_upload_id
  * @property CarbonImmutable|null $retry_until
  * @property CarbonImmutable|null $expires_at
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
  * @method static \Database\Factories\SourceFactory factory($count = null, $state = [])
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Source newModelQuery()
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Source newQuery()
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Source query()
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereBytes($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereContentType($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereCreatedAt($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereExpiresAt($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereId($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereMode($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereMultipartUploadId($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereObjectKey($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereOwnerSubjectRef($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereOwnerSubjectType($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source wherePartSizeBytes($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereRejectionReason($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereRetryUntil($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereSourceUrl($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereSourceValidator($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereSourceValidatorHeader($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereStatus($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|Source whereUpdatedAt($value)
  * @mixin \Eloquent
  */
 	#[\AllowDynamicProperties]

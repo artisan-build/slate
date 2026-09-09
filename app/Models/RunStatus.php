@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
-enum RunStatus: string
+use App\Slate\Http\WireEnum;
+
+enum RunStatus: string implements WireEnum
 {
     case Queued = 'queued';
     case Running = 'running';

@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\AssembleRunDelivery;
 use App\Jobs\CoarseCutVideoSource;
 use App\Jobs\CompleteRun;
 use App\Jobs\FinalizeRunSplitOperation;
@@ -346,7 +347,7 @@ test('keeps operations at or below the output budget in one queued job', functio
 
     resolve(RunExecutor::class)->execute($run);
 
-    Bus::assertChained([RenderRunOperation::class, CompleteRun::class]);
+    Bus::assertChained([RenderRunOperation::class, AssembleRunDelivery::class]);
     expect($run->fresh()->status)->toBe(RunStatus::Running);
 })->with([
     'below budget' => [48_000_000],
@@ -385,7 +386,7 @@ test('executes the persisted recipe when in-memory raw state differs before tran
     Bus::assertChained([
         static fn (RenderRunOperation $job): bool => $job->operation->recipeOperation->image->value()
             === $original->image->value(),
-        CompleteRun::class,
+        AssembleRunDelivery::class,
     ]);
 });
 
@@ -623,7 +624,7 @@ test('dispatches executable sub clip jobs and finalization behind a split run', 
         RenderRunSubClip::class,
         RenderRunSubClip::class,
         FinalizeRunSplitOperation::class,
-        CompleteRun::class,
+        AssembleRunDelivery::class,
     ]);
 });
 

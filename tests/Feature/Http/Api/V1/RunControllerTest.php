@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Http\Api\V1;
 
-use App\Jobs\CompleteRun;
-use App\Jobs\RenderRunOperation;
 use App\Models\Run;
 use App\Models\RunStatus;
 use App\Models\RunTrust;
+use App\Models\Source;
+use App\Models\SourceStatus;
 use App\Models\User;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Driver\Driver;
@@ -36,12 +36,21 @@ use Tests\TestCase;
 
 final class DatabaseQueueRunDriver implements Driver
 {
+    /** @var array<string, float> */
+    private array $durations = [];
+
     public function run(CompiledRecipe $recipe): DriverResult
     {
         $command = $recipe->command();
         $output = $command[count($command) - 1];
 
         if (in_array('-show_format', $command, true)) {
+            $storedOutput = is_file($output) ? file_get_contents($output) : false;
+            $storedDuration = is_string($storedOutput) && str_starts_with($storedOutput, 'duration:')
+                ? (float) substr($storedOutput, strlen('duration:'))
+                : null;
+            $duration = $this->durations[$output] ?? $storedDuration ?? 3.0;
+
             return new DriverResult(json_encode([
                 'streams' => [
                     [
@@ -52,15 +61,26 @@ final class DatabaseQueueRunDriver implements Driver
                         'avg_frame_rate' => '24/1',
                         'pix_fmt' => 'yuv420p',
                         'color_range' => 'tv',
-                        'nb_frames' => '24',
+                        'nb_frames' => (string) round($duration * 24),
                     ],
                     ['codec_type' => 'audio', 'codec_name' => 'aac'],
                 ],
-                'format' => ['duration' => '1.000000'],
+                'format' => ['duration' => number_format($duration, 6, '.', '')],
             ], JSON_THROW_ON_ERROR));
         }
 
-        file_put_contents($output, 'database queue rendered output');
+        $durationOptions = array_keys($command, '-t', true);
+        $durationOption = end($durationOptions);
+
+        if (is_int($durationOption)) {
+            $this->durations[$output] = (float) $command[$durationOption + 1];
+
+            if ($this->durations[$output] === 86400.0) {
+                $this->durations[$output] = 5.0;
+            }
+        }
+
+        file_put_contents($output, 'duration:'.($this->durations[$output] ?? 3.0));
 
         return new DriverResult;
     }
@@ -96,8 +116,8 @@ final class RunControllerTest extends TestCase
         self::assertSame(RunTrust::Untrusted, $run->trust);
         self::assertSame(SubjectType::Application, $run->owner_subject_type);
         self::assertSame('test-subject', $run->owner_subject_ref);
-        self::assertSame($this->validPayload($runId)['recipe'], $run->recipe()->toArray());
-        Bus::assertChained([RenderRunOperation::class, CompleteRun::class]);
+        self::assertCount(2, $run->recipe()->operations);
+        Bus::assertBatched(fn ($batch): bool => $batch->jobs->count() === 2);
     }
 
     public function test_submit_owns_run_by_the_bfc_credential_subject_when_the_guard_principal_is_a_user(): void
@@ -112,7 +132,10 @@ final class RunControllerTest extends TestCase
             'user_id' => (string) $user->id,
         ]);
 
-        $this->actingAsCredential($credential)->postJson('/api/v1/runs', $this->validPayload($runId))
+        $this->actingAsCredential($credential)->postJson(
+            '/api/v1/runs',
+            $this->validPayload($runId, 'installation-57', SubjectType::Installation),
+        )
             ->assertAccepted();
 
         $run = Run::query()->findOrFail($runId);
@@ -126,7 +149,7 @@ final class RunControllerTest extends TestCase
         Bus::fake();
         $runId = '42424242-4242-4242-8242-424242424242';
         $payload = $this->validPayload($runId);
-        $payload['recipe']['operations'][0]['encoder'] = 'caller-controlled';
+        $payload['recipe']['delivery']['pages'][0]['encoder'] = 'caller-controlled';
         $credential = $this->mintCredential(['abilities' => ['consume']]);
 
         $response = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload);
@@ -136,6 +159,33 @@ final class RunControllerTest extends TestCase
             ->assertJsonValidationErrors(['recipe']);
         self::assertFalse(Run::query()->whereKey($runId)->exists());
         Bus::assertNothingDispatched();
+    }
+
+    #[DataProvider('invalidCaptionProvider')]
+    public function test_invalid_caption_returns_422_without_persisting_or_dispatching(array $word): void
+    {
+        Bus::fake();
+        $runId = '62626262-6262-4262-8262-626262626262';
+        $payload = $this->validPayload($runId);
+        $font = Source::factory()->create([
+            'owner_subject_ref' => 'test-subject',
+            'owner_subject_type' => SubjectType::Application,
+            'status' => SourceStatus::Ready,
+        ]);
+        $payload['recipe']['delivery']['pages'][0]['captions'] = [
+            'font' => $font->id,
+            'words' => [$word],
+        ];
+        $credential = $this->mintCredential(['abilities' => ['consume']]);
+
+        $response = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload);
+
+        $response->assertUnprocessable()
+            ->assertJsonPath('reason', RunApiErrorReason::MalformedRecipe->value)
+            ->assertJsonValidationErrors(['recipe']);
+        self::assertFalse(Run::query()->whereKey($runId)->exists());
+        Bus::assertNothingDispatched();
+        Bus::assertBatchCount(0);
     }
 
     public function test_unexpected_top_level_field_returns_422_typed_reason(): void
@@ -235,14 +285,14 @@ final class RunControllerTest extends TestCase
         Bus::fake();
         $runId = '52525252-5252-4252-8252-525252525252';
         $payload = $this->validPayload($runId);
-        $payload['recipe']['operations'] = array_fill(0, 50, $payload['recipe']['operations'][0]);
+        $payload['recipe']['delivery']['pages'] = array_fill(0, 50, $payload['recipe']['delivery']['pages'][0]);
         $credential = $this->mintCredential(['abilities' => ['consume']]);
 
         $response = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload);
 
         $response->assertUnprocessable()
             ->assertJsonPath('reason', InputRejectionReason::OperationCountExceeded->value)
-            ->assertJsonValidationErrors(['recipe.operations']);
+            ->assertJsonValidationErrors(['recipe']);
         self::assertFalse(Run::query()->whereKey($runId)->exists());
         Bus::assertNothingDispatched();
     }
@@ -252,14 +302,14 @@ final class RunControllerTest extends TestCase
         Bus::fake();
         $runId = '53535353-5353-4353-8353-535353535353';
         $payload = $this->validPayload($runId);
-        $payload['recipe']['operations'][0]['duration_microseconds'] = 4_901_000_000;
+        $payload['recipe']['delivery']['pages'][0]['duration'] = 4_901;
         $credential = $this->mintCredential(['abilities' => ['consume']]);
 
         $response = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload);
 
         $response->assertUnprocessable()
             ->assertJsonPath('reason', InputRejectionReason::TotalOutputDurationExceeded->value)
-            ->assertJsonValidationErrors(['recipe.operations']);
+            ->assertJsonValidationErrors(['recipe']);
         self::assertFalse(Run::query()->whereKey($runId)->exists());
         Bus::assertNothingDispatched();
     }
@@ -269,14 +319,14 @@ final class RunControllerTest extends TestCase
         Bus::fake();
         $runId = '54545454-5454-4454-8454-545454545454';
         $payload = $this->validPayload($runId);
-        $payload['recipe']['operations'][0]['duration_microseconds'] = 4_851_000_000;
+        $payload['recipe']['delivery']['pages'][0]['duration'] = 4_851;
         $credential = $this->mintCredential(['abilities' => ['consume']]);
 
         $response = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload);
 
         $response->assertUnprocessable()
             ->assertJsonPath('reason', InputRejectionReason::RenderJobCountExceeded->value)
-            ->assertJsonValidationErrors(['recipe.operations']);
+            ->assertJsonValidationErrors(['recipe']);
         self::assertFalse(Run::query()->whereKey($runId)->exists());
         Bus::assertNothingDispatched();
     }
@@ -320,11 +370,14 @@ final class RunControllerTest extends TestCase
     public function test_duplicate_submit_returns_typed_409_without_dispatching(RunStatus $status): void
     {
         $runId = '55555555-5555-4555-8555-555555555555';
-        $payload = $this->validPayload($runId);
+        $payload = $this->validPayload($runId, 'duplicate-owner');
         $owner = new Subject(SubjectType::Application, 'duplicate-owner');
         $run = Run::createWithRecipe(
             $runId,
-            RunRecipe::fromArray($payload['recipe'], RunObjectKeys::prefix($runId)),
+            RunRecipe::fromWireArray(
+                $payload['recipe'],
+                static fn (string $sourceId): ObjectKey => Source::query()->findOrFail($sourceId)->objectKey(),
+            ),
             $owner,
         );
 
@@ -364,7 +417,10 @@ final class RunControllerTest extends TestCase
         $dispatcher->listen($eventName, static function (Run $run) use ($payload): void {
             DB::table('runs')->insert([
                 'id' => $run->id,
-                'recipe' => json_encode($payload['recipe'], JSON_THROW_ON_ERROR),
+                'recipe' => RunRecipe::fromWireArray(
+                    $payload['recipe'],
+                    static fn (string $sourceId): ObjectKey => Source::query()->findOrFail($sourceId)->objectKey(),
+                )->toJson(),
                 'owner_subject_type' => SubjectType::Application->value,
                 'owner_subject_ref' => 'racing-owner',
                 'trust' => RunTrust::Untrusted->value,
@@ -422,9 +478,9 @@ final class RunControllerTest extends TestCase
         app()->instance(Driver::class, new DatabaseQueueRunDriver);
         $runId = '47474747-4747-4747-8747-474747474747';
         $payload = $this->validPayload($runId);
-        $operation = $payload['recipe']['operations'][0];
-        Storage::disk()->put($operation['image_object_key'], 'image');
-        Storage::disk()->put($operation['audio_object_key'], 'audio');
+        foreach (Source::query()->get() as $source) {
+            Storage::disk()->put($source->object_key, 'source');
+        }
         $credential = $this->mintCredential(['abilities' => ['consume']]);
 
         $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload)
@@ -432,18 +488,19 @@ final class RunControllerTest extends TestCase
             ->assertExactJson(['id' => $runId]);
         $this->getJson('/api/v1/runs/'.$runId)->assertOk()->assertJsonPath('status', 'running');
         self::assertInstanceOf(DatabaseQueue::class, resolve('queue')->connection());
-        self::assertSame(1, DB::table('jobs')->where('queue', 'default')->count());
+        self::assertSame(2, DB::table('jobs')->where('queue', 'default')->count());
 
         $worker = resolve('queue.worker');
         self::assertInstanceOf(Worker::class, $worker);
         $options = new WorkerOptions(sleep: 0, timeout: 170, maxTries: 1, force: true);
-        $worker->runNextJob('database', 'default', $options);
-        self::assertSame(1, DB::table('jobs')->where('queue', 'default')->count());
-        $worker->runNextJob('database', 'default', $options);
+
+        for ($attempt = 0; $attempt < 20 && DB::table('jobs')->count() > 0; $attempt++) {
+            $worker->runNextJob('database', 'default', $options);
+        }
 
         self::assertSame(0, DB::table('jobs')->where('queue', 'default')->count());
         $this->getJson('/api/v1/runs/'.$runId)->assertOk()->assertJsonPath('status', 'succeeded');
-        $resultKey = RunObjectKeys::operationOutput($runId, 0);
+        $resultKey = RunObjectKeys::deliveryOutput($runId);
         self::assertTrue(Storage::disk()->exists($resultKey->value()));
         $objectStorage = $this->mock(ObjectStorage::class);
         $objectStorage->shouldReceive('temporaryUrl')
@@ -455,11 +512,35 @@ final class RunControllerTest extends TestCase
         $this->getJson('/api/v1/runs/'.$runId.'/result')->assertOk()->assertExactJson([
             'id' => $runId,
             'expires_at' => '2026-09-05T12:15:00.000000Z',
-            'results' => [[
-                'operation_index' => 0,
-                'url' => 'https://bucket.example.test/result.mp4?signature=temporary',
-            ]],
+            'url' => 'https://bucket.example.test/result.mp4?signature=temporary',
         ]);
+    }
+
+    public function test_foreign_and_unknown_source_ids_return_identical_422_bodies_and_dispatch_nothing(): void
+    {
+        $foreignSource = Source::factory()->create([
+            'owner_subject_ref' => 'foreign-subject',
+            'status' => SourceStatus::Ready,
+        ]);
+        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $foreignRunId = '58585858-5858-4858-8858-585858585858';
+        $unknownRunId = '59595959-5959-4959-8959-595959595959';
+        $foreignPayload = $this->validPayload($foreignRunId);
+        $foreignPayload['recipe']['delivery']['pages'][0]['image'] = $foreignSource->id;
+        $unknownPayload = $this->validPayload($unknownRunId);
+        $unknownPayload['recipe']['delivery']['pages'][0]['image'] = '60606060-6060-4060-8060-606060606060';
+        Bus::fake();
+
+        $foreignResponse = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $foreignPayload);
+        $unknownResponse = $this->postJson('/api/v1/runs', $unknownPayload);
+
+        $foreignResponse->assertUnprocessable()->assertJsonPath('reason', RunApiErrorReason::SourceNotFound->value);
+        $unknownResponse->assertUnprocessable();
+        self::assertSame($foreignResponse->getContent(), $unknownResponse->getContent());
+        self::assertFalse(Run::query()->whereKey($foreignRunId)->exists());
+        self::assertFalse(Run::query()->whereKey($unknownRunId)->exists());
+        Bus::assertNothingDispatched();
+        Bus::assertBatchCount(0);
     }
 
     /** @return array<string, array{string, string}> */
@@ -482,28 +563,49 @@ final class RunControllerTest extends TestCase
         ];
     }
 
-    /** @return array{id: string, recipe: array{operations: list<array<string, mixed>>}} */
-    private function validPayload(string $runId): array
+    /** @return array<string, array{array{text: string, x: int, y: int, start: float, end: float}}> */
+    public static function invalidCaptionProvider(): array
     {
-        $prefix = RunObjectKeys::prefix($runId);
+        $valid = ['text' => 'Page', 'x' => 120, 'y' => 760, 'start' => 0.25, 'end' => 2.5];
+
+        return [
+            'empty text' => [[...$valid, 'text' => '']],
+            'control character' => [[...$valid, 'text' => "Pa\0ge"]],
+            'oversized text' => [[...$valid, 'text' => str_repeat('a', 129)]],
+            'negative x' => [[...$valid, 'x' => -1]],
+            'x outside page' => [[...$valid, 'x' => 1536]],
+            'y outside page' => [[...$valid, 'y' => 1024]],
+            'end after page' => [[...$valid, 'end' => 4.0]],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function validPayload(
+        string $runId,
+        string $ownerSubjectRef = 'test-subject',
+        SubjectType $ownerSubjectType = SubjectType::Application,
+    ): array {
+        $sourceOwner = [
+            'owner_subject_ref' => $ownerSubjectRef,
+            'owner_subject_type' => $ownerSubjectType,
+            'status' => SourceStatus::Ready,
+        ];
+        $image = Source::factory()->create($sourceOwner);
+        $audio = Source::factory()->create($sourceOwner);
 
         return [
             'id' => $runId,
             'recipe' => [
-                'operations' => [[
-                    'operation' => 'video.still_clip',
-                    'image_object_key' => $prefix.'/inputs/0000/image.ppm',
-                    'audio_object_key' => $prefix.'/inputs/0000/audio.mp3',
+                'delivery' => [
+                    'pages' => [
+                        ['image' => $image->id, 'audio' => $audio->id, 'duration' => 3.0],
+                        ['image' => $image->id, 'audio' => $audio->id, 'duration' => 3.0],
+                    ],
                     'width' => 1536,
                     'height' => 1024,
-                    'frames_per_second' => 24,
-                    'duration_microseconds' => 1_000_000,
-                    'fit' => 'contain_pad',
-                    'pad_color' => 'black',
-                    'supersample' => 1,
                     'quality_tier' => 'delivery',
-                    'audio_bitrate' => '192k',
-                ]],
+                    'transitions' => ['type' => 'fade', 'duration' => 1.0],
+                ],
             ],
         ];
     }

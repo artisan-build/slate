@@ -12,6 +12,7 @@ use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\RunObjectKeys;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 final class RunResultController extends Controller
 {
@@ -20,6 +21,7 @@ final class RunResultController extends Controller
         ObjectStorage $objectStorage,
         FanoutStorageGuard $storageGuard,
         AuthenticatedRunScope $runScope,
+        Request $request,
     ): JsonResponse {
         $run = $runScope->find($run);
 
@@ -42,22 +44,29 @@ final class RunResultController extends Controller
 
         $storageGuard->assertSafe();
         $expiresAt = now()->addSeconds((int) config('slate.api.result_url_ttl_seconds'));
-        $results = [];
-
-        foreach (array_keys($run->recipe()->operations) as $operationIndex) {
-            $results[] = [
-                'operation_index' => $operationIndex,
-                'url' => $objectStorage->temporaryUrl(
-                    RunObjectKeys::operationOutput($run->id, $operationIndex),
-                    $expiresAt,
-                ),
-            ];
-        }
-
-        return response()->json([
+        $result = [
             'id' => $run->id,
             'expires_at' => $expiresAt->toISOString(),
-            'results' => $results,
-        ]);
+            'url' => $objectStorage->temporaryUrl(
+                RunObjectKeys::deliveryOutput($run->id),
+                $expiresAt,
+            ),
+        ];
+
+        if ($request->boolean('include_intermediates')) {
+            $result['intermediates'] = [];
+
+            foreach (array_keys($run->recipe()->operations) as $operationIndex) {
+                $result['intermediates'][] = [
+                    'operation_index' => $operationIndex,
+                    'url' => $objectStorage->temporaryUrl(
+                        RunObjectKeys::operationOutput($run->id, $operationIndex),
+                        $expiresAt,
+                    ),
+                ];
+            }
+        }
+
+        return response()->json($result);
     }
 }

@@ -24,4 +24,19 @@ final class SourceObjectKeys
 
         return ObjectKey::withinPrefix($prefix, $prefix.'/source');
     }
+
+    public static function fromValue(string $key): ObjectKey
+    {
+        if (preg_match('~^slate-sources/([0-9a-fA-F-]{36})/source$~', $key, $matches) !== 1) {
+            throw new InvalidArgumentException('Source object key must use the server-derived source path.');
+        }
+
+        $objectKey = self::object($matches[1]);
+
+        if ($objectKey->value() !== $key) {
+            throw new InvalidArgumentException('Source object key must use the server-derived source path.');
+        }
+
+        return $objectKey;
+    }
 }

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Slate\Execution;
 
+use App\Jobs\AssembleRunDelivery;
 use App\Jobs\CoarseCutVideoSource;
-use App\Jobs\CompleteRun;
 use App\Jobs\FinalizeRunSplitOperation;
 use App\Jobs\RenderRunOperation;
 use App\Jobs\RenderRunSubClip;
@@ -180,7 +180,7 @@ final readonly class RunExecutor
 
         Bus::chain([
             new RenderRunOperation($run->id, $operation),
-            new CompleteRun($run->id),
+            new AssembleRunDelivery($run->id),
         ])->onQueue($plan->runtimeSettings->queue)->dispatch();
     }
 
@@ -208,7 +208,7 @@ final readonly class RunExecutor
                 }
 
                 try {
-                    Bus::dispatch(new CompleteRun($runId));
+                    Bus::dispatch(new AssembleRunDelivery($runId));
                 } catch (Throwable $exception) {
                     report($exception);
 
@@ -248,7 +248,7 @@ final readonly class RunExecutor
             }
         }
 
-        $jobs[] = new CompleteRun($run->id);
+        $jobs[] = new AssembleRunDelivery($run->id);
 
         Bus::chain($jobs)->onQueue($plan->runtimeSettings->queue)->dispatch();
     }
@@ -285,6 +285,7 @@ final readonly class RunExecutor
                 $coarseOutput,
                 $startMicroseconds - $coarseStart,
                 $operation->durationMicroseconds(),
+                $operation->qualityTier(),
                 RunObjectKeys::operationOutput($runId, $operationIndex),
             );
         }
@@ -337,7 +338,7 @@ final readonly class RunExecutor
                             return;
                         }
 
-                        Bus::dispatch(new CompleteRun($runId));
+                        Bus::dispatch(new AssembleRunDelivery($runId));
                     })
                     ->onQueue($queue)
                     ->dispatch();

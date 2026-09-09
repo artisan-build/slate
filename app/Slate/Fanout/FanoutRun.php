@@ -17,7 +17,12 @@ final readonly class FanoutRun
         public FanoutRunId $id,
         public array $inputs,
         public array $operations,
+        public ?string $managedRunId = null,
     ) {
+        if ($managedRunId !== null && $managedRunId !== $id->value()) {
+            throw new InvalidArgumentException('A managed fan-out delivery must use its owning run id.');
+        }
+
         if ($inputs === [] || ! array_is_list($inputs)) {
             throw new InvalidArgumentException('Fan-out run inputs must be a non-empty list.');
         }

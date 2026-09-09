@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
+use App\Models\Run;
 use App\Services\RunFailure;
 use App\Slate\Driver\Binary\RecipeCompiler;
 use App\Slate\Driver\Driver;
@@ -15,6 +16,7 @@ use App\Slate\Fanout\StoredVideo;
 use App\Slate\Recipe\Video\SlateVideo;
 use App\Slate\Recipe\Video\VideoAudioMux;
 use App\Slate\Recipe\Video\VideoConcat;
+use App\Slate\Run\RunStillClip;
 use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\JobScratch;
 use App\Slate\Storage\ObjectKey;
@@ -123,12 +125,29 @@ final class FinalizeRunSplitOperation implements ShouldQueue
             $audioExtension = pathinfo($this->mux->audioInput->value(), PATHINFO_EXTENSION);
             $audio = $scratch->file('audio'.($audioExtension === '' ? '' : '.'.$audioExtension));
             $objectStorage->stageIn($this->mux->audioInput, $audio);
+            $recipeOperation = Run::query()->findOrFail($this->runId)->recipe()->operations[$this->mux->operationIndex()] ?? null;
+
+            if (! $recipeOperation instanceof RunStillClip) {
+                throw new InvalidArgumentException('Split finalizer requires its persisted still clip operation.');
+            }
+
             $output = SlateVideo::render(new VideoAudioMux(
                 $silent,
                 $audio,
                 $this->mux->audioBitrate,
-                $scratch->file('output.mp4'),
+                $scratch->file($recipeOperation->captions === null ? 'output.mp4' : 'uncaptioned.mp4'),
             ), $compiler, $driver);
+
+            if ($recipeOperation->captions !== null) {
+                $font = $scratch->file('font.ttf');
+                $objectStorage->stageIn($recipeOperation->captions->font, $font);
+                $output = SlateVideo::render(
+                    $recipeOperation->captions->localOperation($output, $font, $scratch->file('output.mp4')),
+                    $compiler,
+                    $driver,
+                );
+            }
+
             $objectStorage->stageOut($output->path, $this->mux->outputKey());
         });
     }

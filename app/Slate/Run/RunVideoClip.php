@@ -17,6 +17,7 @@ final readonly class RunVideoClip implements RunRecipeOperation
         public ObjectKey $source,
         public float $start,
         public float $end,
+        public QualityTier $qualityTier = QualityTier::Delivery,
     ) {
         if (! AudioDuration::isNonNegativeMicrosecondDuration($start)
             || ! AudioDuration::isPositiveMicrosecondDuration($end)
@@ -30,6 +31,10 @@ final readonly class RunVideoClip implements RunRecipeOperation
     public static function fromArray(array $data, string $runPrefix): self
     {
         $expectedKeys = ['operation', 'source', 'start', 'end'];
+
+        if (array_key_exists('quality_tier', $data)) {
+            $expectedKeys[] = 'quality_tier';
+        }
         $actualKeys = array_keys($data);
         sort($actualKeys);
         sort($expectedKeys);
@@ -42,10 +47,17 @@ final readonly class RunVideoClip implements RunRecipeOperation
             throw new InvalidArgumentException('Run video clip payload does not match its complete typed schema.');
         }
 
+        $qualityTier = QualityTier::tryFrom(is_string($data['quality_tier'] ?? null) ? $data['quality_tier'] : QualityTier::Delivery->value);
+
+        if ($qualityTier === null) {
+            throw new InvalidArgumentException('Run video clip payload contains an unknown quality tier.');
+        }
+
         return new self(
-            ObjectKey::withinPrefix($runPrefix, $data['source']),
+            RunRecipeObjectKeys::fromStored($runPrefix, $data['source']),
             (float) $data['start'],
             (float) $data['end'],
+            $qualityTier,
         );
     }
 
@@ -56,7 +68,7 @@ final readonly class RunVideoClip implements RunRecipeOperation
 
     public function qualityTier(): QualityTier
     {
-        return QualityTier::Delivery;
+        return $this->qualityTier;
     }
 
     public function durationMicroseconds(): int
@@ -84,7 +96,7 @@ final readonly class RunVideoClip implements RunRecipeOperation
         return AudioBitrate::Kbps192;
     }
 
-    /** @return array{operation: string, source: string, start: float, end: float} */
+    /** @return array{operation: string, source: string, start: float, end: float, quality_tier: string} */
     public function toArray(): array
     {
         return [
@@ -92,10 +104,11 @@ final readonly class RunVideoClip implements RunRecipeOperation
             'source' => $this->source->value(),
             'start' => $this->start,
             'end' => $this->end,
+            'quality_tier' => $this->qualityTier->value,
         ];
     }
 
-    /** @return array{operation: string, source: string, start: float, end: float} */
+    /** @return array{operation: string, source: string, start: float, end: float, quality_tier: string} */
     public function jsonSerialize(): array
     {
         return $this->toArray();

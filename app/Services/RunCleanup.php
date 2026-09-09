@@ -20,7 +20,7 @@ final readonly class RunCleanup
     public function workObjects(Run $run): void
     {
         $this->storageGuard->assertSafe();
-        $outputKeys = [];
+        $outputKeys = [RunObjectKeys::deliveryOutput($run->id)->value() => true];
 
         foreach (array_keys($run->recipe()->operations) as $operationIndex) {
             $outputKey = RunObjectKeys::operationOutput($run->id, $operationIndex);
