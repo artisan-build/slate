@@ -30,6 +30,7 @@ final readonly class RunStillClip implements RunRecipeOperation
         public int $supersample,
         public QualityTier $qualityTier,
         public AudioBitrate $audioBitrate,
+        public ?RunTimedCaptions $captions = null,
     ) {
         if (! in_array([$width, $height], [[1536, 1024], [1024, 1536]], true)) {
             throw new InvalidArgumentException('Run still clip dimensions must match an audited resolution.');
@@ -55,6 +56,10 @@ final readonly class RunStillClip implements RunRecipeOperation
             'operation', 'image_object_key', 'audio_object_key', 'width', 'height', 'frames_per_second',
             'duration_microseconds', 'fit', 'pad_color', 'supersample', 'quality_tier', 'audio_bitrate',
         ];
+
+        if (array_key_exists('captions', $data)) {
+            $expectedKeys[] = 'captions';
+        }
 
         $actualKeys = array_keys($data);
         sort($actualKeys);
@@ -82,8 +87,8 @@ final readonly class RunStillClip implements RunRecipeOperation
         }
 
         return new self(
-            ObjectKey::withinPrefix($runPrefix, $data['image_object_key']),
-            ObjectKey::withinPrefix($runPrefix, $data['audio_object_key']),
+            RunRecipeObjectKeys::fromStored($runPrefix, $data['image_object_key']),
+            RunRecipeObjectKeys::fromStored($runPrefix, $data['audio_object_key']),
             $data['width'],
             $data['height'],
             $data['frames_per_second'],
@@ -93,6 +98,7 @@ final readonly class RunStillClip implements RunRecipeOperation
             $data['supersample'],
             $qualityTier,
             $audioBitrate,
+            self::captionsFromArray($data, $runPrefix),
         );
     }
 
@@ -140,10 +146,10 @@ final readonly class RunStillClip implements RunRecipeOperation
         );
     }
 
-    /** @return array{operation: string, image_object_key: string, audio_object_key: string, width: int, height: int, frames_per_second: int, duration_microseconds: int, fit: string, pad_color: string, supersample: int, quality_tier: string, audio_bitrate: string} */
+    /** @return array<string, mixed> */
     public function toArray(): array
     {
-        return [
+        $data = [
             'operation' => $this->operation()->value,
             'image_object_key' => $this->image->value(),
             'audio_object_key' => $this->audio->value(),
@@ -157,11 +163,33 @@ final readonly class RunStillClip implements RunRecipeOperation
             'quality_tier' => $this->qualityTier->value,
             'audio_bitrate' => $this->audioBitrate->value,
         ];
+
+        if ($this->captions !== null) {
+            $data['captions'] = $this->captions->toArray();
+        }
+
+        return $data;
     }
 
-    /** @return array{operation: string, image_object_key: string, audio_object_key: string, width: int, height: int, frames_per_second: int, duration_microseconds: int, fit: string, pad_color: string, supersample: int, quality_tier: string, audio_bitrate: string} */
+    /** @return array<string, mixed> */
     public function jsonSerialize(): array
     {
         return $this->toArray();
+    }
+
+    /** @param array<string, mixed> $data */
+    private static function captionsFromArray(array $data, string $runPrefix): ?RunTimedCaptions
+    {
+        $captions = $data['captions'] ?? null;
+
+        if ($captions === null) {
+            return null;
+        }
+
+        if (! is_array($captions)) {
+            throw new InvalidArgumentException('Run captions payload must be an object.');
+        }
+
+        return RunTimedCaptions::fromStoredArray($captions, $runPrefix);
     }
 }

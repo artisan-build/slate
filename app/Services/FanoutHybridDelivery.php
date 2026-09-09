@@ -60,6 +60,21 @@ final readonly class FanoutHybridDelivery
     }
 
     /** @param non-empty-list<SlateVideo> $inputs */
+    public function queueRunDelivery(
+        array $inputs,
+        int $transitionFrameCount,
+        QualityTier $qualityTier,
+        FanoutRunId $runId,
+    ): FanoutRun {
+        $this->storageGuard->assertSafe();
+        $run = $this->prepare($inputs, $transitionFrameCount, $qualityTier, $runId, $runId->value());
+
+        $this->dispatch($run);
+
+        return $run;
+    }
+
+    /** @param non-empty-list<SlateVideo> $inputs */
     public function queueSingle(
         array $inputs,
         int $transitionFrameCount,
@@ -90,6 +105,7 @@ final readonly class FanoutHybridDelivery
         int $transitionFrameCount,
         QualityTier $qualityTier,
         ?FanoutRunId $runId = null,
+        ?string $managedRunId = null,
     ): FanoutRun {
         $runId ??= FanoutRunId::generate();
         $prefix = $runId->prefix();
@@ -155,7 +171,7 @@ final readonly class FanoutHybridDelivery
 
             return $operations;
         });
-        $run = new FanoutRun($runId, $storedInputs, $operations);
+        $run = new FanoutRun($runId, $storedInputs, $operations, $managedRunId);
 
         try {
             $this->cleanup->allObjects($run);

@@ -27,7 +27,7 @@ final class RunResultControllerTest extends TestCase
         config()->set('slate.storage.allow_host_local_fanout', true);
         Storage::fake();
         $run = Run::factory()->create(['status' => RunStatus::Succeeded]);
-        $expectedKey = RunObjectKeys::operationOutput($run->id, 0);
+        $expectedKey = RunObjectKeys::deliveryOutput($run->id);
         $storage = $this->mock(ObjectStorage::class);
         $storage->shouldReceive('temporaryUrl')
             ->once()
@@ -41,11 +41,28 @@ final class RunResultControllerTest extends TestCase
         $response->assertOk()->assertExactJson([
             'id' => $run->id,
             'expires_at' => '2026-09-05T13:15:00.000000Z',
-            'results' => [[
-                'operation_index' => 0,
-                'url' => 'https://bucket.example.test/output.mp4?signature=signed',
-            ]],
+            'url' => 'https://bucket.example.test/output.mp4?signature=signed',
         ]);
+    }
+
+    public function test_succeeded_run_returns_intermediates_only_when_requested(): void
+    {
+        $this->travelTo('2026-09-05 13:00:00');
+        config()->set('slate.storage.allow_host_local_fanout', true);
+        Storage::fake();
+        $run = Run::factory()->create(['status' => RunStatus::Succeeded]);
+        $storage = $this->mock(ObjectStorage::class);
+        $storage->shouldReceive('temporaryUrl')->twice()->andReturnUsing(
+            static fn (ObjectKey $key): string => 'https://bucket.example.test/'.$key->value(),
+        );
+        $credential = $this->mintCredential(['abilities' => ['consume']]);
+
+        $response = $this->actingAsCredential($credential)
+            ->getJson('/api/v1/runs/'.$run->id.'/result?include_intermediates=1');
+
+        $response->assertOk()->assertJsonPath('url', 'https://bucket.example.test/'.RunObjectKeys::deliveryOutput($run->id)->value())
+            ->assertJsonPath('intermediates.0.operation_index', 0)
+            ->assertJsonPath('intermediates.0.url', 'https://bucket.example.test/'.RunObjectKeys::operationOutput($run->id, 0)->value());
     }
 
     public function test_running_run_returns_409_result_not_ready(): void

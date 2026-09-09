@@ -12,4 +12,6 @@ enum RunApiErrorReason: string
     case RunNotFound = 'run_not_found';
     case RunIdConflict = 'run_id_conflict';
     case InvalidWebhookDestination = 'invalid_webhook_destination';
+    case SourceNotFound = 'source_not_found';
+    case SourceNotReady = 'source_not_ready';
 }

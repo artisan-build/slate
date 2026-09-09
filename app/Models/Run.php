@@ -9,6 +9,7 @@ use App\Slate\Run\RunStillClip;
 use App\Slate\Run\RunVideoClip;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\RunObjectKeys;
+use App\Slate\Storage\SourceObjectKeys;
 use ArtisanBuild\BuiltForCloud\Subject;
 use ArtisanBuild\BuiltForCloud\SubjectType;
 use Database\Factories\RunFactory;
@@ -55,7 +56,7 @@ final class Run extends Model
             throw new InvalidArgumentException('A run webhook URL and secret must be configured together.');
         }
 
-        self::assertRecipeObjectOwnership($runId, $recipe);
+        self::assertRecipeObjectOwnership($runId, $recipe, $owner);
         $run = new self;
         $run->setRawAttributes([
             'id' => $runId,
@@ -210,21 +211,58 @@ final class Run extends Model
         }
     }
 
-    private static function assertRecipeObjectOwnership(string $runId, RunRecipe $recipe): void
-    {
+    private static function assertRecipeObjectOwnership(
+        string $runId,
+        RunRecipe $recipe,
+        ?Subject $owner = null,
+    ): void {
         $prefix = RunObjectKeys::prefix($runId);
+        $sourceKeys = [];
 
         foreach ($recipe->operations as $operation) {
             if (! $operation instanceof RunStillClip && ! $operation instanceof RunVideoClip) {
                 throw new InvalidArgumentException('Run recipe ownership received an unsupported operation.');
             }
 
-            if ($operation instanceof RunStillClip) {
-                ObjectKey::withinPrefix($prefix, $operation->image->value());
-                ObjectKey::withinPrefix($prefix, $operation->audio->value());
-            } else {
-                ObjectKey::withinPrefix($prefix, $operation->source->value());
+            $keys = $operation instanceof RunStillClip
+                ? array_values(array_filter([
+                    $operation->image,
+                    $operation->audio,
+                    $operation->captions?->font,
+                ]))
+                : [$operation->source];
+
+            foreach ($keys as $key) {
+                try {
+                    ObjectKey::withinPrefix($prefix, $key->value());
+                } catch (InvalidArgumentException $prefixException) {
+                    try {
+                        $sourceKey = SourceObjectKeys::fromValue($key->value());
+                    } catch (InvalidArgumentException) {
+                        throw $prefixException;
+                    }
+
+                    $sourceKeys[$sourceKey->value()] = true;
+                }
             }
+        }
+
+        if ($sourceKeys === []) {
+            return;
+        }
+
+        if ($owner === null) {
+            throw new InvalidArgumentException('Source-backed run recipes require an owning subject.');
+        }
+
+        $ownedSourceKeys = Source::ownedBy($owner)
+            ->whereIn('object_key', array_keys($sourceKeys))
+            ->get()
+            ->mapWithKeys(static fn (Source $source): array => [$source->objectKey()->value() => true])
+            ->all();
+
+        if (array_diff_key($sourceKeys, $ownedSourceKeys) !== []) {
+            throw new InvalidArgumentException('Run recipe source objects must belong to the run subject.');
         }
     }
 

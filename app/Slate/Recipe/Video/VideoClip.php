@@ -76,6 +76,7 @@ final readonly class VideoClip implements Operation
         int $startMicroseconds,
         int $durationMicroseconds,
         ScratchPath $output,
+        QualityTier $qualityTier = QualityTier::Delivery,
     ): self {
         return new self(
             $source,
@@ -83,6 +84,7 @@ final readonly class VideoClip implements Operation
             $startMicroseconds / 1_000_000,
             $durationMicroseconds / 1_000_000,
             VideoClipPass::Precise,
+            qualityTier: $qualityTier,
         );
     }
 

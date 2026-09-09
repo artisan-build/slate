@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Slate\Execution;
 
+use App\Slate\Recipe\QualityTier;
 use App\Slate\Storage\ObjectKey;
 use InvalidArgumentException;
 
@@ -14,6 +15,7 @@ final readonly class PreciseVideoClip implements PlannedOperation
         public ObjectKey $coarseInput,
         public int $startMicroseconds,
         public int $durationMicroseconds,
+        public QualityTier $qualityTier,
         private ObjectKey $output,
     ) {
         if ($index < 0 || $startMicroseconds < 0 || $durationMicroseconds < 1) {

@@ -5,12 +5,13 @@ declare(strict_types=1);
 namespace App\Http\Requests;
 
 use App\Models\RunTrust;
+use App\Models\SourceStatus;
 use App\Slate\Input\InputRejectionReason;
 use App\Slate\Run\RunAdmissionPolicy;
 use App\Slate\Run\RunApiErrorReason;
 use App\Slate\Run\RunRecipe;
 use App\Slate\Run\RunRecipeOperation;
-use App\Slate\Storage\RunObjectKeys;
+use App\Slate\Source\AuthenticatedSourceScope;
 use App\Slate\Webhook\WebhookDestinationGuard;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Contracts\Validation\Validator as ValidatorContract;
@@ -30,20 +31,25 @@ final class StoreRunRequest extends FormRequest
 
     private RunApiErrorReason $apiErrorReason = RunApiErrorReason::MalformedRecipe;
 
+    private ?AuthenticatedSourceScope $sourceScope = null;
+
     public function authorize(): bool
     {
         return true;
     }
 
     /** @return array<string, list<mixed>> */
-    public function rules(RunAdmissionPolicy $admissionPolicy, WebhookDestinationGuard $webhookGuard): array
-    {
+    public function rules(
+        RunAdmissionPolicy $admissionPolicy,
+        WebhookDestinationGuard $webhookGuard,
+        AuthenticatedSourceScope $sourceScope,
+    ): array {
         $this->admissionPolicy = $admissionPolicy;
+        $this->sourceScope = $sourceScope;
 
         return [
             'id' => ['required', 'string', 'uuid'],
-            'recipe' => ['required', 'array:operations'],
-            'recipe.operations' => ['required', 'array', 'min:1'],
+            'recipe' => ['required', 'array'],
             'trust' => ['sometimes', Rule::enum(RunTrust::class)],
             'webhook_url' => [
                 'bail',
@@ -80,7 +86,7 @@ final class StoreRunRequest extends FormRequest
                 $validator->errors()->add('payload', 'The run payload contains unsupported fields.');
             }
 
-            if ($validator->errors()->hasAny(['id', 'recipe', 'recipe.operations'])) {
+            if ($validator->errors()->hasAny(['id', 'recipe'])) {
                 return;
             }
 
@@ -93,7 +99,27 @@ final class StoreRunRequest extends FormRequest
 
             try {
                 /** @var array<string, mixed> $recipe */
-                $this->runRecipe = RunRecipe::fromArray($recipe, RunObjectKeys::prefix($runId));
+                $sourceCache = [];
+                $this->runRecipe = RunRecipe::fromWireArray(
+                    $recipe,
+                    function (string $sourceId) use (&$sourceCache) {
+                        $source = $sourceCache[$sourceId] ??= $this->sourceScope?->find($sourceId);
+
+                        if ($source === null) {
+                            $this->apiErrorReason = RunApiErrorReason::SourceNotFound;
+
+                            throw new InvalidArgumentException('A referenced recipe source was not found.');
+                        }
+
+                        if ($source->status !== SourceStatus::Ready) {
+                            $this->apiErrorReason = RunApiErrorReason::SourceNotReady;
+
+                            throw new InvalidArgumentException('A referenced recipe source is not ready.');
+                        }
+
+                        return $source->objectKey();
+                    },
+                );
                 $operationClasses = array_unique(array_map(
                     static fn (RunRecipeOperation $operation): string => $operation::class,
                     $this->runRecipe->operations,
@@ -108,7 +134,7 @@ final class StoreRunRequest extends FormRequest
                 if ($reason !== null) {
                     $this->inputRejectionReason = $reason;
                     $validator->errors()->add(
-                        'recipe.operations',
+                        'recipe',
                         $this->admissionPolicy?->message($reason) ?? 'The run exceeds its execution limits.',
                     );
                 }

@@ -60,6 +60,7 @@ final class RenderVideoClip implements ShouldQueue
                     $this->operation->startMicroseconds,
                     $this->operation->durationMicroseconds,
                     $output,
+                    $this->operation->qualityTier,
                 ),
                 $compiler,
                 $driver,
