@@ -16,6 +16,7 @@ enum InputRejectionReason: string
     case DecodeCodecNotAllowed = 'decode_codec_not_allowed';
     case FrameRateExceeded = 'frame_rate_exceeded';
     case VideoStreamMissing = 'video_stream_missing';
+    case AudioStreamMissing = 'audio_stream_missing';
     case ClipRangeInvalid = 'clip_range_invalid';
     case OperationCountExceeded = 'operation_count_exceeded';
     case TotalOutputDurationExceeded = 'total_output_duration_exceeded';

@@ -45,6 +45,11 @@ the signature and object storage returns `400 AccessDenied` with "headers presen
 were not signed". Replacing an already uploaded object is rejected. `object_key` is informational and
 must never be submitted in a recipe; recipes use the source `id`.
 
+Declared upload content types select type-specific admission. Video accepts `video/*`; narration accepts
+`audio/*`; still images accept `image/png` and `image/jpeg`; and fonts accept `font/*`,
+`application/font-sfnt`, `application/vnd.ms-opentype`, or `application/x-font-ttf`. Slate verifies the
+corresponding container, image, or sfnt magic bytes rather than trusting the declaration.
+
 For a remote pull:
 
 ```json
@@ -209,5 +214,5 @@ status. Delivery uses three attempts with backoff and no redirects.
 
 Input rejection reasons returned as `rejection_reason` are `source_too_large`, `unsupported_container`,
 `referenced_media`, `probe_failed`, `duration_exceeded`, `resolution_exceeded`, `stream_count_exceeded`,
-`decode_codec_not_allowed`, `frame_rate_exceeded`, `video_stream_missing`, `clip_range_invalid`,
+`decode_codec_not_allowed`, `frame_rate_exceeded`, `video_stream_missing`, `audio_stream_missing`, `clip_range_invalid`,
 `operation_count_exceeded`, `total_output_duration_exceeded`, and `render_job_count_exceeded`.

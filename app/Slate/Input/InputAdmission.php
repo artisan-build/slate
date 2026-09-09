@@ -65,23 +65,84 @@ final readonly class InputAdmission
         RecipeCompiler $compiler,
         Driver $driver,
     ): InputMediaProperties {
+        $prefix = $this->admittedPrefix($input);
+        $this->assertSelfContainedContainer($prefix);
+        $properties = $this->probeProperties($input, $compiler, $driver);
+
+        return $this->assertStructuralCaps($properties, requireVideo: true, requireAudio: false);
+    }
+
+    public function inspectAudio(ScratchPath $input, RecipeCompiler $compiler, Driver $driver): void
+    {
+        $prefix = $this->admittedPrefix($input);
+        $this->assertSelfContainedContainer($prefix);
+        $properties = $this->probeProperties($input, $compiler, $driver);
+        $this->assertStructuralCaps($properties, requireVideo: false, requireAudio: true);
+    }
+
+    public function inspectContentSafety(ScratchPath $input): void
+    {
+        $this->admittedPrefix($input);
+    }
+
+    public function inspectStillImage(ScratchPath $input): void
+    {
+        $prefix = $this->admittedPrefix($input);
+        $isPng = str_starts_with($prefix, "\x89PNG\r\n\x1A\n");
+        $isJpeg = str_starts_with($prefix, "\xFF\xD8\xFF");
+
+        if (! $isPng && ! $isJpeg) {
+            throw new InputRejectedException(
+                InputRejectionReason::UnsupportedContainer,
+                'Still-image bytes must be PNG or JPEG.',
+            );
+        }
+
+        $properties = @getimagesize($input->readablePath());
+
+        if (! is_array($properties)
+            || ! in_array($properties[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG], true)) {
+            throw new InputRejectedException(InputRejectionReason::UnsupportedContainer, 'The still image is malformed.');
+        }
+
+        $width = $properties[0];
+        $height = $properties[1];
+
+        if ($width < 1 || $height < 1
+            || $width > $this->positiveConfigInteger('slate.input.maximum_width')
+            || $height > $this->positiveConfigInteger('slate.input.maximum_height')) {
+            throw new InputRejectedException(InputRejectionReason::ResolutionExceeded, 'The image resolution exceeds the admitted limit.');
+        }
+    }
+
+    public function inspectFont(ScratchPath $input): void
+    {
+        $prefix = $this->admittedPrefix($input);
+
+        if (! str_starts_with($prefix, "\x00\x01\x00\x00")
+            && ! str_starts_with($prefix, 'OTTO')
+            && ! str_starts_with($prefix, 'true')
+            && ! str_starts_with($prefix, 'ttcf')) {
+            throw new InputRejectedException(
+                InputRejectionReason::UnsupportedContainer,
+                'Font bytes do not match an admitted sfnt signature.',
+            );
+        }
+    }
+
+    private function admittedPrefix(ScratchPath $input): string
+    {
         $size = filesize($input->readablePath());
 
         if (! is_int($size) || $size < 1) {
-            throw new InputRejectedException(
-                InputRejectionReason::UnsupportedContainer,
-                'The staged input is empty or unreadable.',
-            );
+            throw new InputRejectedException(InputRejectionReason::UnsupportedContainer, 'The staged input is empty or unreadable.');
         }
 
         $this->assertSize($size);
         $stream = fopen($input->readablePath(), 'rb');
 
         if ($stream === false) {
-            throw new InputRejectedException(
-                InputRejectionReason::UnsupportedContainer,
-                'The staged input cannot be opened for admission.',
-            );
+            throw new InputRejectedException(InputRejectionReason::UnsupportedContainer, 'The staged input cannot be opened for admission.');
         }
 
         try {
@@ -92,12 +153,17 @@ final readonly class InputAdmission
             }
 
             $this->assertNoReferences($prefix);
-            $this->assertSelfContainedContainer($prefix);
             $this->assertNoReferenceAtomsInFile($stream, $size);
+
+            return $prefix;
         } finally {
             fclose($stream);
         }
+    }
 
+    /** @return array<mixed> */
+    private function probeProperties(ScratchPath $input, RecipeCompiler $compiler, Driver $driver): array
+    {
         $probe = $driver->run($compiler->compile(new Probe($input)));
 
         if ($probe->failed()) {
@@ -114,12 +180,15 @@ final readonly class InputAdmission
             throw new InputRejectedException(InputRejectionReason::ProbeFailed, 'The input media probe returned an invalid payload.');
         }
 
-        return $this->assertStructuralCaps($properties);
+        return $properties;
     }
 
     /** @param array<mixed> $properties */
-    private function assertStructuralCaps(array $properties): InputMediaProperties
-    {
+    private function assertStructuralCaps(
+        array $properties,
+        bool $requireVideo,
+        bool $requireAudio,
+    ): InputMediaProperties {
         $streams = $properties['streams'] ?? null;
         $duration = $properties['format']['duration'] ?? null;
 
@@ -164,8 +233,12 @@ final readonly class InputAdmission
             $hasAudio = $hasAudio || $stream['codec_type'] === 'audio';
         }
 
-        if ($videoStreams === []) {
+        if ($requireVideo && $videoStreams === []) {
             throw new InputRejectedException(InputRejectionReason::VideoStreamMissing, 'A video clip source requires a video stream.');
+        }
+
+        if ($requireAudio && ! $hasAudio) {
+            throw new InputRejectedException(InputRejectionReason::AudioStreamMissing, 'An audio source requires an audio stream.');
         }
 
         $primaryWidth = null;
@@ -195,9 +268,9 @@ final readonly class InputAdmission
 
         return new InputMediaProperties(
             $durationSeconds,
-            $primaryWidth,
-            $primaryHeight,
-            $primaryFrameRate,
+            $primaryWidth ?? 1,
+            $primaryHeight ?? 1,
+            $primaryFrameRate ?? 1.0,
             count($streams),
             $hasAudio,
         );

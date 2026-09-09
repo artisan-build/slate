@@ -61,6 +61,83 @@ final class InputAdmissionTest extends TestCase
         }
     }
 
+    public function test_admits_audio_without_a_video_stream_and_requires_an_audio_stream(): void
+    {
+        resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+            $input = $scratch->file('narration.mp3');
+            file_put_contents($input->writablePath(), 'ID3'.str_repeat("\0", 16));
+            $compiler = new RecipeCompiler(new ProbeCompiler(new FfmpegLocator('Linux', 'arm64', '/runtime')));
+            $audio = ['codec_type' => 'audio', 'codec_name' => 'mp3'];
+            $video = [
+                'codec_type' => 'video',
+                'codec_name' => 'h264',
+                'width' => 1920,
+                'height' => 1080,
+                'avg_frame_rate' => '30/1',
+            ];
+
+            (new InputAdmission)->inspectAudio(
+                $input,
+                $compiler,
+                new FakeDriver(new DriverResult(json_encode([
+                    'format' => ['duration' => '10'],
+                    'streams' => [$audio],
+                ], JSON_THROW_ON_ERROR))),
+            );
+
+            try {
+                (new InputAdmission)->inspectAudio(
+                    $input,
+                    $compiler,
+                    new FakeDriver(new DriverResult(json_encode([
+                        'format' => ['duration' => '10'],
+                        'streams' => [$video],
+                    ], JSON_THROW_ON_ERROR))),
+                );
+                self::fail('Expected an audio source without audio to be rejected.');
+            } catch (InputRejectedException $exception) {
+                self::assertSame(InputRejectionReason::AudioStreamMissing, $exception->reason);
+            }
+        });
+    }
+
+    public function test_admits_png_dimensions_and_sfnt_font_signatures_without_a_probe(): void
+    {
+        resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+            $image = $scratch->file('page.png');
+            file_put_contents($image->writablePath(), self::png(3, 2));
+            $font = $scratch->file('captions.ttf');
+            file_put_contents($font->writablePath(), "\x00\x01\x00\x00".str_repeat("\0", 16));
+
+            (new InputAdmission)->inspectStillImage($image);
+            (new InputAdmission)->inspectFont($font);
+
+            self::assertTrue(true);
+        });
+    }
+
+    #[DataProvider('nonVideoAdmissionMethods')]
+    public function test_every_non_video_kind_rejects_playlist_bytes_before_type_specific_inspection(string $method): void
+    {
+        resolve(JobScratch::class)->run(function (ScratchDirectory $scratch) use ($method): void {
+            $input = $scratch->file('playlist');
+            file_put_contents($input->writablePath(), "#EXTM3U\nhttps://attacker.test/media\n");
+            $admission = new InputAdmission;
+
+            try {
+                if ($method === 'inspectAudio') {
+                    $admission->inspectAudio($input, RecipeCompiler::fromSystem(), new FakeDriver);
+                } else {
+                    $admission->{$method}($input);
+                }
+
+                self::fail("Expected {$method} to reject playlist bytes.");
+            } catch (InputRejectedException $exception) {
+                self::assertSame(InputRejectionReason::ReferencedMedia, $exception->reason);
+            }
+        });
+    }
+
     #[DataProvider('structuralCapFailures')]
     public function test_rejects_each_structural_cap_with_a_typed_reason(
         array $probeProperties,
@@ -131,5 +208,25 @@ final class InputAdmissionTest extends TestCase
         yield 'MP3 ID3' => ['ID3'.str_repeat("\0", 16)];
         yield 'WAV' => ['RIFF'.pack('V', 4).'WAVE'];
         yield 'AAC ADTS' => ["\xFF\xF1\x50\x80"];
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function nonVideoAdmissionMethods(): iterable
+    {
+        yield 'audio' => ['inspectAudio'];
+        yield 'still image' => ['inspectStillImage'];
+        yield 'font' => ['inspectFont'];
+    }
+
+    private static function png(int $width, int $height): string
+    {
+        $chunk = static fn (string $type, string $data): string => pack('N', strlen($data))
+            .$type.$data.pack('N', crc32($type.$data));
+        $pixels = str_repeat("\0".str_repeat("\x80\x80\x80", $width), $height);
+
+        return "\x89PNG\r\n\x1A\n"
+            .$chunk('IHDR', pack('NNCCCCC', $width, $height, 8, 2, 0, 0, 0))
+            .$chunk('IDAT', gzcompress($pixels))
+            .$chunk('IEND', '');
     }
 }

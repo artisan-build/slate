@@ -26,6 +26,7 @@ use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\RunObjectKeys;
 use App\Slate\Storage\ScratchDirectory;
 use App\Slate\Storage\ScratchPath;
+use ArtisanBuild\BuiltForCloud\Testing\MintedTestCredential;
 use ArtisanBuild\BuiltForCloud\Testing\WithCredentials;
 use Aws\S3\S3Client;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -65,19 +66,16 @@ final class RunDeliveryRenderTest extends TestCase
                     AudioBitrate::Kbps192,
                 )));
                 self::assertTrue($audioResult->successful(), $audioResult->errorOutput);
-                $audioSource = $this->storeReadySource($audio, 'audio/mpeg');
+                $audioSource = $this->uploadReadySource($credential, $audio, 'audio/mpeg');
                 $font = $scratch->file('captions.ttf');
                 self::assertTrue(copy(resource_path('fonts/NotoSans[wdth,wght].ttf'), $font->writablePath()));
-                $fontSource = $this->storeReadySource($font, 'font/ttf');
+                $fontSource = $this->uploadReadySource($credential, $font, 'font/ttf');
                 $pages = [];
 
                 foreach ([[255, 0, 0], [0, 255, 0], [0, 0, 255]] as $index => [$red, $green, $blue]) {
-                    $image = $scratch->file("page-{$index}.ppm");
-                    file_put_contents(
-                        $image->writablePath(),
-                        "P6\n3 2\n255\n".str_repeat(pack('CCC', $red, $green, $blue), 6),
-                    );
-                    $imageSource = $this->storeReadySource($image, 'image/x-portable-pixmap');
+                    $image = $scratch->file("page-{$index}.png");
+                    file_put_contents($image->writablePath(), self::png(3, 2, $red, $green, $blue));
+                    $imageSource = $this->uploadReadySource($credential, $image, 'image/png');
                     $pages[] = [
                         'image' => $imageSource->id,
                         'audio' => $audioSource->id,
@@ -257,22 +255,53 @@ final class RunDeliveryRenderTest extends TestCase
         Storage::forgetDisk('s3');
     }
 
-    private function storeReadySource(ScratchPath $path, string $contentType): Source
-    {
+    private function uploadReadySource(
+        MintedTestCredential $credential,
+        ScratchPath $path,
+        string $contentType,
+    ): Source {
         $bytes = filesize($path->readablePath());
 
         if (! is_int($bytes)) {
             throw new RuntimeException('Unable to measure delivery test source.');
         }
 
-        $source = Source::factory()->create([
-            'status' => SourceStatus::Ready,
-            'bytes' => $bytes,
-            'content_type' => $contentType,
-        ]);
-        resolve(ObjectStorage::class)->stageOut($path, $source->objectKey());
+        $upload = $this->actingAsCredential($credential)->postJson('/api/v1/sources', [
+            'upload' => ['content_type' => $contentType, 'size' => $bytes],
+        ])->assertCreated();
+        $stream = fopen($path->readablePath(), 'rb');
+        self::assertIsResource($stream);
+
+        try {
+            $put = Http::withHeaders($upload->json('headers'))
+                ->withBody($stream, $contentType)
+                ->put($upload->json('put_url'));
+        } finally {
+            fclose($stream);
+        }
+
+        self::assertTrue($put->successful(), $put->body());
+        $sourceId = $upload->json('id');
+        self::assertIsString($sourceId);
+        $this->getJson('/api/v1/sources/'.$sourceId)->assertOk()->assertJsonPath('status', 'ingesting');
+        $this->workDatabaseQueue();
+        $this->getJson('/api/v1/sources/'.$sourceId)->assertOk()->assertJsonPath('status', 'ready');
+        $source = Source::query()->findOrFail($sourceId);
+        self::assertSame(SourceStatus::Ready, $source->status);
 
         return $source;
+    }
+
+    private static function png(int $width, int $height, int $red, int $green, int $blue): string
+    {
+        $chunk = static fn (string $type, string $data): string => pack('N', strlen($data))
+            .$type.$data.pack('N', crc32($type.$data));
+        $pixels = str_repeat("\0".str_repeat(pack('CCC', $red, $green, $blue), $width), $height);
+
+        return "\x89PNG\r\n\x1A\n"
+            .$chunk('IHDR', pack('NNCCCCC', $width, $height, 8, 2, 0, 0, 0))
+            .$chunk('IDAT', gzcompress($pixels))
+            .$chunk('IEND', '');
     }
 
     private function workDatabaseQueue(): void
