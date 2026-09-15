@@ -3,10 +3,11 @@
 use App\Http\Controllers\Api\V1\RunController;
 use App\Http\Controllers\Api\V1\RunResultController;
 use App\Http\Controllers\Api\V1\SourceController;
+use App\Http\Middleware\AuthenticateSlateSources;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')
-    ->middleware(['auth:bfc', 'bfc.ability:consume'])
+    ->middleware(AuthenticateSlateSources::class)
     ->group(function (): void {
         Route::post('/runs', [RunController::class, 'store'])->name('api.v1.runs.store');
         Route::get('/runs/{run}', [RunController::class, 'show'])->whereUuid('run')->name('api.v1.runs.show');

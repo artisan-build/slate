@@ -7,7 +7,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
-        "artisan-build/built-for-cloud": "dev-main",
+        "artisan-build/built-for-cloud": "^0.12.2",
         "aws/aws-sdk-php": "^3.394",
         "laravel/framework": "^13.17",
         "laravel/tinker": "^3.0",

@@ -47,6 +47,7 @@ return [
         'allow_host_local_fanout' => env('SLATE_ALLOW_HOST_LOCAL_FANOUT', false),
     ],
     'api' => [
+        'installation_subject_ref' => env('SLATE_INSTALLATION_SUBJECT_REF'),
         'result_url_ttl_seconds' => 15 * 60,
         'source_upload_ttl_seconds' => 15 * 60,
         'webhook_connect_timeout_seconds' => 3,

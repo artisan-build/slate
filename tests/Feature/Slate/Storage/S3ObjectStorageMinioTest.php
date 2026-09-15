@@ -256,7 +256,7 @@ test('both Sources API submit shapes reach ready through MinIO-backed queued adm
     config()->set('slate.ingest.part_size_bytes', 5 * 1024 * 1024);
     Storage::forgetDisk('s3');
     Queue::fake([FinalizeSource::class, IngestRemoteSource::class]);
-    $credential = $this->mintCredential(['abilities' => ['consume']]);
+    $credential = $this->mintCredential();
     $media = pack('N', 24).'ftyp'.'isom'.pack('N', 0).'isomiso2'.pack('N', 8).'mdat';
     $probe = new DriverResult(json_encode([
         'streams' => [[

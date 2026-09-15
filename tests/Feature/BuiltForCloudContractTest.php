@@ -1,22 +1,196 @@
 <?php
 
-use App\Models\User;
+declare(strict_types=1);
+
+use ArtisanBuild\BuiltForCloud\AppPurposeRegistry;
 use ArtisanBuild\BuiltForCloud\Auth\CredentialGuard;
+use ArtisanBuild\BuiltForCloud\Credential;
+use ArtisanBuild\BuiltForCloud\CredentialKind;
+use ArtisanBuild\BuiltForCloud\CredentialPurpose;
+use ArtisanBuild\BuiltForCloud\Jobs\DeliverOwnershipWebhook;
+use ArtisanBuild\BuiltForCloud\SubjectType;
+use ArtisanBuild\BuiltForCloud\Testing\ConsumerConformance;
 use ArtisanBuild\BuiltForCloud\Testing\ContractAssertions;
+use ArtisanBuild\BuiltForCloud\Testing\FleetConformance;
+use ArtisanBuild\BuiltForCloud\User;
+use Composer\InstalledVersions;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Process;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 
 uses(LazilyRefreshDatabase::class);
 uses(ContractAssertions::class);
 
-test('the application satisfies the Built for Cloud contract', function (): void {
+test('the application satisfies the Built for Cloud host contract', function (): void {
     $this->assertBuiltForCloudContract();
+    $this->assertBuiltForCloudHumanLifecycleContract();
+    $this->assertBuiltForCloudThinHostConfiguration();
+    $this->assertBuiltForCloudThinHostSources(base_path());
+
+    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.12.2')
+        ->and(config('auth.providers.users.model'))->toBe(User::class)
+        ->and(auth()->guard('bfc'))->toBeInstanceOf(CredentialGuard::class);
 });
 
-test('the application registers the Built for Cloud credential guard', function (): void {
-    expect(auth()->guard('bfc'))->toBeInstanceOf(CredentialGuard::class);
+test('the application satisfies fleet conformance with only the package issue 123 schedule residue', function (): void {
+    $packageRoot = base_path('vendor/artisan-build/built-for-cloud');
+    $sort = static function (array $members): array {
+        sort($members);
+
+        return $members;
+    };
+    $expected = [
+        'runtime.meta' => [],
+        'runtime.auth_schema' => [],
+        'runtime.credential_listing' => [],
+        'runtime.transport_parity' => [],
+        'thin_host' => [],
+        'credential_paths' => $sort([
+            'path:Basic|ArtisanBuild\BuiltForCloud\Auth\BasicAuthenticator',
+            'path:Bearer|ArtisanBuild\BuiltForCloud\Auth\BearerAuthenticator',
+            'path:HMAC|Http\Middleware\VerifyHmacSignature+Hmac\HmacVerifier',
+            'path:MCP|Http\Middleware\AuthenticateMcp:store-bearer+v4.public',
+            'path:asymmetric|Actions\MintCredential::mintEnrollment',
+            'path:enrollment|OnboardingToken+POST:/bfc/claim,/bfc/onboarding/issue,/exchange,/verify',
+            'path:system|SubjectType::Operator/Application/Installation+AuditActorType::CliOperator',
+        ]),
+        'credential_writers' => $sort([
+            'ArtisanBuild\BuiltForCloud\Actions\MintCredential::mintEnrollment',
+            'ArtisanBuild\BuiltForCloud\Actions\MintCredential::mintSecretBearing',
+            'ArtisanBuild\BuiltForCloud\Actions\MintCredential::mintSigningKey',
+            'ArtisanBuild\BuiltForCloud\Actions\RotateCredential::replaceWithEnrollment',
+            'ArtisanBuild\BuiltForCloud\Actions\RotateCredential::replaceWithPendingSigningKey',
+            'ArtisanBuild\BuiltForCloud\Actions\RotateCredential::replaceWithSecret',
+            'ArtisanBuild\BuiltForCloud\OwnerCredentialMinter::mintFromHash',
+            'ArtisanBuild\BuiltForCloud\UnifiedStoreCredentialMinter::mint',
+        ]),
+        'legacy_removal' => [],
+        'system_authority' => $sort([
+            'ArtisanBuild\BuiltForCloud\Commands\ConsoleReKeyCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\ConsoleRetireKeyCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CreateAdminCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CredentialActivateCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CredentialListCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CredentialMintCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CredentialRevokeCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CredentialRotateCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\HmacRewrapCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\InstallOperatorCredentialCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\OutboxDrainCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\OwnershipMintClaimCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\OwnershipRemintOwnerTokenCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\SigningRootProvisionCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\SubjectOffboardCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\WarnExpiringCredentialsCommand',
+            DeliverOwnershipWebhook::class,
+        ]),
+        'no_signing_path' => [],
+        'ui_config_reads' => $sort([
+            'ArtisanBuild\BuiltForCloud\AppPurposeRegistry|built-for-cloud.credentials.app_purposes|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\ManageTransitions|built-for-cloud.ui.managed_transitions|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.installation_credentials|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.managed_transitions|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.member_management|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.personal_credentials|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.session_management|1',
+            'ArtisanBuild\BuiltForCloud\LandingManifest|built-for-cloud.manifest|1',
+            'ArtisanBuild\BuiltForCloud\LandingPageRegistrar|built-for-cloud.ui.landing_page|1',
+            'ArtisanBuild\BuiltForCloud\UiCredentialPurposes|built-for-cloud.ui.credential_purposes|1',
+        ]),
+        'mcp_delegated' => [],
+    ];
+
+    $report = (new FleetConformance($this))->inspect(new ConsumerConformance(
+        consumer: 'slate',
+        consumerRoot: base_path(),
+        packageRoot: $packageRoot,
+        sourceRoots: [app_path('Http/Middleware')],
+        providerFiles: [$packageRoot.'/src/BuiltForCloudServiceProvider.php'],
+        runtimeAssertions: ['auth_schema', 'credential_listing', 'meta', 'transport_parity'],
+        capabilities: ['credentials', 'tokens'],
+        purposeMappings: [
+            'slate.delivery' => CredentialPurpose::Signing,
+            'slate.sources' => CredentialPurpose::Consumption,
+        ],
+        mcpServer: null,
+        expected: $expected,
+    ));
+
+    $systemAuthorityViolations = $report->families['system_authority']->violations;
+    $otherViolations = collect($report->families)
+        ->except('system_authority')
+        ->flatMap(static fn ($family): array => $family->violations)
+        ->all();
+
+    expect($report->passed)->toBeFalse()
+        ->and(array_keys($report->families))->toBe(ConsumerConformance::FAMILIES)
+        ->and($otherViolations)->toBe([])
+        ->and($systemAuthorityViolations)->toHaveCount(2)
+        ->and($systemAuthorityViolations[0])->toStartWith('unexpected:')
+        ->and($systemAuthorityViolations[1])->toStartWith('uninspectable-schedule:')
+        ->and($systemAuthorityViolations[0])->toEndWith('artisan\' slate:prune-ingests')
+        ->and($systemAuthorityViolations[1])->toEndWith('artisan\' slate:prune-ingests');
+});
+
+test('the package owns the configured landing human lifecycle and credential UI', function (): void {
+    expect(Route::getRoutes()->getByName('bfc.landing'))->not->toBeNull()
+        ->and(Route::getRoutes()->getByName('bfc.login'))->not->toBeNull()
+        ->and(Route::getRoutes()->getByName('bfc.members.index'))->not->toBeNull()
+        ->and(Route::getRoutes()->getByName('bfc.sessions.index'))->not->toBeNull()
+        ->and(Route::getRoutes()->getByName('bfc.ui.installation-credentials.index'))->not->toBeNull()
+        ->and(Route::getRoutes()->getByName('bfc.transitions.index'))->not->toBeNull();
+
+    $this->get('/')->assertOk();
+});
+
+test('Slate declares only its fixed app purposes and issuance choices', function (): void {
+    expect(config('built-for-cloud.credentials'))->toBe([
+        'guard' => 'bfc',
+        'declaration' => null,
+        'session_guard' => 'web',
+        'app_purposes' => [
+            'slate.delivery' => 'signing',
+            'slate.sources' => 'consumption',
+        ],
+    ])->and(config('built-for-cloud.ui'))->toBe([
+        'landing_page' => true,
+        'member_management' => true,
+        'personal_credentials' => false,
+        'installation_credentials' => true,
+        'session_management' => true,
+        'managed_transitions' => true,
+        'credential_purposes' => ['slate.sources'],
+    ])->and(app(AppPurposeRegistry::class)->purpose('slate.sources'))->toBe(CredentialPurpose::Consumption)
+        ->and(app(AppPurposeRegistry::class)->purpose('slate.delivery'))->toBe(CredentialPurpose::Signing)
+        ->and(CredentialPurpose::Consumption->validForStorage(
+            CredentialKind::Basic,
+            SubjectType::Installation,
+            'installation-residue',
+        ))->toBeTrue();
+});
+
+test('personal credential issuance fails closed with the package default declaration', function (): void {
+    $user = User::query()->create([
+        'name' => 'Slate Owner',
+        'email' => 'owner@example.test',
+        'password' => bcrypt('password'),
+    ]);
+    $user->forceFill([
+        'role' => 'owner',
+        'status' => 'active',
+        'email_verified_at' => now(),
+        'original_contact_email' => 'owner@example.test',
+    ])->save();
+    $credentialCount = Credential::query()->count();
+
+    $this->actingAs($user)->post('/bfc/ui/credentials/personal', [
+        'name' => 'must-not-mint',
+        'app_purpose' => 'slate.sources',
+    ])->assertRedirect();
+
+    self::assertSame($credentialCount, Credential::query()->count());
 });
 
 test('an HTTP request succeeds with the committed session driver', function (): void {
@@ -24,6 +198,7 @@ test('an HTTP request succeeds with the committed session driver', function (): 
 
     self::assertIsArray($exampleEnvironment);
     self::assertSame('cookie', $exampleEnvironment['SESSION_DRIVER'] ?? null);
+    self::assertSame('local-only-change-me', $exampleEnvironment['SLATE_INSTALLATION_SUBJECT_REF'] ?? null);
     $filesystem = new Filesystem;
     $environmentPath = sys_get_temp_dir().'/slate-session-fallback-'.Str::uuid();
     $filesystem->ensureDirectoryExists($environmentPath);
@@ -48,12 +223,4 @@ test('an HTTP request succeeds with the committed session driver', function (): 
         'up_status' => 200,
         'source_status' => 401,
     ]);
-});
-
-test('administrator status is guarded and cast to a boolean', function (): void {
-    $user = new User;
-    $user->forceFill(['is_admin' => 1]);
-
-    expect($user->is_admin)->toBeTrue()
-        ->and($user->getFillable())->not->toContain('is_admin');
 });

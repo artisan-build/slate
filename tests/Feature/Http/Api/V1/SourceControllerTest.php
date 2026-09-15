@@ -12,19 +12,19 @@ use App\Slate\Source\SourceApiErrorReason;
 use App\Slate\Storage\IngestStorage;
 use App\Slate\Storage\ObjectKey;
 use ArtisanBuild\BuiltForCloud\SubjectType;
-use ArtisanBuild\BuiltForCloud\Testing\WithCredentials;
 use DateTimeInterface;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\StreamInterface;
+use Tests\Support\WithSlateSourcesCredentials;
 use Tests\TestCase;
 
 final class SourceControllerTest extends TestCase
 {
     use LazilyRefreshDatabase;
-    use WithCredentials;
+    use WithSlateSourcesCredentials;
 
     public function test_upload_submit_returns_201_with_server_owned_presigned_object(): void
     {
@@ -33,7 +33,6 @@ final class SourceControllerTest extends TestCase
         $storage = new SourceControllerStorage;
         $this->app->instance(IngestStorage::class, $storage);
         $credential = $this->mintCredential([
-            'abilities' => ['consume'],
             'subject_ref' => 'private-owner-reference',
         ]);
 
@@ -51,7 +50,7 @@ final class SourceControllerTest extends TestCase
             'object_key' => 'slate-sources/'.$source->id.'/source',
         ]);
         self::assertTrue(Str::isUuid($source->id));
-        self::assertSame(SubjectType::Application, $source->owner_subject_type);
+        self::assertSame(SubjectType::Installation, $source->owner_subject_type);
         self::assertSame('private-owner-reference', $source->owner_subject_ref);
         self::assertSame(SourceStatus::Pending, $source->status);
         self::assertSame(4096, $source->bytes);
@@ -65,7 +64,7 @@ final class SourceControllerTest extends TestCase
     {
         Queue::fake([IngestRemoteSource::class]);
         $this->app->instance(IngestStorage::class, new SourceControllerStorage);
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         $response = $this->actingAsCredential($credential)->postJson('/api/v1/sources', [
             'url' => 'https://media.example.test/video.mp4?signature=secret',
@@ -87,7 +86,7 @@ final class SourceControllerTest extends TestCase
     {
         Queue::fake([FinalizeSource::class, IngestRemoteSource::class]);
         $this->app->instance(IngestStorage::class, new SourceControllerStorage);
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         $response = $this->actingAsCredential($credential)->postJson('/api/v1/sources', $payload);
 
@@ -102,7 +101,6 @@ final class SourceControllerTest extends TestCase
         $source = Source::factory()->create(['owner_subject_ref' => 'tenant-a']);
         $this->app->instance(IngestStorage::class, new SourceControllerStorage);
         $credential = $this->mintCredential([
-            'abilities' => ['consume'],
             'subject_ref' => 'tenant-b',
         ]);
 
@@ -125,7 +123,7 @@ final class SourceControllerTest extends TestCase
         $storage = new SourceControllerStorage;
         $storage->objects[$source->object_key] = true;
         $this->app->instance(IngestStorage::class, $storage);
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         $first = $this->actingAsCredential($credential)->getJson('/api/v1/sources/'.$source->id);
         $second = $this->getJson('/api/v1/sources/'.$source->id);
@@ -146,7 +144,7 @@ final class SourceControllerTest extends TestCase
             'content_type' => 'video/webm',
         ]);
         $this->app->instance(IngestStorage::class, new SourceControllerStorage);
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         $response = $this->actingAsCredential($credential)->getJson('/api/v1/sources/'.$source->id);
 
@@ -170,15 +168,15 @@ final class SourceControllerTest extends TestCase
     }
 
     #[DataProvider('protectedEndpointProvider')]
-    public function test_each_source_endpoint_returns_403_without_consume_ability(string $method, string $path): void
+    public function test_each_source_endpoint_returns_401_with_a_non_consumption_credential(string $method, string $path): void
     {
-        $credential = $this->mintCredential(['abilities' => ['credential:read']]);
+        $credential = $this->mintNonSlateCredential();
 
         $response = $this->actingAsCredential($credential)->json($method, $path, [
             'upload' => ['content_type' => 'video/mp4', 'size' => 10],
         ]);
 
-        $response->assertForbidden();
+        $response->assertUnauthorized();
     }
 
     /** @return array<string, array{array<string, mixed>}> */

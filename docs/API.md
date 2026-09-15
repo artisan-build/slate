@@ -1,9 +1,22 @@
 # Slate API v1
 
 Slate accepts authenticated assembly work and stores all source and result bytes in object storage. All
-endpoints require a Built for Cloud bearer credential with the `consume` ability. Missing credentials
-return `401`; credentials without that ability return `403`. JSON request bodies use
-`Content-Type: application/json`.
+endpoints require a Built for Cloud Bearer credential issued for the fixed `slate.sources` application
+purpose. Slate accepts Consumption credentials bound either to a package user account or to the exact
+Installation subject configured by `SLATE_INSTALLATION_SUBJECT_REF`. Missing, malformed, unknown,
+wrong-purpose, wrong-kind, wrong-account, and wrong-installation credentials all return `401`.
+JSON request bodies use `Content-Type: application/json`.
+
+After upgrading from an earlier Slate credential, mint a fresh replacement locally with the Built for
+Cloud credential command and select `slate.sources`; all state-changing Built for Cloud commands must
+include `--local`. Use a new disposable value first and confirm the target installation subject before
+replacing any deployed credential. There is no shared production fallback when
+`SLATE_INSTALLATION_SUBJECT_REF` is unset.
+
+The declared `slate.delivery` Signing purpose names Slate's outbound webhook protocol but is not an
+issuance choice in this release. Webhook signing remains the per-run secret protocol documented below
+until Built for Cloud v0.13 provides cross-application HMAC installation/import. Built for Cloud v0.12.2
+may offer Basic Consumption in installation UI; Slate's API intentionally accepts Bearer transport only.
 
 Laravel Cloud may return a transient `502` while the API instance wakes from hibernation. Clients should
 retry `502` responses with bounded exponential backoff. A retry of run submission must reuse the same run
