@@ -98,7 +98,6 @@ final class AuthenticateSlateSourcesTest extends TestCase
         $credential = $this->mintCredential();
         DB::table('credentials')->where('id', $credential->credential->id)->update([
             'purpose' => null,
-            'revoked_at' => now(),
         ]);
 
         $this->assertDeniedWithoutSideEffects($credential, $credential->bearerHeader());
