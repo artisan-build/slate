@@ -19,7 +19,6 @@ return [
         'declaration' => SlateCredentialDeclaration::class,
         'session_guard' => 'web',
         'app_purposes' => [
-            'slate.delivery' => 'signing',
             'slate.sources' => 'consumption',
         ],
     ],
