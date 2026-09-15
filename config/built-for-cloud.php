@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Auth\SlateCredentialDeclaration;
+
 return [
     'product' => 'Slate',
     'token_prefix' => 'slate_',
@@ -14,7 +16,7 @@ return [
     ],
     'credentials' => [
         'guard' => 'bfc',
-        'declaration' => null,
+        'declaration' => SlateCredentialDeclaration::class,
         'session_guard' => 'web',
         'app_purposes' => [
             'slate.delivery' => 'signing',

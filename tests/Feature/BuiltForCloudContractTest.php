@@ -2,12 +2,17 @@
 
 declare(strict_types=1);
 
+use App\Auth\SlateCredentialDeclaration;
 use ArtisanBuild\BuiltForCloud\AppPurposeRegistry;
 use ArtisanBuild\BuiltForCloud\Auth\CredentialGuard;
+use ArtisanBuild\BuiltForCloud\Contracts\CredentialDeclaration;
 use ArtisanBuild\BuiltForCloud\Credential;
 use ArtisanBuild\BuiltForCloud\CredentialKind;
 use ArtisanBuild\BuiltForCloud\CredentialPurpose;
 use ArtisanBuild\BuiltForCloud\Jobs\DeliverOwnershipWebhook;
+use ArtisanBuild\BuiltForCloud\SelfServiceKindPolicyResolver;
+use ArtisanBuild\BuiltForCloud\StandaloneAccess;
+use ArtisanBuild\BuiltForCloud\Subject;
 use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\BuiltForCloud\Testing\ConsumerConformance;
 use ArtisanBuild\BuiltForCloud\Testing\ContractAssertions;
@@ -29,8 +34,9 @@ test('the application satisfies the Built for Cloud host contract', function ():
     $this->assertBuiltForCloudThinHostConfiguration();
     $this->assertBuiltForCloudThinHostSources(base_path());
 
-    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.12.2')
+    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.12.3')
         ->and(config('auth.providers.users.model'))->toBe(User::class)
+        ->and(app(CredentialDeclaration::class))->toBeInstanceOf(SlateCredentialDeclaration::class)
         ->and(auth()->guard('bfc'))->toBeInstanceOf(CredentialGuard::class);
 });
 
@@ -148,7 +154,7 @@ test('the package owns the configured landing human lifecycle and credential UI'
 test('Slate declares only its fixed app purposes and issuance choices', function (): void {
     expect(config('built-for-cloud.credentials'))->toBe([
         'guard' => 'bfc',
-        'declaration' => null,
+        'declaration' => SlateCredentialDeclaration::class,
         'session_guard' => 'web',
         'app_purposes' => [
             'slate.delivery' => 'signing',
@@ -164,14 +170,64 @@ test('Slate declares only its fixed app purposes and issuance choices', function
         'credential_purposes' => ['slate.sources'],
     ])->and(app(AppPurposeRegistry::class)->purpose('slate.sources'))->toBe(CredentialPurpose::Consumption)
         ->and(app(AppPurposeRegistry::class)->purpose('slate.delivery'))->toBe(CredentialPurpose::Signing)
-        ->and(CredentialPurpose::Consumption->validForStorage(
-            CredentialKind::Basic,
-            SubjectType::Installation,
-            'installation-residue',
-        ))->toBeTrue();
+        ->and(app(SelfServiceKindPolicyResolver::class)->installationKinds(
+            new Subject(SubjectType::Installation, 'test-installation'),
+        ))->toBe([CredentialKind::Bearer]);
 });
 
-test('personal credential issuance fails closed with the package default declaration', function (): void {
+test('Slate installation credential UI offers only Bearer for slate.sources', function (): void {
+    $user = User::query()->create([
+        'name' => 'Slate Owner',
+        'email' => 'owner@example.test',
+        'password' => bcrypt('password'),
+    ]);
+    $user->forceFill([
+        'role' => 'owner',
+        'status' => 'active',
+        'email_verified_at' => now(),
+        'original_contact_email' => 'owner@example.test',
+    ])->save();
+    $user->refresh();
+
+    $response = $this->actingAs($user)->withSession([
+        StandaloneAccess::SESSION_VERSION_KEY => $user->auth_session_version,
+    ])->get('/bfc/ui/credentials/installation');
+
+    $response->assertOk()
+        ->assertSeeHtml('data-testid="installation-credentials-issue-option"')
+        ->assertSee('slate.sources / bearer')
+        ->assertDontSee('slate.sources / basic')
+        ->assertDontSee('slate.delivery');
+});
+
+test('Slate installation credential JSON refuses Basic issuance', function (): void {
+    $user = User::query()->create([
+        'name' => 'Slate Owner',
+        'email' => 'owner@example.test',
+        'password' => bcrypt('password'),
+    ]);
+    $user->forceFill([
+        'role' => 'owner',
+        'status' => 'active',
+        'email_verified_at' => now(),
+        'original_contact_email' => 'owner@example.test',
+    ])->save();
+    $user->refresh();
+    $credentialCount = Credential::query()->count();
+
+    $this->actingAs($user)->withSession([
+        StandaloneAccess::SESSION_VERSION_KEY => $user->auth_session_version,
+    ])->postJson('/bfc/installation/credentials', [
+        'subject_type' => SubjectType::Installation->value,
+        'subject_ref' => 'test-installation',
+        'kind' => CredentialKind::Basic->value,
+        'purpose' => CredentialPurpose::Consumption->value,
+    ])->assertForbidden();
+
+    self::assertSame($credentialCount, Credential::query()->count());
+});
+
+test('personal credential issuance fails closed without a self-service subject', function (): void {
     $user = User::query()->create([
         'name' => 'Slate Owner',
         'email' => 'owner@example.test',

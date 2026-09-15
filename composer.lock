@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "bd4d653a9007194ce94c167371f46a86",
+    "content-hash": "e597b8e2a25258a6a3793e3a97bbf07f",
     "packages": [
         {
             "name": "artisan-build/built-for-cloud",
-            "version": "v0.12.2",
+            "version": "v0.12.3",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/built-for-cloud.git",
-                "reference": "f64e03e148c82028d85d6e799a90a898fceb2a24"
+                "reference": "a42659c511a5131094f8c6dd2e5091c1f563115b"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/f64e03e148c82028d85d6e799a90a898fceb2a24",
-                "reference": "f64e03e148c82028d85d6e799a90a898fceb2a24",
+                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/a42659c511a5131094f8c6dd2e5091c1f563115b",
+                "reference": "a42659c511a5131094f8c6dd2e5091c1f563115b",
                 "shasum": ""
             },
             "require": {
@@ -71,9 +71,9 @@
             ],
             "support": {
                 "issues": "https://github.com/artisan-build/built-for-cloud/issues",
-                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.12.2"
+                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.12.3"
             },
-            "time": "2026-09-15T13:28:12+00:00"
+            "time": "2026-09-15T14:11:41+00:00"
         },
         {
             "name": "aws/aws-crt-php",
