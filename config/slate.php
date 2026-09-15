@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 return [
     'ffmpeg' => [
-        'release_tag' => env('SLATE_FFMPEG_RELEASE_TAG', 'autobuild-2026-09-01-13-13'),
+        // BtbN prunes daily autobuilds; pin retained month-end tags only.
+        'release_tag' => env('SLATE_FFMPEG_RELEASE_TAG', 'autobuild-2026-08-31-13-27'),
         'asset' => env(
             'SLATE_FFMPEG_ASSET',
             'ffmpeg-n9.0.1-11-ge47273f4d9-linuxarm64-lgpl-9.0.tar.xz',
