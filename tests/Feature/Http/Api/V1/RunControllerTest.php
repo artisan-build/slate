@@ -367,6 +367,32 @@ final class RunControllerTest extends TestCase
         ]);
     }
 
+    public function test_account_credential_recreation_preserves_run_access_and_isolates_another_account(): void
+    {
+        $owner = $this->createPackageUser('run-owner@example.test');
+        $other = $this->createPackageUser('run-other@example.test');
+        $original = $this->mintAccountCredential($owner, 'run-account');
+        $run = Run::factory()->create([
+            'owner_subject_type' => SubjectType::UserPrincipal,
+            'owner_subject_ref' => 'run-account',
+        ]);
+        $original->credential->forceFill(['revoked_at' => now()])->save();
+        $replacement = $this->mintAccountCredential($owner, 'run-account');
+        $foreign = $this->mintAccountCredential($other, 'foreign-run-account');
+        Bus::fake();
+
+        $this->actingAsCredential($replacement)->getJson('/api/v1/runs/'.$run->id)
+            ->assertOk()
+            ->assertJsonPath('id', $run->id);
+        $this->actingAsCredential($foreign)->getJson('/api/v1/runs/'.$run->id)
+            ->assertNotFound();
+
+        self::assertNull($original->credential->fresh()?->last_used_at);
+        self::assertNotNull($replacement->credential->fresh()?->last_used_at);
+        self::assertSame(1, Run::query()->count());
+        Bus::assertNothingDispatched();
+    }
+
     #[DataProvider('duplicateStatusProvider')]
     public function test_duplicate_submit_returns_typed_409_without_dispatching(RunStatus $status): void
     {

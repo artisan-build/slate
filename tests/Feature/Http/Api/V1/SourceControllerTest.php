@@ -11,6 +11,9 @@ use App\Models\SourceStatus;
 use App\Slate\Source\SourceApiErrorReason;
 use App\Slate\Storage\IngestStorage;
 use App\Slate\Storage\ObjectKey;
+use ArtisanBuild\BuiltForCloud\AuthorityMode;
+use ArtisanBuild\BuiltForCloud\InstallationAuthority;
+use ArtisanBuild\BuiltForCloud\StandaloneAccess;
 use ArtisanBuild\BuiltForCloud\SubjectType;
 use DateTimeInterface;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -114,6 +117,59 @@ final class SourceControllerTest extends TestCase
             '{"message":"The source was not found.","reason":"source_not_found"}',
             $foreign->getContent(),
         );
+    }
+
+    public function test_account_credential_recreation_preserves_source_access_and_isolates_another_account(): void
+    {
+        $owner = $this->createPackageUser('source-owner@example.test');
+        $other = $this->createPackageUser('source-other@example.test');
+        $original = $this->mintAccountCredential($owner, 'source-account');
+        $source = Source::factory()->create([
+            'owner_subject_type' => SubjectType::UserPrincipal,
+            'owner_subject_ref' => 'source-account',
+            'status' => SourceStatus::Ready,
+        ]);
+        $original->credential->forceFill(['revoked_at' => now()])->save();
+        $replacement = $this->mintAccountCredential($owner, 'source-account');
+        $foreign = $this->mintAccountCredential($other, 'foreign-source-account');
+        $this->app->instance(IngestStorage::class, new SourceControllerStorage);
+        Queue::fake();
+
+        $this->actingAsCredential($replacement)->getJson('/api/v1/sources/'.$source->id)
+            ->assertOk()
+            ->assertJsonPath('id', $source->id);
+        $this->actingAsCredential($foreign)->getJson('/api/v1/sources/'.$source->id)
+            ->assertNotFound();
+
+        self::assertNull($original->credential->fresh()?->last_used_at);
+        self::assertNotNull($replacement->credential->fresh()?->last_used_at);
+        self::assertSame(SourceStatus::Ready, $source->fresh()?->status);
+        self::assertSame(1, Source::query()->count());
+        Queue::assertNothingPushed();
+    }
+
+    public function test_installation_source_access_survives_issuer_deactivation_and_managed_transition(): void
+    {
+        $issuer = $this->createPackageUser('installation-issuer@example.test');
+        $credential = $this->mintCredential(['subject_ref' => 'durable-installation']);
+        $source = Source::factory()->create([
+            'owner_subject_ref' => 'durable-installation',
+            'status' => SourceStatus::Ready,
+        ]);
+        $this->app->instance(IngestStorage::class, new SourceControllerStorage);
+        $issuer->forceFill(['status' => 'inactive', 'deactivated_at' => now()])->save();
+        StandaloneAccess::invalidateAccountBoundState($issuer);
+
+        self::assertNull($credential->credential->user_id);
+        $this->actingAsCredential($credential)->getJson('/api/v1/sources/'.$source->id)->assertOk();
+        self::assertNotNull(InstallationAuthority::change(
+            InstallationAuthority::current(),
+            AuthorityMode::Managed,
+        ));
+        $this->getJson('/api/v1/sources/'.$source->id)->assertOk();
+
+        self::assertSame('durable-installation', $source->fresh()?->owner_subject_ref);
+        self::assertNull($credential->credential->fresh()?->revoked_at);
     }
 
     public function test_first_status_poll_dispatches_upload_finalization_once_and_reports_ingesting(): void

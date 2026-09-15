@@ -7,11 +7,15 @@ namespace Tests\Feature\Http\Middleware;
 use App\Models\Run;
 use App\Models\Source;
 use App\Slate\Storage\IngestStorage;
+use ArtisanBuild\BuiltForCloud\Actions\OffboardSubject;
 use ArtisanBuild\BuiltForCloud\CredentialKind;
+use ArtisanBuild\BuiltForCloud\CredentialPurpose;
+use ArtisanBuild\BuiltForCloud\OffboardOptions;
+use ArtisanBuild\BuiltForCloud\StandaloneAccess;
 use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\BuiltForCloud\Testing\MintedTestCredential;
-use ArtisanBuild\BuiltForCloud\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -37,12 +41,8 @@ final class AuthenticateSlateSourcesTest extends TestCase
 
     public function test_account_bound_user_principal_consumption_bearer_is_accepted(): void
     {
-        $user = $this->createUser('credential-holder@example.test');
-        $credential = $this->mintCredential([
-            'subject_type' => SubjectType::UserPrincipal,
-            'subject_ref' => 'user-'.$user->id,
-            'user_id' => (string) $user->id,
-        ]);
+        $user = $this->createPackageUser('credential-holder@example.test');
+        $credential = $this->mintAccountCredential($user, 'user-'.$user->id);
 
         $this->actingAsCredential($credential)->postJson('/api/v1/sources', [
             'upload' => ['content_type' => 'video/mp4', 'size' => 0],
@@ -72,6 +72,34 @@ final class AuthenticateSlateSourcesTest extends TestCase
     public function test_wrong_purpose_returns_401_before_usage_is_stamped(): void
     {
         $credential = $this->mintNonSlateCredential();
+
+        $this->assertDeniedWithoutSideEffects($credential, $credential->bearerHeader());
+    }
+
+    public function test_signing_purpose_returns_401_before_usage_is_stamped(): void
+    {
+        $credential = $this->mintCredential();
+        DB::table('credentials')->where('id', $credential->credential->id)->update([
+            'purpose' => CredentialPurpose::Signing->value,
+        ]);
+
+        $this->assertDeniedWithoutSideEffects($credential, $credential->bearerHeader());
+    }
+
+    public function test_installation_system_deployment_purpose_returns_401_before_usage_is_stamped(): void
+    {
+        $credential = $this->mintCredential(['purpose' => CredentialPurpose::SystemDeployment]);
+
+        $this->assertDeniedWithoutSideEffects($credential, $credential->bearerHeader());
+    }
+
+    public function test_pre_purpose_credential_returns_401_before_usage_is_stamped(): void
+    {
+        $credential = $this->mintCredential();
+        DB::table('credentials')->where('id', $credential->credential->id)->update([
+            'purpose' => null,
+            'revoked_at' => now(),
+        ]);
 
         $this->assertDeniedWithoutSideEffects($credential, $credential->bearerHeader());
     }
@@ -110,18 +138,89 @@ final class AuthenticateSlateSourcesTest extends TestCase
         $this->assertDeniedWithoutSideEffects($credential, $credential->bearerHeader());
     }
 
+    public function test_deactivated_account_returns_401_before_usage_is_stamped(): void
+    {
+        $user = $this->createPackageUser('deactivated@example.test');
+        $credential = $this->mintAccountCredential($user, 'deactivated-account');
+        $user->forceFill(['status' => 'inactive', 'deactivated_at' => now()])->save();
+        StandaloneAccess::invalidateAccountBoundState($user);
+
+        $this->assertDeniedWithoutSideEffects($credential, $credential->bearerHeader());
+    }
+
+    public function test_offboarded_account_returns_401_before_usage_is_stamped(): void
+    {
+        $user = $this->createPackageUser('offboarded@example.test');
+        $credential = $this->mintAccountCredential($user, 'offboarded-account');
+        resolve(OffboardSubject::class)(OffboardOptions::fromInput([
+            'subject_type' => SubjectType::UserPrincipal->value,
+            'subject_ref' => 'offboarded-account',
+        ]));
+
+        $this->assertDeniedWithoutSideEffects($credential, $credential->bearerHeader());
+    }
+
     public function test_mismatched_session_and_credential_accounts_return_401_before_usage_is_stamped(): void
     {
-        $credentialUser = $this->createUser('credential-holder@example.test');
-        $sessionUser = $this->createUser('session-holder@example.test');
-        $credential = $this->mintCredential([
-            'subject_type' => SubjectType::UserPrincipal,
-            'subject_ref' => 'user-'.$credentialUser->id,
-            'user_id' => (string) $credentialUser->id,
-        ]);
+        $credentialUser = $this->createPackageUser('credential-holder@example.test');
+        $sessionUser = $this->createPackageUser('session-holder@example.test');
+        $credential = $this->mintAccountCredential($credentialUser, 'user-'.$credentialUser->id);
         $this->actingAs($sessionUser);
 
         $this->assertDeniedWithoutSideEffects($credential, $credential->bearerHeader());
+    }
+
+    public function test_browser_session_without_a_bearer_returns_401_without_side_effects(): void
+    {
+        $user = $this->createPackageUser('browser-session@example.test');
+        $this->actingAs($user)->withSession([
+            StandaloneAccess::SESSION_VERSION_KEY => $user->auth_session_version,
+        ]);
+
+        $this->assertDeniedWithoutSideEffects();
+    }
+
+    public function test_account_deactivation_ends_its_session_and_machine_access(): void
+    {
+        $user = $this->createPackageUser('removed-account@example.test');
+        $credential = $this->mintAccountCredential($user, 'removed-account');
+        $this->actingAs($user)->withSession([
+            StandaloneAccess::SESSION_VERSION_KEY => $user->auth_session_version,
+        ]);
+        $user->forceFill(['status' => 'inactive', 'deactivated_at' => now()])->save();
+        StandaloneAccess::invalidateAccountBoundState($user);
+
+        $this->get('/bfc/members')
+            ->assertForbidden()
+            ->assertSessionMissing(StandaloneAccess::SESSION_VERSION_KEY);
+        $this->assertDeniedWithoutSideEffects($credential, $credential->bearerHeader());
+    }
+
+    #[DataProvider('packageControlPlaneRouteProvider')]
+    public function test_consumption_bearer_cannot_reach_package_control_plane_routes(
+        string $method,
+        string $path,
+        int $status,
+    ): void {
+        $credential = $this->mintCredential();
+        $credentialCount = DB::table('credentials')->count();
+        $consoleKeyCount = DB::table('bfc_console_keys')->count();
+        $offboardedSubjectCount = DB::table('offboarded_subjects')->count();
+        Queue::fake();
+        Storage::fake();
+        Http::preventStrayRequests();
+
+        $this->actingAsCredential($credential)->call($method, $path)->assertStatus($status);
+
+        self::assertNull($credential->credential->fresh()?->last_used_at);
+        self::assertSame($credentialCount, DB::table('credentials')->count());
+        self::assertSame($consoleKeyCount, DB::table('bfc_console_keys')->count());
+        self::assertSame($offboardedSubjectCount, DB::table('offboarded_subjects')->count());
+        self::assertSame(0, Source::query()->count());
+        self::assertSame(0, Run::query()->count());
+        Queue::assertNothingPushed();
+        Storage::disk()->assertDirectoryEmpty('/');
+        Http::assertNothingSent();
     }
 
     public function test_revoked_and_expired_credentials_return_401_before_usage_is_stamped(): void
@@ -144,6 +243,19 @@ final class AuthenticateSlateSourcesTest extends TestCase
             'double separator' => ['Bearer  placeholder'],
             'trailing material' => ['Bearer placeholder extra'],
             'basic framing' => ['Basic placeholder'],
+        ];
+    }
+
+    /** @return array<string, array{string, string, int}> */
+    public static function packageControlPlaneRouteProvider(): array
+    {
+        return [
+            'members' => ['GET', '/bfc/members', 302],
+            'sessions' => ['GET', '/bfc/me/sessions', 302],
+            'credential management' => ['GET', '/bfc/installation/credentials', 302],
+            'package control-plane state' => ['GET', '/bfc/client-observations', 401],
+            'signing roots' => ['POST', '/bfc/console/re-key', 403],
+            'system credential transport' => ['POST', '/bfc/credentials', 401],
         ];
     }
 
@@ -175,22 +287,5 @@ final class AuthenticateSlateSourcesTest extends TestCase
         Queue::assertNothingPushed();
         Storage::disk()->assertDirectoryEmpty('/');
         Http::assertNothingSent();
-    }
-
-    private function createUser(string $email): User
-    {
-        $user = User::query()->create([
-            'name' => 'Package User',
-            'email' => $email,
-            'password' => bcrypt('password'),
-        ]);
-        $user->forceFill([
-            'role' => 'member',
-            'status' => 'active',
-            'email_verified_at' => now(),
-            'original_contact_email' => $email,
-        ])->save();
-
-        return $user;
     }
 }
