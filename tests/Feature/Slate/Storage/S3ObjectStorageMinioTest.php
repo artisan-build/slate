@@ -38,7 +38,6 @@ use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\RunObjectKeys;
 use App\Slate\Storage\ScratchDirectory;
 use App\Slate\Webhook\HostnameResolver;
-use ArtisanBuild\BuiltForCloud\Testing\WithCredentials;
 use Aws\S3\S3Client;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -46,8 +45,9 @@ use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\Support\MinioConfiguration;
+use Tests\Support\WithSlateSourcesCredentials;
 
-uses(LazilyRefreshDatabase::class, WithCredentials::class);
+uses(LazilyRefreshDatabase::class, WithSlateSourcesCredentials::class);
 
 function minioSourceDestination(string $url): ResolvedDestination
 {
