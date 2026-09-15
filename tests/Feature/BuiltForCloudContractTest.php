@@ -133,7 +133,6 @@ test('the application satisfies fleet conformance with only the package issue 12
         runtimeAssertions: ['auth_schema', 'credential_listing', 'meta', 'transport_parity'],
         capabilities: ['credentials', 'tokens'],
         purposeMappings: [
-            'slate.delivery' => CredentialPurpose::Signing,
             'slate.sources' => CredentialPurpose::Consumption,
         ],
         mcpServer: null,
@@ -167,25 +166,26 @@ test('the package owns the configured landing human lifecycle and credential UI'
     $this->get('/')->assertOk();
 });
 
-test('Slate declares only its fixed app purposes and issuance choices', function (): void {
-    expect(config('built-for-cloud.credentials'))->toBe([
+test('Slate declares only its sources purpose and no signing purpose', function (): void {
+    $credentials = config('built-for-cloud.credentials');
+
+    expect($credentials)->toBe([
         'guard' => 'bfc',
         'declaration' => SlateCredentialDeclaration::class,
         'session_guard' => 'web',
         'app_purposes' => [
-            'slate.delivery' => 'signing',
             'slate.sources' => 'consumption',
         ],
-    ])->and(config('built-for-cloud.ui'))->toBe([
-        'landing_page' => true,
-        'member_management' => true,
-        'personal_credentials' => false,
-        'installation_credentials' => true,
-        'session_management' => true,
-        'managed_transitions' => true,
-        'credential_purposes' => ['slate.sources'],
-    ])->and(resolve(AppPurposeRegistry::class)->purpose('slate.sources'))->toBe(CredentialPurpose::Consumption)
-        ->and(resolve(AppPurposeRegistry::class)->purpose('slate.delivery'))->toBe(CredentialPurpose::Signing)
+    ])->and($credentials['app_purposes'])->not->toContain(CredentialPurpose::Signing->value)
+        ->and(config('built-for-cloud.ui'))->toBe([
+            'landing_page' => true,
+            'member_management' => true,
+            'personal_credentials' => false,
+            'installation_credentials' => true,
+            'session_management' => true,
+            'managed_transitions' => true,
+            'credential_purposes' => ['slate.sources'],
+        ])->and(resolve(AppPurposeRegistry::class)->purpose('slate.sources'))->toBe(CredentialPurpose::Consumption)
         ->and(resolve(SelfServiceKindPolicyResolver::class)->installationKinds(
             new Subject(SubjectType::Installation, 'test-installation'),
         ))->toBe([CredentialKind::Bearer]);
@@ -212,8 +212,7 @@ test('Slate installation credential UI offers only Bearer for slate.sources', fu
     $response->assertOk()
         ->assertSeeHtml('data-testid="installation-credentials-issue-option"')
         ->assertSee('slate.sources / bearer')
-        ->assertDontSee('slate.sources / basic')
-        ->assertDontSee('slate.delivery');
+        ->assertDontSee('slate.sources / basic');
 });
 
 test('Slate installation credential JSON refuses Basic issuance', function (): void {

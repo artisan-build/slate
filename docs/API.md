@@ -13,10 +13,11 @@ include `--local`. Use a new disposable value first and confirm the target insta
 replacing any deployed credential. There is no shared production fallback when
 `SLATE_INSTALLATION_SUBJECT_REF` is unset.
 
-The declared `slate.delivery` Signing purpose names Slate's outbound webhook protocol but is not an
-issuance choice in this release. Webhook signing remains the per-run secret protocol documented below
-until Built for Cloud v0.13 provides cross-application HMAC installation/import. Slate configures Built
-for Cloud v0.12.3 installation UI and JSON self-service issuance to offer only Bearer credentials.
+Slate's outbound webhook protocol is not a Built for Cloud app purpose. Its receivers are arbitrary
+caller-supplied public HTTPS endpoints, so package-owned cross-application HMAC installation is
+non-applicable. Webhook signing remains Slate's per-run secret protocol documented below. Slate
+configures Built for Cloud v0.12.3 installation UI and JSON self-service issuance to offer only Bearer
+credentials.
 
 Laravel Cloud may return a transient `502` while the API instance wakes from hibernation. Clients should
 retry `502` responses with bounded exponential backoff. A retry of run submission must reuse the same run
