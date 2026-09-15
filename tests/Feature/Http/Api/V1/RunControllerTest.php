@@ -134,7 +134,7 @@ final class RunControllerTest extends TestCase
             'subject_ref' => 'installation-57',
         ]);
 
-        $this->actingAsCredential($credential)->postJson(
+        $this->actingAs($user)->actingAsCredential($credential)->postJson(
             '/api/v1/runs',
             $this->validPayload($runId, 'installation-57', SubjectType::Installation),
         )
