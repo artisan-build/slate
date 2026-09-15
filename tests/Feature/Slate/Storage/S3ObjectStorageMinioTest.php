@@ -38,7 +38,6 @@ use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\RunObjectKeys;
 use App\Slate\Storage\ScratchDirectory;
 use App\Slate\Webhook\HostnameResolver;
-use ArtisanBuild\BuiltForCloud\Testing\WithCredentials;
 use Aws\S3\S3Client;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -46,8 +45,9 @@ use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\Support\MinioConfiguration;
+use Tests\Support\WithSlateSourcesCredentials;
 
-uses(LazilyRefreshDatabase::class, WithCredentials::class);
+uses(LazilyRefreshDatabase::class, WithSlateSourcesCredentials::class);
 
 function minioSourceDestination(string $url): ResolvedDestination
 {
@@ -256,7 +256,7 @@ test('both Sources API submit shapes reach ready through MinIO-backed queued adm
     config()->set('slate.ingest.part_size_bytes', 5 * 1024 * 1024);
     Storage::forgetDisk('s3');
     Queue::fake([FinalizeSource::class, IngestRemoteSource::class]);
-    $credential = $this->mintCredential(['abilities' => ['consume']]);
+    $credential = $this->mintCredential();
     $media = pack('N', 24).'ftyp'.'isom'.pack('N', 0).'isomiso2'.pack('N', 8).'mdat';
     $probe = new DriverResult(json_encode([
         'streams' => [[

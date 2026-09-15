@@ -27,7 +27,6 @@ use App\Slate\Storage\RunObjectKeys;
 use App\Slate\Storage\ScratchDirectory;
 use App\Slate\Storage\ScratchPath;
 use ArtisanBuild\BuiltForCloud\Testing\MintedTestCredential;
-use ArtisanBuild\BuiltForCloud\Testing\WithCredentials;
 use Aws\S3\S3Client;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Queue\Worker;
@@ -38,19 +37,20 @@ use Illuminate\Support\Facades\Storage;
 use PHPUnit\Framework\Attributes\Group;
 use RuntimeException;
 use Tests\Support\MinioConfiguration;
+use Tests\Support\WithSlateSourcesCredentials;
 use Tests\TestCase;
 
 #[Group('ffmpeg-render')]
 final class RunDeliveryRenderTest extends TestCase
 {
     use LazilyRefreshDatabase;
-    use WithCredentials;
+    use WithSlateSourcesCredentials;
 
     public function test_three_captioned_pages_run_over_http_to_one_probed_delivery_on_database_queue_and_minio(): void
     {
         $this->requireRuntime();
         $this->configureMinio();
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         try {
             resolve(JobScratch::class)->run(function (ScratchDirectory $scratch) use ($credential): void {
@@ -120,7 +120,7 @@ final class RunDeliveryRenderTest extends TestCase
     {
         $this->requireRuntime();
         $this->configureMinio();
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         try {
             resolve(JobScratch::class)->run(function (ScratchDirectory $scratch) use ($credential): void {

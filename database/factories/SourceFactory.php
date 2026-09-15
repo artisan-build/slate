@@ -20,7 +20,7 @@ final class SourceFactory extends Factory
 
         return [
             'id' => $id,
-            'owner_subject_type' => SubjectType::Application,
+            'owner_subject_type' => SubjectType::Installation,
             'owner_subject_ref' => 'test-subject',
             'object_key' => SourceObjectKeys::object($id)->value(),
             'mode' => IngestMode::Direct,

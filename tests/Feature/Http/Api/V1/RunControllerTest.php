@@ -9,7 +9,6 @@ use App\Models\RunStatus;
 use App\Models\RunTrust;
 use App\Models\Source;
 use App\Models\SourceStatus;
-use App\Models\User;
 use App\Slate\Driver\CompiledRecipe;
 use App\Slate\Driver\Driver;
 use App\Slate\Driver\DriverResult;
@@ -22,7 +21,7 @@ use App\Slate\Storage\RunObjectKeys;
 use App\Slate\Webhook\HostnameResolver;
 use ArtisanBuild\BuiltForCloud\Subject;
 use ArtisanBuild\BuiltForCloud\SubjectType;
-use ArtisanBuild\BuiltForCloud\Testing\WithCredentials;
+use ArtisanBuild\BuiltForCloud\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Queue\DatabaseQueue;
 use Illuminate\Queue\Worker;
@@ -32,6 +31,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\WithSlateSourcesCredentials;
 use Tests\TestCase;
 
 final class DatabaseQueueRunDriver implements Driver
@@ -100,13 +100,13 @@ final readonly class ApiHostnameResolver implements HostnameResolver
 final class RunControllerTest extends TestCase
 {
     use LazilyRefreshDatabase;
-    use WithCredentials;
+    use WithSlateSourcesCredentials;
 
     public function test_valid_payload_creates_run_calls_executor_and_returns_202(): void
     {
         Bus::fake();
         $runId = '41414141-4141-4141-8141-414141414141';
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         $response = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $this->validPayload($runId));
 
@@ -114,7 +114,7 @@ final class RunControllerTest extends TestCase
         $run = Run::query()->findOrFail($runId);
         self::assertSame(RunStatus::Running, $run->status);
         self::assertSame(RunTrust::Untrusted, $run->trust);
-        self::assertSame(SubjectType::Application, $run->owner_subject_type);
+        self::assertSame(SubjectType::Installation, $run->owner_subject_type);
         self::assertSame('test-subject', $run->owner_subject_ref);
         self::assertCount(2, $run->recipe()->operations);
         Bus::assertBatched(fn ($batch): bool => $batch->jobs->count() === 2);
@@ -124,15 +124,17 @@ final class RunControllerTest extends TestCase
     {
         Bus::fake();
         $runId = '57575757-5757-4757-8757-575757575757';
-        $user = User::factory()->create();
+        $user = User::query()->create([
+            'name' => 'Package User',
+            'email' => 'package-user@example.test',
+            'password' => bcrypt('password'),
+        ]);
         $credential = $this->mintCredential([
-            'abilities' => ['consume'],
             'subject_type' => SubjectType::Installation,
             'subject_ref' => 'installation-57',
-            'user_id' => (string) $user->id,
         ]);
 
-        $this->actingAsCredential($credential)->postJson(
+        $this->actingAs($user)->actingAsCredential($credential)->postJson(
             '/api/v1/runs',
             $this->validPayload($runId, 'installation-57', SubjectType::Installation),
         )
@@ -150,7 +152,7 @@ final class RunControllerTest extends TestCase
         $runId = '42424242-4242-4242-8242-424242424242';
         $payload = $this->validPayload($runId);
         $payload['recipe']['delivery']['pages'][0]['encoder'] = 'caller-controlled';
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         $response = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload);
 
@@ -169,14 +171,14 @@ final class RunControllerTest extends TestCase
         $payload = $this->validPayload($runId);
         $font = Source::factory()->create([
             'owner_subject_ref' => 'test-subject',
-            'owner_subject_type' => SubjectType::Application,
+            'owner_subject_type' => SubjectType::Installation,
             'status' => SourceStatus::Ready,
         ]);
         $payload['recipe']['delivery']['pages'][0]['captions'] = [
             'font' => $font->id,
             'words' => [$word],
         ];
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         $response = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload);
 
@@ -193,7 +195,7 @@ final class RunControllerTest extends TestCase
         Bus::fake();
         $runId = '43434343-4343-4343-8343-434343434343';
         $payload = [...$this->validPayload($runId), 'command' => ['-i', 'secret']];
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         $response = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload);
 
@@ -209,7 +211,7 @@ final class RunControllerTest extends TestCase
         Str::createRandomStringsUsing(static fn (int $length): string => str_repeat('w', $length));
         $runId = '44444444-4444-4444-8444-444444444444';
         $payload = [...$this->validPayload($runId), 'webhook_url' => 'https://hooks.example.test/slate'];
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
         app()->instance(HostnameResolver::class, new ApiHostnameResolver(['93.184.216.34']));
 
         try {
@@ -237,7 +239,7 @@ final class RunControllerTest extends TestCase
         Bus::fake();
         $runId = '49494949-4949-4949-8949-494949494949';
         $payload = [...$this->validPayload($runId), 'webhook_url' => 'http://hooks.example.test/slate'];
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         $response = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload);
 
@@ -252,7 +254,7 @@ final class RunControllerTest extends TestCase
         Bus::fake();
         $runId = '50505050-5050-4050-8050-505050505050';
         $payload = [...$this->validPayload($runId), 'webhook_url' => 'https://169.254.169.254/latest/meta-data'];
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         $response = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload);
 
@@ -269,7 +271,7 @@ final class RunControllerTest extends TestCase
         app()->instance(HostnameResolver::class, new ApiHostnameResolver(['10.0.0.1']));
         $runId = '51515151-5151-4151-8151-515151515151';
         $payload = [...$this->validPayload($runId), 'webhook_url' => 'https://internal.example.test/slate'];
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         $response = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload);
 
@@ -286,7 +288,7 @@ final class RunControllerTest extends TestCase
         $runId = '52525252-5252-4252-8252-525252525252';
         $payload = $this->validPayload($runId);
         $payload['recipe']['delivery']['pages'] = array_fill(0, 50, $payload['recipe']['delivery']['pages'][0]);
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         $response = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload);
 
@@ -303,7 +305,7 @@ final class RunControllerTest extends TestCase
         $runId = '53535353-5353-4353-8353-535353535353';
         $payload = $this->validPayload($runId);
         $payload['recipe']['delivery']['pages'][0]['duration'] = 4_901;
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         $response = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload);
 
@@ -320,7 +322,7 @@ final class RunControllerTest extends TestCase
         $runId = '54545454-5454-4454-8454-545454545454';
         $payload = $this->validPayload($runId);
         $payload['recipe']['delivery']['pages'][0]['duration'] = 4_851;
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         $response = $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload);
 
@@ -338,7 +340,7 @@ final class RunControllerTest extends TestCase
             'trust' => RunTrust::TrustedOrigin,
             'rejection_reason' => InputRejectionReason::ReferencedMedia,
         ]);
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         $response = $this->actingAsCredential($credential)->getJson('/api/v1/runs/'.$run->id);
 
@@ -354,7 +356,6 @@ final class RunControllerTest extends TestCase
     {
         $run = Run::factory()->create(['owner_subject_ref' => 'tenant-a']);
         $credential = $this->mintCredential([
-            'abilities' => ['consume'],
             'subject_ref' => 'tenant-b',
         ]);
 
@@ -366,12 +367,38 @@ final class RunControllerTest extends TestCase
         ]);
     }
 
+    public function test_account_credential_recreation_preserves_run_access_and_isolates_another_account(): void
+    {
+        $owner = $this->createPackageUser('run-owner@example.test');
+        $other = $this->createPackageUser('run-other@example.test');
+        $original = $this->mintAccountCredential($owner, 'run-account');
+        $run = Run::factory()->create([
+            'owner_subject_type' => SubjectType::UserPrincipal,
+            'owner_subject_ref' => 'run-account',
+        ]);
+        $original->credential->forceFill(['revoked_at' => now()])->save();
+        $replacement = $this->mintAccountCredential($owner, 'run-account');
+        $foreign = $this->mintAccountCredential($other, 'foreign-run-account');
+        Bus::fake();
+
+        $this->actingAsCredential($replacement)->getJson('/api/v1/runs/'.$run->id)
+            ->assertOk()
+            ->assertJsonPath('id', $run->id);
+        $this->actingAsCredential($foreign)->getJson('/api/v1/runs/'.$run->id)
+            ->assertNotFound();
+
+        self::assertNull($original->credential->fresh()?->last_used_at);
+        self::assertNotNull($replacement->credential->fresh()?->last_used_at);
+        self::assertSame(1, Run::query()->count());
+        Bus::assertNothingDispatched();
+    }
+
     #[DataProvider('duplicateStatusProvider')]
     public function test_duplicate_submit_returns_typed_409_without_dispatching(RunStatus $status): void
     {
         $runId = '55555555-5555-4555-8555-555555555555';
         $payload = $this->validPayload($runId, 'duplicate-owner');
-        $owner = new Subject(SubjectType::Application, 'duplicate-owner');
+        $owner = new Subject(SubjectType::Installation, 'duplicate-owner');
         $run = Run::createWithRecipe(
             $runId,
             RunRecipe::fromWireArray(
@@ -391,7 +418,6 @@ final class RunControllerTest extends TestCase
 
         Bus::fake();
         $credential = $this->mintCredential([
-            'abilities' => ['consume'],
             'subject_ref' => $owner->ref,
         ]);
 
@@ -410,7 +436,7 @@ final class RunControllerTest extends TestCase
         Bus::fake();
         $runId = '56565656-5656-4656-8656-565656565656';
         $payload = $this->validPayload($runId);
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
         $eventName = 'eloquent.creating: '.Run::class;
         $dispatcher = Run::getEventDispatcher();
         self::assertNotNull($dispatcher);
@@ -456,16 +482,16 @@ final class RunControllerTest extends TestCase
     }
 
     #[DataProvider('protectedEndpointProvider')]
-    public function test_each_run_endpoint_returns_403_without_consume_ability(string $method, string $path): void
+    public function test_each_run_endpoint_returns_401_with_a_non_consumption_credential(string $method, string $path): void
     {
         $run = Run::factory()->create();
         $submitRunId = '46464646-4646-4646-8646-464646464646';
-        $credential = $this->mintCredential(['abilities' => ['credential:read']]);
+        $credential = $this->mintNonSlateCredential();
 
         $response = $this->actingAsCredential($credential)
             ->json($method, str_replace('{run}', $run->id, $path), $this->validPayload($submitRunId));
 
-        $response->assertForbidden();
+        $response->assertUnauthorized();
     }
 
     public function test_submit_poll_and_result_use_a_worked_database_queue_run(): void
@@ -481,7 +507,7 @@ final class RunControllerTest extends TestCase
         foreach (Source::query()->get() as $source) {
             Storage::disk()->put($source->object_key, 'source');
         }
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
 
         $this->actingAsCredential($credential)->postJson('/api/v1/runs', $payload)
             ->assertAccepted()
@@ -522,7 +548,7 @@ final class RunControllerTest extends TestCase
             'owner_subject_ref' => 'foreign-subject',
             'status' => SourceStatus::Ready,
         ]);
-        $credential = $this->mintCredential(['abilities' => ['consume']]);
+        $credential = $this->mintCredential();
         $foreignRunId = '58585858-5858-4858-8858-585858585858';
         $unknownRunId = '59595959-5959-4959-8959-595959595959';
         $foreignPayload = $this->validPayload($foreignRunId);
@@ -583,7 +609,7 @@ final class RunControllerTest extends TestCase
     private function validPayload(
         string $runId,
         string $ownerSubjectRef = 'test-subject',
-        SubjectType $ownerSubjectType = SubjectType::Application,
+        SubjectType $ownerSubjectType = SubjectType::Installation,
     ): array {
         $sourceOwner = [
             'owner_subject_ref' => $ownerSubjectRef,
