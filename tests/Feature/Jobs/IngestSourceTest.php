@@ -133,6 +133,43 @@ final class IngestSourceTest extends TestCase
         self::assertSame(22, $job->maxExceptions);
     }
 
+    // Reproduces a live production defect (judge finding at df1592c, mutation
+    // sweep 2026-09-16): the existing-object shortcut in
+    // ResumableIngestTransfer::handle() returns before completing or
+    // aborting a persisted multipart upload, and transitionTo() then nulls
+    // multipart_upload_id on Succeeded while sweepAbandoned() never
+    // revisits Succeeded rows — the upload can never be aborted and its
+    // parts are billed forever. The assertion is the design-neutral
+    // invariant, not a fix design: the upload must either still be
+    // abortable (its id survived) or already have been aborted in storage.
+    public function test_a_source_ingest_whose_object_already_exists_cannot_end_succeeded_with_an_unabortable_upload(): void
+    {
+        $this->markTestSkipped('Blocked on a production fix: a succeeded ingest leaves its in-flight multipart upload unabortable (mutation sweep 2026-09-16).');
+
+        config()->set('slate.ingest.part_size_bytes', 5 * 1024 * 1024);
+        $run = Run::factory()->create();
+        $ingest = Ingest::expectSource(
+            $run,
+            RunObjectKeys::input($run->id, 1, 'source.mp4'),
+            'https://source.example/video.mp4',
+        );
+        $metadata = new SourceMetadata(5 * 1024 * 1024, 'ETag', '"source-etag"');
+        $ingest->beginUpload($metadata, 5 * 1024 * 1024, 'upload-in-flight');
+        $storage = new MemoryIngestStorage;
+        $storage->objectExists = true;
+        $storage->objectSize = $metadata->bytes;
+        $reader = new RecordingSourceReader($metadata);
+
+        $this->transfer($storage, $reader)->handle($ingest, 160);
+        $ingest->markSucceeded();
+
+        $fresh = $ingest->fresh();
+        self::assertTrue(
+            $fresh?->multipart_upload_id !== null || $storage->abortedUploadIds !== [],
+            'A succeeded ingest left its in-flight multipart upload unabortable.',
+        );
+    }
+
     public function test_failed_reports_original_before_containing_cleanup_failure(): void
     {
         $this->configureQueueRuntime();
