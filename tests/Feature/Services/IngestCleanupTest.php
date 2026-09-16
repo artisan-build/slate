@@ -6,6 +6,7 @@ use App\Models\Ingest;
 use App\Models\IngestStatus;
 use App\Models\Run;
 use App\Services\IngestCleanup;
+use App\Slate\Ingest\SourceMetadata;
 use App\Slate\Storage\IngestStorage;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\RunObjectKeys;
@@ -103,6 +104,67 @@ final class IngestCleanupTest extends TestCase
         self::assertTrue($storage->objects[$failingIngest->object_key]);
         self::assertFalse($storage->objects[$successfulIngest->object_key]);
     }
+
+    public function test_sweep_aborts_a_succeeded_ingests_still_inflight_upload_and_keeps_the_object(): void
+    {
+        $run = Run::factory()->create();
+        $ingest = Ingest::expectSource(
+            $run,
+            RunObjectKeys::input($run->id, 5, 'succeeded.mp4'),
+            'https://source.example/video.mp4',
+        );
+        $ingest->beginUpload(
+            new SourceMetadata(5 * 1024 * 1024, 'ETag', '"source-etag"'),
+            5 * 1024 * 1024,
+            'upload-succeeded-inflight',
+        );
+        $ingest->markSucceeded();
+        self::assertNotNull($ingest->fresh()?->multipart_upload_id);
+        $storage = new CleanupIngestStorage;
+        $storage->objects[$ingest->object_key] = true;
+
+        $pruned = (new IngestCleanup($storage))->sweepAbandoned();
+
+        self::assertSame(1, $pruned);
+        self::assertSame(['upload-succeeded-inflight'], $storage->abortedUploadIds);
+        self::assertNull($ingest->fresh()?->multipart_upload_id);
+        self::assertSame(IngestStatus::Succeeded, $ingest->fresh()?->status);
+        self::assertTrue($storage->objects[$ingest->object_key]);
+        self::assertSame([], $storage->deletedKeys);
+    }
+
+    public function test_sweep_keeps_a_succeeded_ingests_upload_id_when_the_abort_fails(): void
+    {
+        $run = Run::factory()->create();
+        $ingest = Ingest::expectSource(
+            $run,
+            RunObjectKeys::input($run->id, 6, 'abort-unavailable.mp4'),
+            'https://source.example/video.mp4',
+        );
+        $ingest->beginUpload(
+            new SourceMetadata(5 * 1024 * 1024, 'ETag', '"source-etag"'),
+            5 * 1024 * 1024,
+            'upload-abort-unavailable',
+        );
+        $ingest->markSucceeded();
+        $storage = new CleanupIngestStorage;
+        $storage->abortFailure = new \RuntimeException('S3 abort unavailable');
+        Exceptions::fake();
+
+        try {
+            (new IngestCleanup($storage))->sweepAbandoned();
+            self::fail('Expected the completed sweep to report its cleanup failure.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame(
+                'Failed to clean 1 abandoned ingests after completing the sweep.',
+                $exception->getMessage(),
+            );
+        }
+
+        self::assertSame([], $storage->abortedUploadIds);
+        self::assertNotNull($ingest->fresh()?->multipart_upload_id);
+        self::assertSame(IngestStatus::Succeeded, $ingest->fresh()?->status);
+    }
 }
 
 final class CleanupIngestStorage implements IngestStorage
@@ -115,6 +177,11 @@ final class CleanupIngestStorage implements IngestStorage
 
     /** @var array<string, bool> */
     public array $deleteFailures = [];
+
+    /** @var list<string> */
+    public array $abortedUploadIds = [];
+
+    public ?\Throwable $abortFailure = null;
 
     public function exists(ObjectKey $objectKey): bool
     {
@@ -131,7 +198,14 @@ final class CleanupIngestStorage implements IngestStorage
         throw new \LogicException('Not used by this test.');
     }
 
-    public function abortMultipartUpload(ObjectKey $objectKey, string $uploadId): void {}
+    public function abortMultipartUpload(ObjectKey $objectKey, string $uploadId): void
+    {
+        if ($this->abortFailure !== null) {
+            throw $this->abortFailure;
+        }
+
+        $this->abortedUploadIds[] = $uploadId;
+    }
 
     public function uploadedParts(ObjectKey $objectKey, string $uploadId): array
     {
