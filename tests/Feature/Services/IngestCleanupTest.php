@@ -120,6 +120,12 @@ final class IngestCleanupTest extends TestCase
         );
         $ingest->markSucceeded();
         self::assertNotNull($ingest->fresh()?->multipart_upload_id);
+        $alreadyNull = Ingest::expectSource(
+            $run,
+            RunObjectKeys::input($run->id, 7, 'succeeded-without-upload.mp4'),
+            'https://source.example/other.mp4',
+        );
+        $alreadyNull->markSucceeded();
         $storage = new CleanupIngestStorage;
         $storage->objects[$ingest->object_key] = true;
 
@@ -129,6 +135,8 @@ final class IngestCleanupTest extends TestCase
         self::assertSame(['upload-succeeded-inflight'], $storage->abortedUploadIds);
         self::assertNull($ingest->fresh()?->multipart_upload_id);
         self::assertSame(IngestStatus::Succeeded, $ingest->fresh()?->status);
+        self::assertNull($alreadyNull->fresh()?->multipart_upload_id);
+        self::assertSame(IngestStatus::Succeeded, $alreadyNull->fresh()?->status);
         self::assertTrue($storage->objects[$ingest->object_key]);
         self::assertSame([], $storage->deletedKeys);
     }

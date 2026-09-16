@@ -148,6 +148,11 @@ final class SourceIngestTest extends TestCase
         );
         $source->markReady();
         self::assertNotNull($source->fresh()?->multipart_upload_id);
+        $alreadyNull = Source::expectRemote(
+            new Subject(SubjectType::Application, 'ready-no-upload-owner'),
+            'https://source.example/other.mp4',
+        );
+        $alreadyNull->markReady();
         $storage = new SourceJobStorage;
         $storage->objects[$source->object_key] = str_repeat('x', 5 * 1024 * 1024);
 
@@ -157,8 +162,40 @@ final class SourceIngestTest extends TestCase
         self::assertSame(['upload-ready-inflight'], $storage->abortedUploadIds);
         self::assertNull($source->fresh()?->multipart_upload_id);
         self::assertSame(SourceStatus::Ready, $source->fresh()?->status);
+        self::assertNull($alreadyNull->fresh()?->multipart_upload_id);
+        self::assertSame(SourceStatus::Ready, $alreadyNull->fresh()?->status);
         self::assertArrayHasKey($source->object_key, $storage->objects);
         self::assertSame([], $storage->deletedKeys);
+    }
+
+    public function test_sweep_keeps_a_ready_sources_upload_id_when_the_abort_fails(): void
+    {
+        $source = Source::expectRemote(
+            new Subject(SubjectType::Application, 'ready-abort-unavailable-owner'),
+            'https://source.example/video.mp4',
+        );
+        $source->beginUpload(
+            new SourceMetadata(5 * 1024 * 1024, 'ETag', '"source-etag"'),
+            5 * 1024 * 1024,
+            'upload-ready-abort-unavailable',
+        );
+        $source->markReady();
+        $storage = new SourceJobStorage;
+        $storage->abortFailure = new \RuntimeException('S3 abort unavailable');
+
+        try {
+            (new IngestCleanup($storage))->sweepAbandoned();
+            self::fail('Expected the completed sweep to report its cleanup failure.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame(
+                'Failed to clean 1 abandoned ingests after completing the sweep.',
+                $exception->getMessage(),
+            );
+        }
+
+        self::assertSame([], $storage->abortedUploadIds);
+        self::assertNotNull($source->fresh()?->multipart_upload_id);
+        self::assertSame(SourceStatus::Ready, $source->fresh()?->status);
     }
 }
 
@@ -172,6 +209,8 @@ final class SourceJobStorage implements IngestStorage
 
     /** @var list<string> */
     public array $abortedUploadIds = [];
+
+    public ?\Throwable $abortFailure = null;
 
     public function exists(ObjectKey $objectKey): bool
     {
@@ -190,6 +229,10 @@ final class SourceJobStorage implements IngestStorage
 
     public function abortMultipartUpload(ObjectKey $objectKey, string $uploadId): void
     {
+        if ($this->abortFailure !== null) {
+            throw $this->abortFailure;
+        }
+
         $this->abortedUploadIds[] = $uploadId;
     }
 
