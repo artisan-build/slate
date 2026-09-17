@@ -244,7 +244,6 @@ final class Source extends Model
 
             if ($nextStatus === SourceStatus::Ready) {
                 $source->source_url = null;
-                $source->multipart_upload_id = null;
             }
 
             return $source->save();

@@ -56,6 +56,15 @@ final readonly class IngestCleanup
         }
     }
 
+    /**
+     * Fail abandoned ingests and sources, and release uploads their rows can no longer abort.
+     *
+     * Success transitions retain a still-in-flight multipart upload id on purpose, so the only
+     * handle to a resource the account is still billed for survives the success path. Rows in a
+     * success state (Succeeded ingest, Ready source) holding such an id have their upload aborted
+     * here and the id then nulled; the stored object itself is never touched because it is the
+     * deliverable. A failed abort keeps the id so the next sweep can retry.
+     */
     public function sweepAbandoned(?DateTimeInterface $at = null): int
     {
         $pruned = 0;
@@ -107,6 +116,30 @@ final readonly class IngestCleanup
             }
         }
 
+        foreach (Ingest::query()
+            ->where('status', IngestStatus::Succeeded->value)
+            ->whereNotNull('multipart_upload_id')
+            ->lazyById() as $ingest) {
+            try {
+                $this->releaseCompletedUpload($ingest);
+                $pruned++;
+            } catch (Throwable $exception) {
+                $failures[] = $exception;
+            }
+        }
+
+        foreach (Source::query()
+            ->where('status', SourceStatus::Ready->value)
+            ->whereNotNull('multipart_upload_id')
+            ->lazyById() as $source) {
+            try {
+                $this->releaseCompletedUpload($source);
+                $pruned++;
+            } catch (Throwable $exception) {
+                $failures[] = $exception;
+            }
+        }
+
         if ($failures !== []) {
             throw new RuntimeException(
                 sprintf('Failed to clean %d abandoned ingests after completing the sweep.', count($failures)),
@@ -139,6 +172,19 @@ final readonly class IngestCleanup
         }
 
         $this->cleanSourceStorage($source);
+    }
+
+    private function releaseCompletedUpload(Ingest|Source $row): void
+    {
+        $uploadId = $row->multipart_upload_id;
+
+        if ($uploadId === null) {
+            return;
+        }
+
+        $this->storage->abortMultipartUpload($row->objectKey(), $uploadId);
+        $row->multipart_upload_id = null;
+        $row->save();
     }
 
     private function cleanSourceStorage(Source $source): void

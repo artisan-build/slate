@@ -144,8 +144,6 @@ final class IngestSourceTest extends TestCase
     // abortable (its id survived) or already have been aborted in storage.
     public function test_a_source_ingest_whose_object_already_exists_cannot_end_succeeded_with_an_unabortable_upload(): void
     {
-        $this->markTestSkipped('Blocked on a production fix: a succeeded ingest leaves its in-flight multipart upload unabortable (mutation sweep 2026-09-16).');
-
         config()->set('slate.ingest.part_size_bytes', 5 * 1024 * 1024);
         $run = Run::factory()->create();
         $ingest = Ingest::expectSource(

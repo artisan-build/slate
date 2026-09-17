@@ -152,7 +152,6 @@ final class Ingest extends Model
 
             if ($nextStatus === IngestStatus::Succeeded) {
                 $ingest->source_url = null;
-                $ingest->multipart_upload_id = null;
             }
 
             return $ingest->save();
