@@ -131,11 +131,12 @@ test('refuses an operation shape the ownership guard does not understand', funct
         RunObjectKeys::prefix($foreignRunId),
         RunObjectKeys::prefix($foreignRunId).'/inputs/9999/image.ppm',
     );
-    $untaught = new class($foreignImageKey, $ownedSource->objectKey(), $operation) implements RunRecipeOperation {
+    $untaught = new readonly class($foreignImageKey, $ownedSource->objectKey(), $operation) implements RunRecipeOperation
+    {
         public function __construct(
-            public readonly ObjectKey $image,
-            public readonly ObjectKey $source,
-            private readonly RunStillClip $delegate,
+            public ObjectKey $image,
+            public ObjectKey $source,
+            private RunStillClip $delegate,
         ) {}
 
         public function operation(): OperationName
