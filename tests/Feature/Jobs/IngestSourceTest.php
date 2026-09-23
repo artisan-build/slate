@@ -255,6 +255,38 @@ final class IngestSourceTest extends TestCase
         self::assertNotNull($ingest->fresh()?->multipart_upload_id);
     }
 
+    // A completion that genuinely failed must propagate: without the
+    // exists-and-size re-verification, a rejected completion would be treated
+    // as an unacknowledged success and an ingest would be marked Succeeded
+    // over a missing object.
+    public function test_a_genuinely_failed_completion_propagates_and_keeps_the_upload_id(): void
+    {
+        config()->set('slate.ingest.part_size_bytes', 5 * 1024 * 1024);
+        $run = Run::factory()->create();
+        $ingest = Ingest::expectSource(
+            $run,
+            RunObjectKeys::input($run->id, 6, 'source.mp4'),
+            'https://source.example/video.mp4',
+        );
+        $metadata = new SourceMetadata((5 * 1024 * 1024) + 4, 'ETag', '"source-etag"');
+        $ingest->beginUpload($metadata, 5 * 1024 * 1024, 'upload-rejected');
+        $storage = new MemoryIngestStorage;
+        $storage->parts[1] = ['etag' => '"part-1"', 'size' => 5 * 1024 * 1024];
+        $storage->completeFailure = new \RuntimeException('completion rejected');
+        $storage->completeLandsObject = false;
+        $reader = new RecordingSourceReader($metadata);
+
+        try {
+            $this->transfer($storage, $reader)->handle($ingest, 160);
+            self::fail('Expected the failed completion to propagate.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('completion rejected', $exception->getMessage());
+        }
+
+        self::assertNotNull($ingest->fresh()?->multipart_upload_id);
+        self::assertSame(IngestStatus::Uploading, $ingest->fresh()?->status);
+    }
+
     public function test_failed_reports_original_before_containing_cleanup_failure(): void
     {
         $this->configureQueueRuntime();
@@ -410,6 +442,8 @@ final class MemoryIngestStorage implements IngestStorage
 
     public ?\Throwable $completeFailure = null;
 
+    public bool $completeLandsObject = true;
+
     public int $multipartUploadsStarted = 0;
 
     public function exists(ObjectKey $objectKey): bool
@@ -463,6 +497,11 @@ final class MemoryIngestStorage implements IngestStorage
         array $etagsByPartNumber,
     ): void {
         $this->completedParts = $etagsByPartNumber;
+
+        if ($this->completeFailure !== null && ! $this->completeLandsObject) {
+            throw $this->completeFailure;
+        }
+
         $this->objectExists = true;
         $this->objectSize = array_sum(array_column($this->parts, 'size'));
 
