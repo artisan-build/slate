@@ -3,6 +3,7 @@
 use App\Providers\DriverServiceProvider;
 use App\Services\FfmpegDiagnostics;
 use App\Slate\Driver\Binary\BenchmarkOutputVerifier;
+use App\Slate\Driver\Binary\CompiledOption;
 use App\Slate\Driver\Binary\DiagnosticRecipeCompiler;
 use App\Slate\Driver\Binary\FfmpegLocator;
 use App\Slate\Driver\Binary\FilterGraphCompiler;
@@ -74,8 +75,14 @@ function compiledInvocationHardeningViolations(array $commands): array
         }
 
         $outputScopes = compiledOutputScopes($command);
+        $diagnosticOptions = [
+            CompiledOption::BuildConfiguration->value,
+            CompiledOption::Encoders->value,
+            CompiledOption::Filters->value,
+            CompiledOption::Version->value,
+        ];
 
-        if ($outputScopes === []) {
+        if ($outputScopes === [] && array_intersect($diagnosticOptions, $command) === []) {
             $violations[] = "invocation {$index} ({$executable}) has no sealed output scope";
         }
 
