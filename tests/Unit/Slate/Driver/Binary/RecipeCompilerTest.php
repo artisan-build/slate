@@ -52,7 +52,7 @@ test('dispatches a typed timed-word operation to its one registered compiler', f
     expect($operation->words)->toBe($words)
         ->and($recipe->command())->toBe([
             '/runtime/ffmpeg/bin/ffmpeg', ...ffmpegInvocationHardeningArguments(),
-            ...ffmpegFileInputHardeningArguments(), '-version', ...ffmpegOutputHardeningArguments(),
+            ...ffmpegFileInputHardeningArguments(), '-version',
         ]);
 });
 

@@ -151,7 +151,7 @@ final readonly class CompiledRecipe
                 ? [CompiledOption::ProtocolWhitelist->value, CompiledLiteral::FileProtocol->value]
                 : []),
             ...$argumentValues,
-            ...($executable === BinaryExecutable::Ffmpeg && ! $hasFileOutput
+            ...($executable === BinaryExecutable::Ffmpeg && ! $hasFileOutput && ! $hasDiagnosticOption
                 ? CompiledOutput::hardeningCommandValues()
                 : []),
         ];
