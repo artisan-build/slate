@@ -27,11 +27,11 @@ object storage the sources and results live in.
 
 ## The easy way: Scalpels
 
-Slate is MIT licensed and you can run it yourself. If you would rather not spend the afternoon,
-[Scalpels](https://scalpels.app) sets it up and runs it for you — provisioning, the Laravel Cloud
-resources, deploys and upgrades — on infrastructure that stays yours.
+Slate is MIT licensed and you can run it yourself. [Scalpels](https://scalpels.app) is a service that
+provisions and operates Slate in your own Laravel Cloud account: it creates the resources, deploys
+the application, and applies upgrades. The infrastructure and the data stay yours.
 
-Scalpels sells the setup, not the software. Everything below is the do-it-yourself path.
+Everything below is the do-it-yourself path.
 
 ---
 
@@ -138,6 +138,26 @@ AWS_ENDPOINT=http://minio:9000
 
 These are local development credentials for a throwaway container. Never reuse them anywhere else.
 
+Finally, create the bucket the `AWS_BUCKET` line names. MinIO starts empty, and Slate does not create
+buckets for you — without this, every source upload fails:
+
+```bash
+docker run --rm --network slate-local --entrypoint sh minio/minio:latest -c '
+  mc alias set local http://minio:9000 slate-minio slate-minio-secret &&
+  mc mb --ignore-existing local/slate &&
+  mc ls local'
+```
+
+A successful run prints `Bucket created successfully` and then lists the bucket:
+
+```
+Added `local` successfully.
+Bucket created successfully `local/slate`.
+[2026-09-23 06:33:21 UTC]     0B slate/
+```
+
+If that bucket is missing, every source upload in step 8 fails.
+
 ## 6. Install the `ffmpeg` runtime
 
 Slate does not use whatever `ffmpeg` is on your machine. `slate:provision-ffmpeg` downloads one
@@ -173,16 +193,13 @@ rather than shipping the wrong typeface.
 
 ## 7. Create your first account and API credential
 
-Still inside the container. Create the bucket and the first account:
+Still inside the container. Create the first account:
 
 ```bash
-php artisan tinker --execute '
-$c = new Aws\S3\S3Client(["version"=>"latest","region"=>"us-east-1","endpoint"=>"http://minio:9000",
-  "use_path_style_endpoint"=>true,"credentials"=>["key"=>"slate-minio","secret"=>"slate-minio-secret"]]);
-$c->createBucket(["Bucket"=>"slate"]);'
-
 php artisan create-admin --email=you@example.com --name="Your Name" --local
 ```
+
+It prints `Admin user you@example.com created.`
 
 Leave `--password` off. The command then asks for the password twice at a hidden prompt, which keeps
 it out of your shell history and out of the process list. It must be **at least 8 characters**. The
@@ -230,6 +247,13 @@ Slate uses two queues — `default` renders, `ingest` pulls sources — and **no
 both are being worked**. Because you published port 8000, you can now also open
 <http://localhost:8000/bfc/login> in your own browser and sign in with the account from step 7.
 
+Every command from here on addresses Slate through one variable, so that the same commands work
+unchanged against a deployed installation later:
+
+```bash
+export SLATE_BASE=http://127.0.0.1:8000
+```
+
 You need two images and one audio file. Bring your own, or make throwaway ones with the `ffmpeg` you
 just installed:
 
@@ -246,8 +270,8 @@ straight to object storage, and Slate never proxies them:
 
 ```bash
 upload () {
-  SIZE=$(stat -c %s "$1")
-  RESPONSE=$(curl -s -X POST http://127.0.0.1:8000/api/v1/sources \
+  SIZE=$(wc -c < "$1")
+  RESPONSE=$(curl -s -X POST $SLATE_BASE/api/v1/sources \
     -H "Authorization: Bearer $SLATE_TOKEN" -H 'Content-Type: application/json' \
     -d "{\"upload\":{\"content_type\":\"$2\",\"size\":$SIZE}}")
   PUT_URL=$(echo "$RESPONSE" | php -r 'echo json_decode(stream_get_contents(STDIN), true)["put_url"];')
@@ -267,7 +291,7 @@ Watch them become usable. The worker probes each upload and moves it from `inges
 
 ```bash
 for ID in $IMAGE_ONE $IMAGE_TWO $NARRATION; do
-  curl -s -H "Authorization: Bearer $SLATE_TOKEN" http://127.0.0.1:8000/api/v1/sources/$ID; echo
+  curl -s -H "Authorization: Bearer $SLATE_TOKEN" $SLATE_BASE/api/v1/sources/$ID; echo
 done
 ```
 
@@ -280,7 +304,7 @@ Now submit the recipe. Two pages of three seconds each, joined by a one-second c
 RUN_ID=$(php -r 'echo sprintf("%s-%s-4%s-8%s-%s", bin2hex(random_bytes(4)), bin2hex(random_bytes(2)),
   substr(bin2hex(random_bytes(2)),1), substr(bin2hex(random_bytes(2)),1), bin2hex(random_bytes(6)));')
 
-curl -s -X POST http://127.0.0.1:8000/api/v1/runs \
+curl -s -X POST $SLATE_BASE/api/v1/runs \
   -H "Authorization: Bearer $SLATE_TOKEN" -H 'Content-Type: application/json' \
   -d "{\"id\":\"$RUN_ID\",\"recipe\":{\"delivery\":{
         \"pages\":[
@@ -296,14 +320,14 @@ You choose the run `id` yourself — that is what makes a retry safe. Slate answ
 `{"id":"…"}`. Poll until it succeeds:
 
 ```bash
-curl -s -H "Authorization: Bearer $SLATE_TOKEN" http://127.0.0.1:8000/api/v1/runs/$RUN_ID; echo
+curl -s -H "Authorization: Bearer $SLATE_TOKEN" $SLATE_BASE/api/v1/runs/$RUN_ID; echo
 ```
 
 `status` goes `queued` → `running` → `succeeded`. Then fetch the result and download it:
 
 ```bash
 RESULT_URL=$(curl -s -H "Authorization: Bearer $SLATE_TOKEN" \
-  http://127.0.0.1:8000/api/v1/runs/$RUN_ID/result \
+  $SLATE_BASE/api/v1/runs/$RUN_ID/result \
   | php -r 'echo json_decode(stream_get_contents(STDIN), true)["url"];')
 
 curl -s -o /tmp/delivery.mp4 "$RESULT_URL"
@@ -322,7 +346,9 @@ Five seconds, because two three-second pages overlapped by a one-second fade giv
 file is the thing Slate exists to produce.
 
 The `width` and `height` must be `1536`×`1024` or `1024`×`1536` — those are the two audited canvases.
-Your source images can be any size; Slate fits them to the canvas.
+Your source images do not have to match the canvas; Slate fits them to it. They do have to fit inside
+the admission limits, which the shipped configuration sets at **4096×4096 pixels**. Anything larger
+is rejected with `resolution_exceeded`.
 
 ---
 
@@ -334,8 +360,9 @@ Cloud writes all of its settings — the credentials *and* the selectors like `D
 `QUEUE_CONNECTION`, `CACHE_STORE` and `FILESYSTEM_DISK` — into a managed environment file your app
 reads. Any value you set yourself shadows Cloud's and breaks that resource.
 
-This matters immediately: the local `.env` you just built sets `FILESYSTEM_DISK`, `QUEUE_CONNECTION`
-and every `AWS_*` variable. **Those must never reach Cloud.**
+The local `.env` you built in step 5 sets `FILESYSTEM_DISK`, `QUEUE_CONNECTION` and every `AWS_*`
+variable so that Slate talks to your MinIO container. **None of those belong in a Cloud environment**,
+and nothing in this section sets them.
 
 ## Before you start
 
@@ -347,23 +374,38 @@ cloud --version        # the commands below are written against v0.6.0
 cloud auth             # browser-based OAuth
 ```
 
-Then confirm which application you are about to change. `.cloud/config.json` is committed in this
-repository and already names an organization and an application:
+Then work out which application you are about to change. `.cloud/config.json` is committed in this
+repository and already names an organization and an application — Slate's own, not yours:
 
 ```bash
 cat .cloud/config.json
-cloud application:get --json
-```
-
-If those identifiers are not the application you mean, rebind before running anything that changes
-state:
-
-```bash
-cloud repo:config <application> --organization=<organization>
 ```
 
 The file holds only `organization_id` and `application_id`. Neither is a credential — the CLI
-authenticates separately, per user — which is why the file is committed rather than ignored.
+authenticates separately, per user — which is why the file is committed rather than ignored. But it
+is also what every `cloud` command in this repository defaults to, so it has to be pointing at your
+application before you run anything that changes state.
+
+**If you already have a Laravel Cloud application for Slate**, bind to it now and confirm the binding
+took:
+
+```bash
+cloud repo:config <your application id or name> --organization=<your organization>
+cloud application:get --json --fields=id,name
+```
+
+The printed `id` must match what `.cloud/config.json` now contains.
+
+**If you are starting from nothing**, you cannot run `repo:config` yet — it only chooses between
+applications that already exist and exits with `No applications found for this organization.`
+otherwise. Skip straight to step 1; `cloud ship` creates the application, and step 1 binds to it
+afterwards.
+
+> **Do not run a bare `cloud repo:config`** while Slate's committed identifiers are still in the file.
+> With several applications in your organization the interactive picker pre-selects the id already in
+> `.cloud/config.json`, so pressing Enter re-binds you to Slate's application rather than yours; with
+> `-n` it refuses outright and tells you to pass an application. Always name the application
+> explicitly.
 
 ## 1. First deploy
 
@@ -375,16 +417,29 @@ do reliably.
 cloud ship
 ```
 
-Walk the prompts: region → application name → repository → **decline the offer to sync your local
-`.env`**. Accepting it uploads `FILESYSTEM_DISK`, `QUEUE_CONNECTION` and `AWS_*` from step 5 and
-shadows the values Cloud is about to inject — the cardinal rule, broken on your first deploy. Accept
-the database.
+Walk the prompts: region → application name → repository → **accept the database**, and let `ship`
+create and attach it.
 
-`ship` does not always write `.cloud/config.json`, so afterwards:
+One prompt needs care: *"Add local environment variables to Cloud environment?"* It is a multi-select
+that offers only the keys in your `.env` that it does not recognise as standard Laravel ones. Its
+exclusion list already covers `FILESYSTEM_DISK`, `QUEUE_CONNECTION`, `AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `AWS_BUCKET` and `AWS_USE_PATH_STYLE_ENDPOINT`, so it
+will not offer those. What it *will* offer from a `.env` built in step 5 is **`AWS_ENDPOINT`**, still
+pointing at your local MinIO container, and **`SLATE_INSTALLATION_SUBJECT_REF`**, still holding the
+`local-only-change-me` placeholder. **Select neither.** `AWS_ENDPOINT` would redirect the deployed
+application's object storage at an address that does not exist in production, and the real
+installation reference is set properly in step 6.
+
+`ship` creates and deploys the application but does not write `.cloud/config.json`, so bind to the
+application it just created — by name or id, never bare — and confirm:
 
 ```bash
-cloud repo:config
+cloud repo:config <the application ship just created> --organization=<your organization>
+cat .cloud/config.json
 ```
+
+The `application_id` in the file must now be the new application's, not the one that was committed in
+this repository.
 
 ## 2. Create the bucket and attach it
 
@@ -438,15 +493,21 @@ needs `xz` available, or provisioning fails with `Missing required 'xz' executab
 
 ## 5. Enable the scheduler
 
-Slate runs `slate:prune-ingests` hourly to reclaim storage left by failed and expired uploads.
-Without the scheduler that storage is never released and you pay for it forever.
+Slate runs `slate:prune-ingests` hourly to reclaim storage left by failed and expired uploads. It is
+an ordinary Artisan command, so you can always run it by hand or clear the objects yourself — but
+without the scheduler nothing prunes that storage automatically, and it accumulates until you do.
 
-There is no CLI command for this — enable the scheduler in the dashboard, in the environment's
-settings. Confirm it afterwards:
+There is no CLI command for the scheduler — enable it in the dashboard, in the environment's
+settings. `usesScheduler` is a property of the environment's *instance*, not of the environment, so
+confirm it in two steps:
 
 ```bash
-cloud environment:get <environment> --json --fields=usesScheduler
+cloud instance:list <environment> -n --json --fields=id,name,type,usesScheduler
 ```
+
+Find the web instance in that list; `usesScheduler` must be `true`. If you would rather read one
+instance directly, `cloud instance:get <instance id> -n --json --fields=usesScheduler` does the same.
+`cloud environment:get` does **not** expose this field and will return nothing useful for it.
 
 ## 6. Set the application variables
 
@@ -454,11 +515,16 @@ Only variables Cloud does **not** inject. Nothing here touches `DB_*`, `AWS_*`, 
 `SESSION_DRIVER`, `QUEUE_CONNECTION` or `FILESYSTEM_DISK`.
 
 ```bash
+cloud environment:variables <environment> -n --json --action=set --key=APP_NAME    --value=Slate
 cloud environment:variables <environment> -n --json --action=set --key=APP_ENV     --value=production
 cloud environment:variables <environment> -n --json --action=set --key=APP_DEBUG   --value=false
 cloud environment:variables <environment> -n --json --action=set --key=APP_URL     --value=https://<your app host>
 cloud environment:variables <environment> -n --json --action=set --key=SLATE_INSTALLATION_SUBJECT_REF --value=<your installation reference>
 ```
+
+`APP_NAME` matters because you did not upload the local `.env`: without it, `config/app.php` falls
+back to `Laravel`, and everything that renders the application name — password-reset and invitation
+mail in particular — says Laravel instead of Slate.
 
 Use a real installation reference here — `acme-slate-production`, not the `local-only-change-me`
 placeholder.
@@ -468,8 +534,14 @@ placeholder.
 ```bash
 cloud deploy -n
 cloud deploy:monitor -n
-cloud command:run <environment> --cmd "php artisan migrate --force" -n --no-monitor
+cloud command:run <environment> -n --json --fields=status,exitCode \
+    --cmd "php artisan migrate --force"
 ```
+
+> **Do not add `--no-monitor` here.** On v0.6.0 it returns success as soon as the command has been
+> *scheduled*, without waiting for it or reporting its exit status, so the next step can start against
+> an unmigrated database. Without it, a non-interactive `command:run` polls until the command
+> finishes and exits non-zero if it failed. Expect `"status":"success"` and `"exitCode":0`.
 
 ## 8. Bootstrap the deployed application
 
@@ -487,35 +559,54 @@ Leave `--password` off again. The command prompts for the password locally, hash
 sends only `--password-hash` to the environment — **the plaintext never leaves your machine**. You
 can then sign in at `https://<your app host>/bfc/login`.
 
-**The API credential.** `bfc:credential:mint` has no remote mode; it refuses to run without `--local`.
-The supported way to mint in production is therefore to run it *inside* the environment, where
-`--local` means that environment's own database:
+**The API credential.** `bfc:credential:mint` has no remote mode — it refuses to run without
+`--local` — so the credential has to be created inside the environment. There are two ways, and the
+console is the better one.
+
+*Preferred: the deployed console.* Sign in as the Owner you just created, open **Installation
+credentials** at `https://<your app host>/bfc/ui/credentials/installation`, and mint a `bearer`
+credential for the `slate.sources` purpose against your installation reference. The token is revealed
+once, in your browser, and never enters a command log. Copy it straight into your secret store.
+
+*Alternative: run the command inside the environment*, where `--local` means that environment's own
+database:
 
 ```bash
-cloud command:run <environment> -n --no-monitor \
-    --cmd "php artisan bfc:credential:mint installation <your installation reference> \
-           --kind=bearer --purpose=consumption --name='production client' --local"
+cloud command:run <environment> -n --json --fields=output,exitCode \
+    --cmd "php artisan bfc:credential:mint installation <your installation reference> --kind=bearer --purpose=consumption --name='production client' --local"
 ```
 
-The subject reference must match the `SLATE_INSTALLATION_SUBJECT_REF` you set in step 6 exactly, or
-the credential will authenticate nothing.
+`--fields=output` is what makes this usable: the token is revealed exactly once, in the command's
+output, and cannot be read back afterwards. **Do not pass `--no-monitor`** — it returns before the
+command has run, so the output field is empty and the token is lost with no way to recover it. You
+would have to mint another.
 
-> **The token is printed once, into that command's output**, which Cloud retains in its command
-> history. If you would rather it never appeared there, mint it from the deployed console instead:
-> sign in and use **Installation credentials** at
-> `https://<your app host>/bfc/ui/credentials/installation`. Either way, if you think the value was
-> seen by anyone else, rotate it with `bfc:credential:rotate`.
+Whichever route you take, the subject reference must match the `SLATE_INSTALLATION_SUBJECT_REF` you
+set in step 6 exactly, or the credential will authenticate nothing.
+
+> A token minted through `command:run` sits in the output that Cloud retains in its command history.
+> That is the reason to prefer the console. If you think a token has been seen by anyone who should
+> not have it, rotate it with `bfc:credential:rotate`.
 
 ## 9. Check the deployment
 
 Read the resolved configuration back out of the running application rather than assuming:
 
 ```bash
+cloud tinker <environment> --code="echo config('app.name');"
 cloud tinker <environment> --code="echo config('database.default');"
 cloud tinker <environment> --code="echo config('queue.default');"
 cloud tinker <environment> --code="echo config('filesystems.default');"
 cloud tinker <environment> --code="echo config('slate.api.installation_subject_ref');"
 ```
+
+| Check | What a correctly wired environment prints |
+| --- | --- |
+| `app.name` | `Slate` — not `Laravel`, which is the fallback when step 6 was skipped. |
+| `database.default` | The driver of the database `ship` attached, typically `pgsql`. Never `sqlite`. |
+| `queue.default` | `cloud` — Cloud's injected value for a managed queue. If it says `database` or `sync`, the queue is not attached or you set `QUEUE_CONNECTION` yourself. |
+| `filesystems.default` | The disk Cloud wired to the bucket, typically `private`. If it says `local`, the bucket is not attached. |
+| `slate.api.installation_subject_ref` | Exactly the installation reference you set in step 6 — character for character, because the API compares it exactly. Empty means installation credentials cannot authenticate at all. |
 
 Then prove the pieces actually work:
 
@@ -524,19 +615,49 @@ Then prove the pieces actually work:
 cloud tinker <environment> --code="Storage::put('probe.txt','ok'); echo Storage::get('probe.txt'); Storage::delete('probe.txt');"
 
 # the ffmpeg the build vendored
-cloud command:run <environment> --cmd "php artisan tinker --execute='echo app(App\\Slate\\Driver\\Binary\\FfmpegLocator::fromSystem())->ffmpegPath();'" -n --no-monitor
+cloud command:run <environment> -n --json --fields=output,exitCode \
+    --cmd "php artisan tinker --execute='echo App\\Slate\\Driver\\Binary\\FfmpegLocator::fromSystem()->ffmpegPath();'"
 
 # the app answers, and the API rejects an anonymous caller
 curl -sS -o /dev/null -w '%{http_code}\n' https://<your app host>/
 curl -sS -o /dev/null -w '%{http_code}\n' https://<your app host>/api/v1/runs/41414141-4141-4141-8141-414141414141
 ```
 
-The last two should print `200` and `401`. If any configuration value looks wrong, check first
-whether you set a variable that is shadowing one Cloud injects, and delete it.
+| Check | What success looks like |
+| --- | --- |
+| Storage round-trip | Prints `ok`. Anything else — an exception, an empty line — means the bucket is not usable from the application. |
+| `ffmpeg` path | An absolute path ending `/runtime/ffmpeg/bin/ffmpeg`, with `"exitCode":0`. An error or an empty output means the build command in step 4 did not run the provisioner. |
+| `GET /` | `200` |
+| `GET /api/v1/runs/…` with no credential | `401` |
 
-Finally, run the walkthrough from step 8 against your deployed host with the production token. A
-succeeded run and a downloadable MP4 is the only proof that the queue, the bucket and the vendored
-`ffmpeg` are all working together.
+If any configuration value looks wrong, check first whether you set a variable that is shadowing one
+Cloud injects, and delete it.
+
+## 10. Render one video in production
+
+A succeeded run and a downloadable MP4 is the only proof that the queue, the bucket and the vendored
+`ffmpeg` all work together. Because step 8 of the local walkthrough addresses Slate through
+`$SLATE_BASE`, you can rerun it against the deployed application by changing two variables:
+
+```bash
+export SLATE_BASE=https://<your app host>
+export SLATE_TOKEN=<the production token from step 8>
+```
+
+Then, from your own machine, rerun exactly these parts of the local walkthrough:
+
+1. the `upload ()` function and the three `upload …` lines,
+2. the source-polling loop, until all three report `ready`,
+3. the `RUN_ID` generation and the `POST /api/v1/runs` call,
+4. the run-polling call, until `succeeded`,
+5. the result fetch and `curl -s -o /tmp/delivery.mp4 "$RESULT_URL"`.
+
+**Skip** the `php artisan serve` and `php artisan queue:work` lines — Cloud runs the web instance and
+the managed queue for you — and skip the `ffprobe` check unless you have `ffmpeg` locally; opening
+the downloaded file in any player proves the same thing. You will need the two images and the audio
+file on the machine you run this from.
+
+The first request may return `502` while the instance wakes from hibernation; retry it.
 
 ---
 
