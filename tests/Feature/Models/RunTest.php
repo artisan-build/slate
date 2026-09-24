@@ -4,10 +4,12 @@ use App\Models\Run;
 use App\Models\RunStatus;
 use App\Models\Source;
 use App\Slate\Recipe\Audio\AudioBitrate;
+use App\Slate\Recipe\OperationName;
 use App\Slate\Recipe\QualityTier;
 use App\Slate\Recipe\Video\VideoColor;
 use App\Slate\Recipe\Video\VideoFit;
 use App\Slate\Run\RunRecipe;
+use App\Slate\Run\RunRecipeOperation;
 use App\Slate\Run\RunStillClip;
 use App\Slate\Storage\ObjectKey;
 use App\Slate\Storage\RunObjectKeys;
@@ -110,6 +112,72 @@ test('rejects another subjects source at the typed recipe creation seam', functi
 
     expect(fn () => Run::createWithRecipe($runId, $recipe, persistedRunOwner()))
         ->toThrow(InvalidArgumentException::class, 'Run recipe source objects must belong to the run subject.');
+
+    expect(DB::table('runs')->where('id', $runId)->exists())->toBeFalse();
+});
+
+test('refuses an operation shape the ownership guard does not understand', function (): void {
+    // The untaught shape carries its payload in an image property the
+    // guard's permissive fallback never reads, while its source property
+    // points at a legitimately owned source: dropping the instanceof
+    // refusal must not let this recipe through unchecked.
+    $runId = '3a3a3a3a-3a3a-4a3a-8a3a-3a3a3a3a3a3a';
+    $foreignRunId = '3b3b3b3b-3b3b-4b3b-8b3b-3b3b3b3b3b3b';
+    $ownedSource = Source::factory()->create([
+        'owner_subject_ref' => 'run-model-tests',
+    ]);
+    $operation = persistedRunRecipe($runId)->operations[0];
+    $foreignImageKey = ObjectKey::withinPrefix(
+        RunObjectKeys::prefix($foreignRunId),
+        RunObjectKeys::prefix($foreignRunId).'/inputs/9999/image.ppm',
+    );
+    $untaught = new readonly class($foreignImageKey, $ownedSource->objectKey(), $operation) implements RunRecipeOperation
+    {
+        public function __construct(
+            public ObjectKey $image,
+            public ObjectKey $source,
+            private RunStillClip $delegate,
+        ) {}
+
+        public function operation(): OperationName
+        {
+            return $this->delegate->operation();
+        }
+
+        public function qualityTier(): QualityTier
+        {
+            return $this->delegate->qualityTier();
+        }
+
+        public function durationMicroseconds(): int
+        {
+            return $this->delegate->durationMicroseconds();
+        }
+
+        public function audioSource(): ObjectKey
+        {
+            return $this->delegate->audioSource();
+        }
+
+        public function audioBitrate(): AudioBitrate
+        {
+            return $this->delegate->audioBitrate();
+        }
+
+        public function toArray(): array
+        {
+            return $this->delegate->toArray();
+        }
+
+        public function jsonSerialize(): array
+        {
+            return $this->delegate->jsonSerialize();
+        }
+    };
+
+    expect($untaught->image->value())->not->toContain($runId)
+        ->and(fn () => Run::createWithRecipe($runId, new RunRecipe([$untaught]), persistedRunOwner()))
+        ->toThrow(InvalidArgumentException::class, 'Run recipe ownership received an unsupported operation.');
 
     expect(DB::table('runs')->where('id', $runId)->exists())->toBeFalse();
 });

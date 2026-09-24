@@ -114,8 +114,16 @@ final readonly class ResumableIngestTransfer
                 || $this->storage->size($objectKey) !== $metadata->bytes) {
                 throw $exception;
             }
+
+            // The object matches but completion was not acknowledged, so the
+            // upload may still be live: abort it before dropping the only
+            // handle to its billable parts. NoSuchUpload, tolerated by the
+            // storage seam, means the completion did land.
+            $this->storage->abortMultipartUpload($objectKey, $uploadId);
         }
 
+        $ingest->multipart_upload_id = null;
+        $ingest->save();
     }
 
     /** @return array{Ingest|Source, string, int} */

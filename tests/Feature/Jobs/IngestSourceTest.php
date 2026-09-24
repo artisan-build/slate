@@ -7,6 +7,7 @@ use App\Models\Ingest;
 use App\Models\IngestStatus;
 use App\Models\Run;
 use App\Models\RunStatus;
+use App\Services\IngestCleanup;
 use App\Slate\Http\DestinationGuard;
 use App\Slate\Http\ResolvedDestination;
 use App\Slate\Ingest\PermanentIngestException;
@@ -168,6 +169,124 @@ final class IngestSourceTest extends TestCase
         );
     }
 
+    // Pins the transfer-side half of the upload-id lifecycle (ledger key
+    // ingest-completed-upload-id-lifecycle): a normal completion drops the id
+    // in the transfer, so the success row never reaches the hourly sweep and
+    // abort-after-complete never has to answer for the happy path.
+    public function test_a_completed_transfer_drops_the_upload_id_so_the_success_row_never_reaches_the_sweep(): void
+    {
+        config()->set('slate.ingest.part_size_bytes', 5 * 1024 * 1024);
+        $run = Run::factory()->create();
+        $ingest = Ingest::expectSource(
+            $run,
+            RunObjectKeys::input($run->id, 3, 'source.mp4'),
+            'https://source.example/video.mp4',
+        );
+        $metadata = new SourceMetadata((5 * 1024 * 1024) + 4, 'ETag', '"source-etag"');
+        $ingest->beginUpload($metadata, 5 * 1024 * 1024, 'upload-in-flight');
+        $storage = new MemoryIngestStorage;
+        $storage->parts[1] = ['etag' => '"part-1"', 'size' => 5 * 1024 * 1024];
+        $reader = new RecordingSourceReader($metadata);
+
+        $this->transfer($storage, $reader)->handle($ingest, 160);
+        $ingest->markSucceeded();
+
+        self::assertSame(IngestStatus::Succeeded, $ingest->fresh()?->status);
+        self::assertNull($ingest->fresh()?->multipart_upload_id);
+        self::assertSame([], $storage->abortedUploadIds);
+        self::assertSame(0, (new IngestCleanup($storage))->sweepAbandoned());
+    }
+
+    // When completion is not acknowledged but the object exists with the
+    // expected size, the upload may still be live: the transfer must abort it
+    // before dropping the id, because the id is the only handle to its
+    // billable parts.
+    public function test_a_completion_with_unknown_outcome_aborts_the_live_upload_before_dropping_its_id(): void
+    {
+        config()->set('slate.ingest.part_size_bytes', 5 * 1024 * 1024);
+        $run = Run::factory()->create();
+        $ingest = Ingest::expectSource(
+            $run,
+            RunObjectKeys::input($run->id, 4, 'source.mp4'),
+            'https://source.example/video.mp4',
+        );
+        $metadata = new SourceMetadata((5 * 1024 * 1024) + 4, 'ETag', '"source-etag"');
+        $ingest->beginUpload($metadata, 5 * 1024 * 1024, 'upload-unacknowledged');
+        $storage = new MemoryIngestStorage;
+        $storage->parts[1] = ['etag' => '"part-1"', 'size' => 5 * 1024 * 1024];
+        $storage->completeFailure = new \RuntimeException('timeout after server-side completion');
+        $reader = new RecordingSourceReader($metadata);
+
+        $this->transfer($storage, $reader)->handle($ingest, 160);
+        $ingest->markSucceeded();
+
+        self::assertSame(IngestStatus::Succeeded, $ingest->fresh()?->status);
+        self::assertSame(['upload-unacknowledged'], $storage->abortedUploadIds);
+        self::assertNull($ingest->fresh()?->multipart_upload_id);
+    }
+
+    // A fallback abort failure must keep the id: the hourly sweep is the
+    // backstop that retries the abort, so dropping the handle on a failed
+    // abort would orphan the still-live upload's billable parts.
+    public function test_a_fallback_abort_failure_keeps_the_upload_id_for_the_sweep(): void
+    {
+        config()->set('slate.ingest.part_size_bytes', 5 * 1024 * 1024);
+        $run = Run::factory()->create();
+        $ingest = Ingest::expectSource(
+            $run,
+            RunObjectKeys::input($run->id, 5, 'source.mp4'),
+            'https://source.example/video.mp4',
+        );
+        $metadata = new SourceMetadata((5 * 1024 * 1024) + 4, 'ETag', '"source-etag"');
+        $ingest->beginUpload($metadata, 5 * 1024 * 1024, 'upload-abort-unavailable');
+        $storage = new MemoryIngestStorage;
+        $storage->parts[1] = ['etag' => '"part-1"', 'size' => 5 * 1024 * 1024];
+        $storage->completeFailure = new \RuntimeException('timeout after server-side completion');
+        $storage->abortFailure = new \RuntimeException('S3 abort unavailable');
+        $reader = new RecordingSourceReader($metadata);
+
+        try {
+            $this->transfer($storage, $reader)->handle($ingest, 160);
+            self::fail('Expected the unacknowledged completion to surface its abort failure.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('S3 abort unavailable', $exception->getMessage());
+        }
+
+        self::assertNotNull($ingest->fresh()?->multipart_upload_id);
+    }
+
+    // A completion that genuinely failed must propagate: without the
+    // exists-and-size re-verification, a rejected completion would be treated
+    // as an unacknowledged success and an ingest would be marked Succeeded
+    // over a missing object.
+    public function test_a_genuinely_failed_completion_propagates_and_keeps_the_upload_id(): void
+    {
+        config()->set('slate.ingest.part_size_bytes', 5 * 1024 * 1024);
+        $run = Run::factory()->create();
+        $ingest = Ingest::expectSource(
+            $run,
+            RunObjectKeys::input($run->id, 6, 'source.mp4'),
+            'https://source.example/video.mp4',
+        );
+        $metadata = new SourceMetadata((5 * 1024 * 1024) + 4, 'ETag', '"source-etag"');
+        $ingest->beginUpload($metadata, 5 * 1024 * 1024, 'upload-rejected');
+        $storage = new MemoryIngestStorage;
+        $storage->parts[1] = ['etag' => '"part-1"', 'size' => 5 * 1024 * 1024];
+        $storage->completeFailure = new \RuntimeException('completion rejected');
+        $storage->completeLandsObject = false;
+        $reader = new RecordingSourceReader($metadata);
+
+        try {
+            $this->transfer($storage, $reader)->handle($ingest, 160);
+            self::fail('Expected the failed completion to propagate.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('completion rejected', $exception->getMessage());
+        }
+
+        self::assertNotNull($ingest->fresh()?->multipart_upload_id);
+        self::assertSame(IngestStatus::Uploading, $ingest->fresh()?->status);
+    }
+
     public function test_failed_reports_original_before_containing_cleanup_failure(): void
     {
         $this->configureQueueRuntime();
@@ -321,6 +440,10 @@ final class MemoryIngestStorage implements IngestStorage
 
     public ?\Throwable $abortFailure = null;
 
+    public ?\Throwable $completeFailure = null;
+
+    public bool $completeLandsObject = true;
+
     public int $multipartUploadsStarted = 0;
 
     public function exists(ObjectKey $objectKey): bool
@@ -374,8 +497,17 @@ final class MemoryIngestStorage implements IngestStorage
         array $etagsByPartNumber,
     ): void {
         $this->completedParts = $etagsByPartNumber;
+
+        if ($this->completeFailure !== null && ! $this->completeLandsObject) {
+            throw $this->completeFailure;
+        }
+
         $this->objectExists = true;
         $this->objectSize = array_sum(array_column($this->parts, 'size'));
+
+        if ($this->completeFailure !== null) {
+            throw $this->completeFailure;
+        }
     }
 
     public function delete(ObjectKey $objectKey): void
