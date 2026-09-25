@@ -19,7 +19,7 @@ jobs:
 
     services:
       minio:
-        image: docker.io/elestio/minio@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd
+        image: docker.io/bitnamilegacy/minio@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20
         env:
           MINIO_ROOT_USER: slate-minio
           MINIO_ROOT_PASSWORD: slate-minio-secret
@@ -48,14 +48,14 @@ jobs:
       - name: Generate Application Key
         run: php artisan key:generate
 
-      # The upstream image has no default `server /data` command for Actions services to supply.
+      # Restart the Actions service with an explicit writable data path.
       - name: Start MinIO service
         run: |
           docker rm --force "${{ job.services.minio.id }}" || true
           docker run --detach --name slate-ci-minio --publish 19000:9000 \
             --env MINIO_ROOT_USER=slate-minio \
             --env MINIO_ROOT_PASSWORD=slate-minio-secret \
-            docker.io/elestio/minio@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd server /data
+            docker.io/bitnamilegacy/minio@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20 server /bitnami/minio/data
 
       - name: Run PHPStan
         run: composer stan
@@ -74,7 +74,7 @@ jobs:
 
     services:
       minio:
-        image: docker.io/elestio/minio@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd
+        image: docker.io/bitnamilegacy/minio@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20
         env:
           MINIO_ROOT_USER: slate-minio
           MINIO_ROOT_PASSWORD: slate-minio-secret
@@ -103,14 +103,14 @@ jobs:
       - name: Generate Application Key
         run: php artisan key:generate
 
-      # The upstream image has no default `server /data` command for Actions services to supply.
+      # Restart the Actions service with an explicit writable data path.
       - name: Start MinIO service
         run: |
           docker rm --force "${{ job.services.minio.id }}" || true
           docker run --detach --name slate-ffmpeg-minio --publish 19000:9000 \
             --env MINIO_ROOT_USER=slate-minio \
             --env MINIO_ROOT_PASSWORD=slate-minio-secret \
-            docker.io/elestio/minio@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd server /data
+            docker.io/bitnamilegacy/minio@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20 server /bitnami/minio/data
 
       - name: Provision pinned ffmpeg runtime
         run: php artisan slate:provision-ffmpeg
