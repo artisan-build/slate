@@ -26,3 +26,6 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Hone, added by Scalpels
+storage/framework/hone/
