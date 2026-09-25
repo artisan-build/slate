@@ -19,7 +19,7 @@ jobs:
 
     services:
       minio:
-        image: quay.io/minio/minio:latest
+        image: docker.io/elestio/minio@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd
         env:
           MINIO_ROOT_USER: slate-minio
           MINIO_ROOT_PASSWORD: slate-minio-secret
@@ -55,7 +55,7 @@ jobs:
           docker run --detach --name slate-ci-minio --publish 19000:9000 \
             --env MINIO_ROOT_USER=slate-minio \
             --env MINIO_ROOT_PASSWORD=slate-minio-secret \
-            quay.io/minio/minio:latest server /data
+            docker.io/elestio/minio@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd server /data
 
       - name: Run PHPStan
         run: composer stan
@@ -74,7 +74,7 @@ jobs:
 
     services:
       minio:
-        image: quay.io/minio/minio:latest
+        image: docker.io/elestio/minio@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd
         env:
           MINIO_ROOT_USER: slate-minio
           MINIO_ROOT_PASSWORD: slate-minio-secret
@@ -110,7 +110,7 @@ jobs:
           docker run --detach --name slate-ffmpeg-minio --publish 19000:9000 \
             --env MINIO_ROOT_USER=slate-minio \
             --env MINIO_ROOT_PASSWORD=slate-minio-secret \
-            quay.io/minio/minio:latest server /data
+            docker.io/elestio/minio@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd server /data
 
       - name: Provision pinned ffmpeg runtime
         run: php artisan slate:provision-ffmpeg
