@@ -11,8 +11,8 @@ return [
         'name' => 'Slate',
         'slug' => 'slate',
         'description' => 'Self-hosted video rendering on Laravel Cloud.',
-        'icon' => 'https://scalpels.app/img/products/transparent/slate.svg',
-        'product_url' => 'https://scalpels.app',
+        'icon' => 'https://scalpels.app/img/products/transparent/slate.png',
+        'product_url' => 'https://scalpels.app/products/slate',
     ],
     'credentials' => [
         'guard' => 'bfc',
