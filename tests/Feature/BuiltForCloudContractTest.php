@@ -50,7 +50,7 @@ test('the application satisfies the Built for Cloud host contract', function ():
     $this->assertBuiltForCloudThinHostConfiguration();
     $this->assertBuiltForCloudThinHostSources(base_path());
 
-    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.12.3')
+    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.18.0')
         ->and(config('auth.providers.users.model'))->toBe(User::class)
         ->and(resolve(CredentialDeclaration::class))->toBeInstanceOf(SlateCredentialDeclaration::class)
         ->and(auth()->guard('bfc'))->toBeInstanceOf(CredentialGuard::class);
@@ -98,6 +98,7 @@ test('the application satisfies fleet conformance with only the package issue 12
             CredentialMintCommand::class,
             CredentialRevokeCommand::class,
             CredentialRotateCommand::class,
+            'ArtisanBuild\BuiltForCloud\Commands\FreshCommand',
             HmacRewrapCommand::class,
             InstallOperatorCredentialCommand::class,
             OutboxDrainCommand::class,
@@ -118,7 +119,6 @@ test('the application satisfies fleet conformance with only the package issue 12
             'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.personal_credentials|1',
             'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.session_management|1',
             'ArtisanBuild\BuiltForCloud\LandingManifest|built-for-cloud.manifest|1',
-            'ArtisanBuild\BuiltForCloud\LandingPageRegistrar|built-for-cloud.ui.landing_page|1',
             'ArtisanBuild\BuiltForCloud\UiCredentialPurposes|built-for-cloud.ui.credential_purposes|1',
         ]),
         'mcp_delegated' => [],
