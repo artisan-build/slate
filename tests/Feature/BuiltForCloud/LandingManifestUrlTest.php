@@ -15,8 +15,8 @@ use ArtisanBuild\BuiltForCloud\LandingManifest;
 | behind EnsureUiAuthority + EnsureUserIsAuthenticated, so it is not an
 | anonymous surface and this file does not request it.) Issue #37: `icon`
 | pointed at https://scalpels.app/icons/slate.svg and `product_url` at
-| https://scalpels.app/products/slate, and both answered 404 — a broken image
-| and a dead link on every deployed instance.
+| https://scalpels.app/products/slate, and both answered 404. The product page
+| now resolves, and the icon uses the catalog PNG.
 |
 | The invariant is "each field publishes a URL that resolves AS THE KIND OF
 | THING that field renders": an `<img src>` needs an image, an `<a href>` needs
@@ -25,7 +25,7 @@ use ArtisanBuild\BuiltForCloud\LandingManifest;
 |
 | A test that fetched these would make CI depend on scalpels.app being
 | reachable, so they are pinned instead. Every list below was checked with curl
-| on 2026-09-23, and adding a URL means checking it the same way: its status
+| on 2026-09-26, and adding a URL means checking it the same way: its status
 | code AND its content type have to match the role of the list it joins.
 |
 */
@@ -33,14 +33,13 @@ use ArtisanBuild\BuiltForCloud\LandingManifest;
 /**
  * scalpels.app URLs verified to answer HTTP 200 with an image content type.
  *
- * 2026-09-23: `.svg` -> 200 image/svg+xml, `.png` -> 200 image/png.
+ * 2026-09-26: `.png` -> 200 image/png.
  *
  * @return array<int, string>
  */
 function resolvingScalpelsImageUrls(): array
 {
     return [
-        'https://scalpels.app/img/products/transparent/slate.svg',
         'https://scalpels.app/img/products/transparent/slate.png',
     ];
 }
@@ -48,20 +47,19 @@ function resolvingScalpelsImageUrls(): array
 /**
  * scalpels.app URLs verified to answer HTTP 200 with an HTML page.
  *
- * 2026-09-23: the home page -> 200 text/html. `/products/slate` joins this list
- * when that product page launches.
+ * 2026-09-26: `/products/slate` -> 200 text/html.
  *
  * @return array<int, string>
  */
 function resolvingScalpelsPageUrls(): array
 {
     return [
-        'https://scalpels.app',
+        'https://scalpels.app/products/slate',
     ];
 }
 
 /**
- * scalpels.app URLs verified to answer HTTP 404 on 2026-09-23.
+ * scalpels.app URLs verified to answer HTTP 404 on 2026-09-26.
  *
  * @return array<int, string>
  */
@@ -69,7 +67,6 @@ function missingScalpelsUrls(): array
 {
     return [
         'https://scalpels.app/icons/slate.svg',
-        'https://scalpels.app/products/slate',
     ];
 }
 
