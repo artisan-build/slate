@@ -21911,7 +21911,7 @@ namespace Illuminate\Support\Facades {
          */
         public static function copyToDisk($disk, $from, $to = null)
         {
-            //Method inherited from \Illuminate\Filesystem\FilesystemAdapter
+            //Method inherited from \Illuminate\Filesystem\FilesystemAdapter 
             /** @var \Illuminate\Filesystem\LocalFilesystemAdapter $instance */
             return $instance->copyToDisk($disk, $from, $to);
         }
@@ -21927,7 +21927,7 @@ namespace Illuminate\Support\Facades {
          */
         public static function moveToDisk($disk, $from, $to = null)
         {
-            //Method inherited from \Illuminate\Filesystem\FilesystemAdapter
+            //Method inherited from \Illuminate\Filesystem\FilesystemAdapter 
             /** @var \Illuminate\Filesystem\LocalFilesystemAdapter $instance */
             return $instance->moveToDisk($disk, $from, $to);
         }
@@ -30785,6 +30785,8 @@ namespace  {
     class Mcp extends \Laravel\Mcp\Facades\Mcp {}
     class Nightwatch extends \Laravel\Nightwatch\Facades\Nightwatch {}
 }
+
+
 
 
 
