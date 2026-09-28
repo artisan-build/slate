@@ -18,6 +18,7 @@ use ArtisanBuild\BuiltForCloud\Commands\InstallOperatorCredentialCommand;
 use ArtisanBuild\BuiltForCloud\Commands\OutboxDrainCommand;
 use ArtisanBuild\BuiltForCloud\Commands\OwnershipMintClaimCommand;
 use ArtisanBuild\BuiltForCloud\Commands\OwnershipRemintOwnerTokenCommand;
+use ArtisanBuild\BuiltForCloud\Commands\PruneCredentialAuthorizationsCommand;
 use ArtisanBuild\BuiltForCloud\Commands\SigningRootProvisionCommand;
 use ArtisanBuild\BuiltForCloud\Commands\SubjectOffboardCommand;
 use ArtisanBuild\BuiltForCloud\Commands\WarnExpiringCredentialsCommand;
@@ -50,7 +51,7 @@ test('the application satisfies the Built for Cloud host contract', function ():
     $this->assertBuiltForCloudThinHostConfiguration();
     $this->assertBuiltForCloudThinHostSources(base_path());
 
-    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.12.3')
+    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.18.0')
         ->and(config('auth.providers.users.model'))->toBe(User::class)
         ->and(resolve(CredentialDeclaration::class))->toBeInstanceOf(SlateCredentialDeclaration::class)
         ->and(auth()->guard('bfc'))->toBeInstanceOf(CredentialGuard::class);
@@ -74,8 +75,10 @@ test('the application satisfies fleet conformance with only the package issue 12
             'path:Bearer|ArtisanBuild\BuiltForCloud\Auth\BearerAuthenticator',
             'path:HMAC|Http\Middleware\VerifyHmacSignature+Hmac\HmacVerifier',
             'path:MCP|Http\Middleware\AuthenticateMcp:store-bearer+v4.public',
-            'path:asymmetric|Actions\MintCredential::mintEnrollment',
+            'path:asymmetric|Actions\MintCredential::mintEnrollment+CompleteAsymmetricEnrollment+AsymmetricVerificationKeys',
+            'path:device|Http\Controllers\DeviceAuthorizations+Actions\StartDeviceAuthorization/DecideDeviceAuthorization/PollDeviceAuthorization+BoundBearerCredentialAuthenticator+ContainCredentialAuthorizations',
             'path:enrollment|OnboardingToken+POST:/bfc/claim,/bfc/onboarding/issue,/exchange,/verify',
+            'path:loopback|Http\Controllers\LoopbackAuthorizations+Actions\StartLoopbackAuthorization/DecideLoopbackAuthorization/ExchangeLoopbackAuthorization+BoundBearerCredentialAuthenticator+ContainCredentialAuthorizations',
             'path:system|SubjectType::Operator/Application/Installation+AuditActorType::CliOperator',
         ]),
         'credential_writers' => $sort([
@@ -98,15 +101,18 @@ test('the application satisfies fleet conformance with only the package issue 12
             CredentialMintCommand::class,
             CredentialRevokeCommand::class,
             CredentialRotateCommand::class,
+            'ArtisanBuild\BuiltForCloud\Commands\FreshCommand',
             HmacRewrapCommand::class,
             InstallOperatorCredentialCommand::class,
             OutboxDrainCommand::class,
             OwnershipMintClaimCommand::class,
             OwnershipRemintOwnerTokenCommand::class,
+            PruneCredentialAuthorizationsCommand::class,
             SigningRootProvisionCommand::class,
             SubjectOffboardCommand::class,
             WarnExpiringCredentialsCommand::class,
             DeliverOwnershipWebhook::class,
+            'Closure@package/src/SystemAuthoritySchedule.php:27',
         ]),
         'no_signing_path' => [],
         'ui_config_reads' => $sort([
@@ -118,7 +124,6 @@ test('the application satisfies fleet conformance with only the package issue 12
             'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.personal_credentials|1',
             'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.session_management|1',
             'ArtisanBuild\BuiltForCloud\LandingManifest|built-for-cloud.manifest|1',
-            'ArtisanBuild\BuiltForCloud\LandingPageRegistrar|built-for-cloud.ui.landing_page|1',
             'ArtisanBuild\BuiltForCloud\UiCredentialPurposes|built-for-cloud.ui.credential_purposes|1',
         ]),
         'mcp_delegated' => [],
@@ -207,7 +212,7 @@ test('Slate installation credential UI offers only Bearer for slate.sources', fu
 
     $response = $this->actingAs($user)->withSession([
         StandaloneAccess::SESSION_VERSION_KEY => $user->auth_session_version,
-    ])->get('/bfc/ui/credentials/installation');
+    ])->get(route('bfc.ui.installation-credentials.index'));
 
     $response->assertOk()
         ->assertSeeHtml('data-testid="installation-credentials-issue-option"')
@@ -256,7 +261,7 @@ test('personal credential issuance fails closed without a self-service subject',
     ])->save();
     $credentialCount = Credential::query()->count();
 
-    $this->actingAs($user)->post('/bfc/ui/credentials/personal', [
+    $this->actingAs($user)->post(route('bfc.ui.personal-credentials.store'), [
         'name' => 'must-not-mint',
         'app_purpose' => 'slate.sources',
     ])->assertRedirect();

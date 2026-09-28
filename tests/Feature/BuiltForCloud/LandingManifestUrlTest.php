@@ -54,6 +54,8 @@ function resolvingScalpelsImageUrls(): array
 function resolvingScalpelsPageUrls(): array
 {
     return [
+        'https://scalpels.app/dashboard',
+        'https://scalpels.app/docs',
         'https://scalpels.app/products/slate',
     ];
 }
