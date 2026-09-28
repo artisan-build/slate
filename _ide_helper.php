@@ -5,7 +5,7 @@
 
 /**
  * A helper file for Laravel, to provide autocomplete information to your IDE
- * Generated for Laravel 13.30.0.
+ * Generated for Laravel 13.33.0.
  *
  * This file should not be included in your code, only analyzed by your IDE!
  *
@@ -3828,6 +3828,19 @@ namespace Illuminate\Support\Facades {
         {
             /** @var \Illuminate\Broadcasting\BroadcastManager $instance */
             return $instance->forgetDrivers();
+        }
+
+        /**
+         * Get a Mercure hub instance for the given configuration.
+         *
+         * @param array $config
+         * @return \Symfony\Component\Mercure\HubInterface
+         * @static
+         */
+        public static function mercure($config)
+        {
+            /** @var \Illuminate\Broadcasting\BroadcastManager $instance */
+            return $instance->mercure($config);
         }
 
         /**
@@ -12121,6 +12134,19 @@ namespace Illuminate\Support\Facades {
         }
 
         /**
+         * Assert if a mailable was sent exactly once.
+         *
+         * @param string $mailable
+         * @return void
+         * @static
+         */
+        public static function assertSentOnce($mailable)
+        {
+            /** @var \Illuminate\Support\Testing\Fakes\MailFake $instance */
+            $instance->assertSentOnce($mailable);
+        }
+
+        /**
          * Determine if a mailable was not sent or queued to be sent based on a truth-test callback.
          *
          * @param string|\Closure $mailable
@@ -12198,6 +12224,19 @@ namespace Illuminate\Support\Facades {
         {
             /** @var \Illuminate\Support\Testing\Fakes\MailFake $instance */
             $instance->assertQueuedTimes($mailable, $times);
+        }
+
+        /**
+         * Assert if a mailable was queued exactly once.
+         *
+         * @param string $mailable
+         * @return void
+         * @static
+         */
+        public static function assertQueuedOnce($mailable)
+        {
+            /** @var \Illuminate\Support\Testing\Fakes\MailFake $instance */
+            $instance->assertQueuedOnce($mailable);
         }
 
         /**
@@ -12776,6 +12815,19 @@ namespace Illuminate\Support\Facades {
         }
 
         /**
+         * Assert if a notification was sent on-demand exactly once.
+         *
+         * @param string $notification
+         * @return void
+         * @static
+         */
+        public static function assertSentOnDemandOnce($notification)
+        {
+            /** @var \Illuminate\Support\Testing\Fakes\NotificationFake $instance */
+            $instance->assertSentOnDemandOnce($notification);
+        }
+
+        /**
          * Assert if a notification was sent a number of times.
          *
          * @param mixed $notifiable
@@ -12788,6 +12840,20 @@ namespace Illuminate\Support\Facades {
         {
             /** @var \Illuminate\Support\Testing\Fakes\NotificationFake $instance */
             $instance->assertSentToTimes($notifiable, $notification, $times);
+        }
+
+        /**
+         * Assert if a notification was sent exactly once.
+         *
+         * @param mixed $notifiable
+         * @param string $notification
+         * @return void
+         * @static
+         */
+        public static function assertSentToOnce($notifiable, $notification)
+        {
+            /** @var \Illuminate\Support\Testing\Fakes\NotificationFake $instance */
+            $instance->assertSentToOnce($notifiable, $notification);
         }
 
         /**
@@ -13458,8 +13524,8 @@ namespace Illuminate\Support\Facades {
         /**
          * Pause a queue by its connection and name.
          *
-         * @param string $connection
-         * @param string $queue
+         * @param \UnitEnum|string $connection
+         * @param \UnitEnum|string $queue
          * @return void
          * @static
          */
@@ -13472,8 +13538,8 @@ namespace Illuminate\Support\Facades {
         /**
          * Pause a queue by its connection and name for a given amount of time.
          *
-         * @param string $connection
-         * @param string $queue
+         * @param \UnitEnum|string $connection
+         * @param \UnitEnum|string $queue
          * @param \DateTimeInterface|\DateInterval|int $ttl
          * @return void
          * @static
@@ -13499,8 +13565,8 @@ namespace Illuminate\Support\Facades {
         /**
          * Resume a paused queue by its connection and name.
          *
-         * @param string $connection
-         * @param string $queue
+         * @param \UnitEnum|string $connection
+         * @param \UnitEnum|string $queue
          * @return void
          * @static
          */
@@ -13963,6 +14029,18 @@ namespace Illuminate\Support\Facades {
         {
             /** @var \Illuminate\Support\Testing\Fakes\QueueFake $instance */
             return $instance->reservedSize($queue);
+        }
+
+        /**
+         * Get the number of jobs across every queue.
+         *
+         * @return int
+         * @static
+         */
+        public static function totalSize()
+        {
+            /** @var \Illuminate\Support\Testing\Fakes\QueueFake $instance */
+            return $instance->totalSize();
         }
 
         /**
@@ -19132,7 +19210,7 @@ namespace Illuminate\Support\Facades {
          * Call the given Closure with this instance then return the instance.
          *
          * @param (callable($this): mixed)|null $callback
-         * @return ($callback is null ? \Illuminate\Support\HigherOrderTapProxy : $this)
+         * @return ($callback is null ? \Illuminate\Support\HigherOrderTapProxy<$this> : $this)
          * @static
          */
         public static function tap($callback = null)
@@ -21823,6 +21901,38 @@ namespace Illuminate\Support\Facades {
         }
 
         /**
+         * Copy a file to another disk.
+         *
+         * @param string|\Illuminate\Contracts\Filesystem\Filesystem $disk
+         * @param string $from
+         * @param string|null $to
+         * @return bool
+         * @static
+         */
+        public static function copyToDisk($disk, $from, $to = null)
+        {
+            //Method inherited from \Illuminate\Filesystem\FilesystemAdapter 
+            /** @var \Illuminate\Filesystem\LocalFilesystemAdapter $instance */
+            return $instance->copyToDisk($disk, $from, $to);
+        }
+
+        /**
+         * Move a file to another disk.
+         *
+         * @param string|\Illuminate\Contracts\Filesystem\Filesystem $disk
+         * @param string $from
+         * @param string|null $to
+         * @return bool
+         * @static
+         */
+        public static function moveToDisk($disk, $from, $to = null)
+        {
+            //Method inherited from \Illuminate\Filesystem\FilesystemAdapter 
+            /** @var \Illuminate\Filesystem\LocalFilesystemAdapter $instance */
+            return $instance->moveToDisk($disk, $from, $to);
+        }
+
+        /**
          * Get the file size of a given file.
          *
          * @param string $path
@@ -24337,6 +24447,18 @@ namespace Illuminate\Support\Facades {
         {
             /** @var \Illuminate\Foundation\Vite $instance */
             return $instance->reactRefresh();
+        }
+
+        /**
+         * Get the URL of the running Vite development server.
+         *
+         * @return string|null
+         * @static
+         */
+        public static function devServerUrl()
+        {
+            /** @var \Illuminate\Foundation\Vite $instance */
+            return $instance->devServerUrl();
         }
 
         /**

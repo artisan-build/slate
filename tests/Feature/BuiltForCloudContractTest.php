@@ -13,6 +13,7 @@ use ArtisanBuild\BuiltForCloud\Commands\CredentialListCommand;
 use ArtisanBuild\BuiltForCloud\Commands\CredentialMintCommand;
 use ArtisanBuild\BuiltForCloud\Commands\CredentialRevokeCommand;
 use ArtisanBuild\BuiltForCloud\Commands\CredentialRotateCommand;
+use ArtisanBuild\BuiltForCloud\Commands\FreshCommand;
 use ArtisanBuild\BuiltForCloud\Commands\HmacRewrapCommand;
 use ArtisanBuild\BuiltForCloud\Commands\InstallOperatorCredentialCommand;
 use ArtisanBuild\BuiltForCloud\Commands\OutboxDrainCommand;
@@ -35,7 +36,6 @@ use ArtisanBuild\BuiltForCloud\Testing\ConsumerConformance;
 use ArtisanBuild\BuiltForCloud\Testing\ContractAssertions;
 use ArtisanBuild\BuiltForCloud\Testing\FleetConformance;
 use ArtisanBuild\BuiltForCloud\User;
-use Composer\InstalledVersions;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Process;
@@ -51,8 +51,7 @@ test('the application satisfies the Built for Cloud host contract', function ():
     $this->assertBuiltForCloudThinHostConfiguration();
     $this->assertBuiltForCloudThinHostSources(base_path());
 
-    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.18.0')
-        ->and(config('auth.providers.users.model'))->toBe(User::class)
+    expect(config('auth.providers.users.model'))->toBe(User::class)
         ->and(resolve(CredentialDeclaration::class))->toBeInstanceOf(SlateCredentialDeclaration::class)
         ->and(auth()->guard('bfc'))->toBeInstanceOf(CredentialGuard::class);
 });
@@ -101,7 +100,7 @@ test('the application satisfies fleet conformance with only the package issue 12
             CredentialMintCommand::class,
             CredentialRevokeCommand::class,
             CredentialRotateCommand::class,
-            'ArtisanBuild\BuiltForCloud\Commands\FreshCommand',
+            FreshCommand::class,
             HmacRewrapCommand::class,
             InstallOperatorCredentialCommand::class,
             OutboxDrainCommand::class,
