@@ -6,10 +6,9 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreRunRequest;
-use App\Models\Run;
-use App\Slate\Execution\RunExecutor;
 use App\Slate\Run\AuthenticatedRunScope;
 use App\Slate\Run\RunApiErrorReason;
+use App\Slate\Run\RunManager;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Str;
@@ -18,13 +17,13 @@ final class RunController extends Controller
 {
     public function store(
         StoreRunRequest $request,
-        RunExecutor $executor,
+        RunManager $runManager,
         AuthenticatedRunScope $runScope,
     ): JsonResponse {
         $webhookUrl = $request->webhookUrl();
         $webhookSecret = $webhookUrl === null ? null : Str::random(64);
         try {
-            $run = Run::createWithRecipe(
+            $run = $runManager->create(
                 $request->runId(),
                 $request->runRecipe(),
                 $runScope->subject(),
@@ -38,8 +37,6 @@ final class RunController extends Controller
                 'reason' => RunApiErrorReason::RunIdConflict->value,
             ], 409);
         }
-
-        $executor->execute($run);
 
         $response = ['id' => $run->id];
 

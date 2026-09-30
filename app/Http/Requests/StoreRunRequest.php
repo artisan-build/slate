@@ -5,12 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Requests;
 
 use App\Models\RunTrust;
-use App\Models\SourceStatus;
 use App\Slate\Input\InputRejectionReason;
-use App\Slate\Run\RunAdmissionPolicy;
 use App\Slate\Run\RunApiErrorReason;
 use App\Slate\Run\RunRecipe;
-use App\Slate\Run\RunRecipeOperation;
+use App\Slate\Run\RunRecipeAdmission;
+use App\Slate\Run\RunSubmissionException;
 use App\Slate\Source\AuthenticatedSourceScope;
 use App\Slate\Webhook\WebhookDestinationGuard;
 use Illuminate\Contracts\Validation\Validator;
@@ -25,13 +24,13 @@ final class StoreRunRequest extends FormRequest
 {
     private ?RunRecipe $runRecipe = null;
 
-    private ?RunAdmissionPolicy $admissionPolicy = null;
-
     private ?InputRejectionReason $inputRejectionReason = null;
 
     private RunApiErrorReason $apiErrorReason = RunApiErrorReason::MalformedRecipe;
 
     private ?AuthenticatedSourceScope $sourceScope = null;
+
+    private ?RunRecipeAdmission $recipeAdmission = null;
 
     public function authorize(): bool
     {
@@ -40,11 +39,11 @@ final class StoreRunRequest extends FormRequest
 
     /** @return array<string, list<mixed>> */
     public function rules(
-        RunAdmissionPolicy $admissionPolicy,
+        RunRecipeAdmission $recipeAdmission,
         WebhookDestinationGuard $webhookGuard,
         AuthenticatedSourceScope $sourceScope,
     ): array {
-        $this->admissionPolicy = $admissionPolicy;
+        $this->recipeAdmission = $recipeAdmission;
         $this->sourceScope = $sourceScope;
 
         return [
@@ -99,46 +98,17 @@ final class StoreRunRequest extends FormRequest
 
             try {
                 /** @var array<string, mixed> $recipe */
-                $sourceCache = [];
-                $this->runRecipe = RunRecipe::fromWireArray(
+                $this->runRecipe = $this->recipeAdmission?->admit(
                     $recipe,
-                    function (string $sourceId) use (&$sourceCache) {
-                        $source = $sourceCache[$sourceId] ??= $this->sourceScope?->find($sourceId);
-
-                        if ($source === null) {
-                            $this->apiErrorReason = RunApiErrorReason::SourceNotFound;
-
-                            throw new InvalidArgumentException('A referenced recipe source was not found.');
-                        }
-
-                        if ($source->status !== SourceStatus::Ready) {
-                            $this->apiErrorReason = RunApiErrorReason::SourceNotReady;
-
-                            throw new InvalidArgumentException('A referenced recipe source is not ready.');
-                        }
-
-                        return $source->objectKey();
-                    },
+                    $this->sourceScope?->subject() ?? throw new LogicException('The source scope was not initialized.'),
                 );
-                $operationClasses = array_unique(array_map(
-                    static fn (RunRecipeOperation $operation): string => $operation::class,
-                    $this->runRecipe->operations,
-                ));
-
-                if (count($operationClasses) > 1) {
-                    throw new InvalidArgumentException('A run cannot mix source clips with assembler operations.');
+            } catch (RunSubmissionException $exception) {
+                if ($exception->reason instanceof InputRejectionReason) {
+                    $this->inputRejectionReason = $exception->reason;
+                } else {
+                    $this->apiErrorReason = $exception->reason;
                 }
 
-                $reason = $this->admissionPolicy?->rejectionReason($this->runRecipe);
-
-                if ($reason !== null) {
-                    $this->inputRejectionReason = $reason;
-                    $validator->errors()->add(
-                        'recipe',
-                        $this->admissionPolicy?->message($reason) ?? 'The run exceeds its execution limits.',
-                    );
-                }
-            } catch (InvalidArgumentException $exception) {
                 $validator->errors()->add('recipe', $exception->getMessage());
             }
         }];
