@@ -193,7 +193,23 @@ final class McpWriteService
         } catch (Throwable $exception) {
             report($exception);
 
-            return new McpWriteResult('outcome_unknown');
+            try {
+                $claim = McpIdempotencyClaim::query()->find($claimId);
+            } catch (Throwable $readException) {
+                report($readException);
+
+                return new McpWriteResult('in_progress');
+            }
+
+            if ($claim === null || $claim->status === 'in_progress') {
+                return new McpWriteResult('in_progress');
+            }
+
+            if ($claim->status === 'accepted') {
+                return new McpWriteResult('accepted', $claim->response ?? []);
+            }
+
+            return $this->replay($claim);
         }
     }
 

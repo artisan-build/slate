@@ -93,7 +93,7 @@ final class CreateRemoteSourceTool extends ClosedInputTool
         } catch (Throwable $exception) {
             report($exception);
 
-            return Response::structured(['outcome' => 'outcome_unknown']);
+            return Response::error('unavailable');
         }
     }
 }

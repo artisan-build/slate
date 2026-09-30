@@ -109,7 +109,7 @@ final class CreateRunTool extends ClosedInputTool
         } catch (Throwable $exception) {
             report($exception);
 
-            return Response::structured(['outcome' => 'outcome_unknown']);
+            return Response::error('unavailable');
         }
     }
 

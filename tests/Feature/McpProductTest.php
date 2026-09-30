@@ -465,6 +465,79 @@ test('unsafe remote source refusal is terminal and never upgrades after DNS chan
     Queue::assertNothingPushed();
 });
 
+test('pre-claim persistence failures return bounded errors and identical retries can be accepted', function (): void {
+    Queue::fake([IngestRemoteSource::class]);
+    app()->instance(HostnameResolver::class, new McpPublicHostnameResolver);
+    $credential = slateMcpCredential();
+    $event = 'eloquent.creating: '.McpIdempotencyClaim::class;
+    $dispatcher = McpIdempotencyClaim::getEventDispatcher();
+    expect($dispatcher)->not->toBeNull();
+    $sourceArguments = [
+        'idempotency_key' => 'source-pre-claim-failure',
+        'url' => 'https://media.example.test/pre-claim.mp4',
+    ];
+
+    $dispatcher->listen($event, static function (McpIdempotencyClaim $claim): never {
+        throw new RuntimeException('raw source persistence failure');
+    });
+
+    try {
+        $sourceFailure = slateMcpTool('/mcp-write', $credential, 'create_remote_source', $sourceArguments);
+    } finally {
+        $dispatcher->forget($event);
+    }
+
+    $sourceFailure
+        ->assertOk()
+        ->assertJsonPath('result.isError', true)
+        ->assertJsonPath('result.content.0.text', 'unavailable')
+        ->assertJsonMissingPath('result.structuredContent');
+    expect($sourceFailure->getContent())->not->toContain('raw source persistence failure')
+        ->and(McpIdempotencyClaim::query()->where('idempotency_key', 'source-pre-claim-failure')->count())->toBe(0)
+        ->and(Source::query()->count())->toBe(0);
+    Queue::assertNothingPushed();
+
+    slateMcpTool('/mcp-write', $credential, 'create_remote_source', $sourceArguments)
+        ->assertOk()
+        ->assertJsonPath('result.structuredContent.outcome', 'accepted');
+    expect(Source::query()->count())->toBe(1);
+    Queue::assertPushed(IngestRemoteSource::class, 1);
+
+    Bus::fake();
+    $runId = '99999999-9999-4999-8999-999999999999';
+    $runArguments = [
+        'idempotency_key' => 'run-pre-claim-failure',
+        'run_id' => $runId,
+        'recipe' => slateDeliveryRecipe(),
+    ];
+
+    $dispatcher->listen($event, static function (McpIdempotencyClaim $claim): never {
+        throw new RuntimeException('raw run persistence failure');
+    });
+
+    try {
+        $runFailure = slateMcpTool('/mcp-write', $credential, 'create_run', $runArguments);
+    } finally {
+        $dispatcher->forget($event);
+    }
+
+    $runFailure
+        ->assertOk()
+        ->assertJsonPath('result.isError', true)
+        ->assertJsonPath('result.content.0.text', 'unavailable')
+        ->assertJsonMissingPath('result.structuredContent');
+    expect($runFailure->getContent())->not->toContain('raw run persistence failure')
+        ->and(McpIdempotencyClaim::query()->where('idempotency_key', 'run-pre-claim-failure')->count())->toBe(0)
+        ->and(Run::query()->whereKey($runId)->count())->toBe(0);
+    Bus::assertNothingBatched();
+
+    slateMcpTool('/mcp-write', $credential, 'create_run', $runArguments)
+        ->assertOk()
+        ->assertJsonPath('result.structuredContent', ['outcome' => 'accepted', 'id' => $runId]);
+    expect(Run::query()->whereKey($runId)->count())->toBe(1);
+    Bus::assertBatchCount(1);
+});
+
 test('create run accepts only typed delivery and highlights recipes and dispatches once', function (): void {
     Bus::fake();
     $credential = slateMcpCredential();
@@ -643,6 +716,94 @@ test('write outcomes cover live execution terminal refusal uncertainty recovery 
         ->and(McpIdempotencyClaim::query()->where('idempotency_key', 'settlement-key')->value('status'))
         ->toBe('outcome_unknown')
         ->and(McpIdempotencyClaim::query()->where('status', 'in_progress')->count())->toBe(0);
+});
+
+test('compound settlement failure stays non-terminal until lease recovery durably settles uncertainty', function (): void {
+    $service = resolve(McpWriteService::class);
+    $owner = new Subject(SubjectType::Installation, 'compound-settlement-owner');
+    $knownAcceptance = $service->execute(
+        $owner,
+        'create_run',
+        'known-acceptance-key',
+        ['run_id' => 'known-acceptance'],
+        'run',
+        'known-acceptance',
+        static fn (): array => ['id' => 'known-acceptance'],
+    );
+    $event = 'eloquent.updating: '.McpIdempotencyClaim::class;
+    $dispatcher = McpIdempotencyClaim::getEventDispatcher();
+    expect($knownAcceptance->outcome)->toBe('accepted')
+        ->and($dispatcher)->not->toBeNull();
+    $dispatcher->listen($event, static function (McpIdempotencyClaim $claim): void {
+        if (in_array($claim->status, ['accepted', 'outcome_unknown'], true)) {
+            throw new RuntimeException('compound settlement write failed');
+        }
+    });
+    $operationExecutions = 0;
+
+    try {
+        $first = $service->execute(
+            $owner,
+            'create_run',
+            'compound-settlement-key',
+            ['run_id' => 'compound-settlement'],
+            'run',
+            'compound-settlement',
+            function () use (&$operationExecutions): array {
+                $operationExecutions++;
+
+                return ['id' => 'compound-settlement'];
+            },
+        );
+        $acceptedReplay = $service->execute(
+            $owner,
+            'create_run',
+            'known-acceptance-key',
+            ['run_id' => 'known-acceptance'],
+            'run',
+            'known-acceptance',
+            static function (): never {
+                throw new RuntimeException('known acceptance was re-executed');
+            },
+        );
+    } finally {
+        $dispatcher->forget($event);
+    }
+
+    $claim = McpIdempotencyClaim::query()->where('idempotency_key', 'compound-settlement-key')->sole();
+    expect($first->outcome)->toBe('in_progress')
+        ->and($operationExecutions)->toBe(1)
+        ->and($claim->status)->toBe('in_progress')
+        ->and($claim->execution_token)->not->toBeNull()
+        ->and($claim->lease_expires_at)->not->toBeNull()
+        ->and($acceptedReplay->outcome)->toBe('already_accepted')
+        ->and(McpIdempotencyClaim::query()->where('idempotency_key', 'known-acceptance-key')->value('status'))
+        ->toBe('accepted');
+
+    $this->travel(301)->seconds();
+    $retry = function () use ($service, $owner, &$operationExecutions) {
+        return $service->execute(
+            $owner,
+            'create_run',
+            'compound-settlement-key',
+            ['run_id' => 'compound-settlement'],
+            'run',
+            'compound-settlement',
+            function () use (&$operationExecutions): array {
+                $operationExecutions++;
+
+                return ['id' => 'must-not-run'];
+            },
+        );
+    };
+
+    expect($retry()->outcome)->toBe('outcome_unknown')
+        ->and($retry()->outcome)->toBe('outcome_unknown')
+        ->and($operationExecutions)->toBe(1);
+    $claim->refresh();
+    expect($claim->status)->toBe('outcome_unknown')
+        ->and($claim->execution_token)->toBeNull()
+        ->and($claim->lease_expires_at)->toBeNull();
 });
 
 test('accepted retries never infer state from disappeared or recreated resources', function (): void {
