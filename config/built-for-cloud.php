@@ -31,4 +31,10 @@ return [
         'managed_transitions' => true,
         'credential_purposes' => ['slate.sources'],
     ],
+    'mcp' => [
+        'path' => env('BUILT_FOR_CLOUD_MCP_PATH', '/mcp'),
+        'write_path' => env('BUILT_FOR_CLOUD_MCP_WRITE_PATH', '/mcp-write'),
+        'destructive_path' => null,
+        'delegated' => true,
+    ],
 ];

@@ -57,6 +57,29 @@ namespace App\Models{
 namespace App\Models{
 /**
  * @property string $id
+ * @property string $owner_subject_type
+ * @property string $owner_subject_ref
+ * @property string $tool
+ * @property string $idempotency_key
+ * @property string $intent_hash
+ * @property string $target_type
+ * @property string $target_id
+ * @property string $status
+ * @property string|null $execution_token
+ * @property CarbonImmutable|null $lease_expires_at
+ * @property array<string, mixed>|null $response
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|McpIdempotencyClaim newModelQuery()
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|McpIdempotencyClaim newQuery()
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|McpIdempotencyClaim query()
+ * @mixin \Eloquent
+ */
+	#[\AllowDynamicProperties]
+	final class IdeHelperMcpIdempotencyClaim {}
+}
+
+namespace App\Models{
+/**
+ * @property string $id
  * @property RunStatus $status
  * @property RunTrust $trust
  * @property InputRejectionReason|null $rejection_reason

@@ -49,9 +49,9 @@ final readonly class IngestManager
         return new PresignedUpload($ingest->id, $objectKey, $upload['url'], $upload['headers']);
     }
 
-    public function queueRemoteSource(Subject $owner, string $sourceUrl): Source
+    public function queueRemoteSource(Subject $owner, string $sourceUrl, ?string $sourceId = null): Source
     {
-        $source = Source::expectRemote($owner, $sourceUrl);
+        $source = Source::expectRemote($owner, $sourceUrl, $sourceId);
         dispatch(new IngestRemoteSource($source->id))->afterCommit();
 
         return $source;

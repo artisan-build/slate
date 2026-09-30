@@ -53,7 +53,7 @@ final class Source extends Model
     /** @var list<string> */
     protected $hidden = ['source_url', 'source_validator', 'multipart_upload_id'];
 
-    public static function expectRemote(Subject $owner, string $sourceUrl): self
+    public static function expectRemote(Subject $owner, string $sourceUrl, ?string $sourceId = null): self
     {
         if ($sourceUrl === '') {
             throw new InvalidArgumentException('A remote source requires a URL.');
@@ -74,6 +74,7 @@ final class Source extends Model
             null,
             now()->addSeconds($retryDeadlineSeconds),
             null,
+            $sourceId,
         );
     }
 
@@ -96,6 +97,7 @@ final class Source extends Model
             $contentType,
             null,
             $expiration,
+            null,
         );
     }
 
@@ -263,9 +265,10 @@ final class Source extends Model
         ?string $contentType,
         ?DateTimeInterface $retryUntil,
         ?DateTimeInterface $expiresAt,
+        ?string $sourceId,
     ): self {
         $source = new self;
-        $source->id = Str::uuid()->toString();
+        $source->id = $sourceId ?? Str::uuid()->toString();
         $source->owner_subject_type = $owner->type;
         $source->owner_subject_ref = $owner->ref;
         $source->object_key = SourceObjectKeys::object($source->id)->value();
