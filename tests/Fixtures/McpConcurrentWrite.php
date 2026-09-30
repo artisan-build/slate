@@ -13,6 +13,7 @@ use App\Slate\Storage\ObjectKey;
 use ArtisanBuild\BuiltForCloud\Subject;
 use ArtisanBuild\BuiltForCloud\SubjectType;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Support\Sleep;
 use Psr\Http\Message\StreamInterface;
 
 require dirname(__DIR__, 2).'/vendor/autoload.php';
@@ -33,7 +34,7 @@ while (! is_file($barrierDirectory.'/release')) {
         exit(2);
     }
 
-    usleep(10_000);
+    Sleep::usleep(10_000);
 }
 
 $owner = new Subject(SubjectType::Installation, 'postgres-mcp-owner');
@@ -101,7 +102,7 @@ try {
             $arguments['source_id'],
             function () use ($arguments, $ingestManager, $owner): array {
                 $source = $ingestManager->queueRemoteSource($owner, $arguments['url'], $arguments['source_id']);
-                usleep(250_000);
+                Sleep::usleep(250_000);
 
                 return ['id' => $source->id];
             },
@@ -118,7 +119,7 @@ try {
                 try {
                     $recipe = $application->make(RunRecipeAdmission::class)->admit($arguments['recipe'], $owner);
                     $run = $application->make(RunManager::class)->create($arguments['run_id'], $recipe, $owner);
-                    usleep(250_000);
+                    Sleep::usleep(250_000);
                 } catch (RunSubmissionException $exception) {
                     throw new McpWriteRefused($exception->reason->value);
                 }

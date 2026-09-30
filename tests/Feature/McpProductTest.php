@@ -156,7 +156,7 @@ function slateMcpAssertion(string $subject = 'delegated-mcp-operator'): string
         }
     }
 
-    $secret = app('slate.testing.mcp-signing-key');
+    $secret = resolve('slate.testing.mcp-signing-key');
     expect($secret)->toBeInstanceOf(AsymmetricSecretKey::class);
     $now = now()->toImmutable();
 

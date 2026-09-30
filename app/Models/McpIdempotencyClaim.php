@@ -22,6 +22,8 @@ use Illuminate\Database\Eloquent\Model;
  * @property string|null $execution_token
  * @property CarbonImmutable|null $lease_expires_at
  * @property array<string, mixed>|null $response
+ *
+ * @mixin IdeHelperMcpIdempotencyClaim
  */
 #[Fillable([])]
 final class McpIdempotencyClaim extends Model

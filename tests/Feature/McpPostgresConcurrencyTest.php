@@ -12,6 +12,7 @@ use ArtisanBuild\BuiltForCloud\SubjectType;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Sleep;
 use Illuminate\Support\Str;
 use Symfony\Component\Process\Process;
 
@@ -63,7 +64,7 @@ function runMcpPostgresRace(string $operation, array $payloads): array
                 throw new RuntimeException('Concurrent MCP processes did not reach the barrier.');
             }
 
-            usleep(10_000);
+            Sleep::usleep(10_000);
         }
 
         File::put($barrierDirectory.'/release', 'release');
