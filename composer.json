@@ -13,7 +13,7 @@
         "laravel/mcp": "^1.0",
         "laravel/tinker": "^3.0",
         "league/flysystem-aws-s3-v3": "^3.35",
-        "artisan-build/hone-client": "^1.2",
+        "artisan-build/hone-client": "^1.6",
         "laravel/nightwatch": "^1.28"
     },
     "require-dev": {
