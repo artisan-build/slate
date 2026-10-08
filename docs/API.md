@@ -2,16 +2,18 @@
 
 Slate accepts authenticated assembly work and stores all source and result bytes in object storage. All
 endpoints require a Built for Cloud Bearer credential issued for the fixed `slate.sources` application
-purpose. Slate accepts Consumption credentials bound either to a package user account or to the exact
-Installation subject configured by `SLATE_INSTALLATION_SUBJECT_REF`. Missing, malformed, unknown,
-wrong-purpose, wrong-kind, wrong-account, and wrong-installation credentials all return `401`.
+purpose. Slate accepts Consumption credentials bound either to a package user account or to this
+installation's exact Installation subject reference — the host in `APP_URL`, or
+`SLATE_INSTALLATION_SUBJECT_REF` when that is set. Missing, malformed, unknown, wrong-purpose,
+wrong-kind, wrong-account, and wrong-installation credentials all return `401`.
 JSON request bodies use `Content-Type: application/json`.
 
 After upgrading from an earlier Slate credential, mint a fresh replacement locally with the Built for
 Cloud credential command and select `slate.sources`; all state-changing Built for Cloud commands must
 include `--local`. Use a new disposable value first and confirm the target installation subject before
-replacing any deployed credential. There is no shared production fallback when
-`SLATE_INSTALLATION_SUBJECT_REF` is unset.
+replacing any deployed credential. There is no shared fallback: an installation credential minted
+against any other reference is refused, so a database restored into a second environment does not
+carry working credentials with it.
 
 Slate's outbound webhook protocol is not a Built for Cloud app purpose. Its receivers are arbitrary
 caller-supplied public HTTPS endpoints, so package-owned cross-application HMAC installation is
