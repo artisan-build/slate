@@ -118,10 +118,34 @@ final class AuthenticateSlateSourcesTest extends TestCase
         $this->assertDeniedWithoutSideEffects($credential, $credential->bearerHeader());
     }
 
-    public function test_installation_credential_returns_401_when_the_binding_is_unconfigured(): void
+    public function test_a_fresh_install_authenticates_an_installation_credential_with_no_configured_binding(): void
     {
-        $credential = $this->mintCredential();
+        config()->set('app.url', 'https://slate.example.test');
+        $credential = $this->mintCredential(['subject_ref' => 'slate.example.test']);
         config()->set('slate.api.installation_subject_ref');
+
+        $this->actingAsCredential($credential)->postJson('/api/v1/sources', [
+            'upload' => ['content_type' => 'video/mp4', 'size' => 0],
+        ])->assertUnprocessable();
+
+        self::assertNotNull($credential->credential->fresh()?->last_used_at);
+    }
+
+    public function test_another_installations_reference_returns_401_when_the_binding_is_unconfigured(): void
+    {
+        config()->set('app.url', 'https://slate.example.test');
+        $credential = $this->mintCredential(['subject_ref' => 'other-installation.example']);
+        config()->set('slate.api.installation_subject_ref');
+
+        $this->assertDeniedWithoutSideEffects($credential, $credential->bearerHeader());
+    }
+
+    public function test_a_credential_restored_from_another_installations_database_returns_401(): void
+    {
+        config()->set('app.url', 'https://slate.example.test');
+        $credential = $this->mintCredential(['subject_ref' => 'slate.example.test']);
+        config()->set('slate.api.installation_subject_ref');
+        config()->set('app.url', 'https://slate-staging.example.test');
 
         $this->assertDeniedWithoutSideEffects($credential, $credential->bearerHeader());
     }

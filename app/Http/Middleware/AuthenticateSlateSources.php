@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Slate\Auth\InstallationReference;
 use ArtisanBuild\BuiltForCloud\AppPurposeRegistry;
 use ArtisanBuild\BuiltForCloud\Auth\BearerAuthenticator;
 use ArtisanBuild\BuiltForCloud\Auth\CredentialGuard;
@@ -39,15 +40,13 @@ final readonly class AuthenticateSlateSources
 
         $credential = $this->bearerAuthenticator->credential($request);
         $purpose = $this->purposeRegistry->purpose('slate.sources');
-        $installationSubjectRef = config('slate.api.installation_subject_ref');
+        $installationSubjectRef = InstallationReference::current();
         $isAccountCredential = $credential?->purpose === CredentialPurpose::Consumption
             && $credential->user_id !== null
             && $credential->subject_type === SubjectType::UserPrincipal;
         $isInstallationCredential = $credential?->purpose === CredentialPurpose::Consumption
             && $credential->user_id === null
             && $credential->subject_type === SubjectType::Installation
-            && is_string($installationSubjectRef)
-            && $installationSubjectRef !== ''
             && hash_equals($installationSubjectRef, $credential->subject_ref);
 
         if ($purpose !== CredentialPurpose::Consumption || (! $isAccountCredential && ! $isInstallationCredential)) {

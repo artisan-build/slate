@@ -274,7 +274,7 @@ test('an HTTP request succeeds with the committed session driver', function (): 
 
     self::assertIsArray($exampleEnvironment);
     self::assertSame('cookie', $exampleEnvironment['SESSION_DRIVER'] ?? null);
-    self::assertSame('local-only-change-me', $exampleEnvironment['SLATE_INSTALLATION_SUBJECT_REF'] ?? null);
+    self::assertArrayNotHasKey('SLATE_INSTALLATION_SUBJECT_REF', $exampleEnvironment);
     $filesystem = new Filesystem;
     $environmentPath = sys_get_temp_dir().'/slate-session-fallback-'.Str::uuid();
     $filesystem->ensureDirectoryExists($environmentPath);

@@ -215,16 +215,26 @@ A credential carries a **purpose** — the single operation it is allowed to per
 exactly one, `slate.sources`, which maps to the protocol purpose `consumption`. Nothing else opens
 the API.
 
-It is also bound to an **installation subject reference**: a name you choose for this particular
-installation of Slate. Slate only accepts an installation credential whose reference matches
-`SLATE_INSTALLATION_SUBJECT_REF` exactly. It is an identifier, not a secret — on its own it grants
-nothing, and a caller still needs a credential minted against it. Pick something stable and
-descriptive, such as `acme-slate-production`, and keep it: changing it stops every credential minted
-against the old value from working. A fresh `.env` ships the placeholder `local-only-change-me`,
-which is the value to use locally.
+It is also bound to an **installation subject reference**: the name of this particular installation
+of Slate. Slate only accepts an installation credential whose reference matches that name exactly. It
+is an identifier, not a secret — on its own it grants nothing, and a caller still needs a credential
+minted against it.
+
+**You do not have to configure it.** The reference defaults to the host in `APP_URL`, so a fresh
+install already has one: with the `.env.example` value `http://localhost:8000` it is `localhost`, and
+a deployed `APP_URL` of `https://slate.acme.com` makes it `slate.acme.com`. Read the effective value
+back at any time with:
 
 ```bash
-export SLATE_TOKEN=$(php artisan bfc:credential:mint installation local-only-change-me \
+php artisan tinker --execute="echo App\Slate\Auth\InstallationReference::current();"
+```
+
+Set `SLATE_INSTALLATION_SUBJECT_REF` only if you want a name that is not the host — for example to
+keep credentials working across a planned domain change. Either way, keep the value stable: changing
+it stops every credential minted against the old value from working.
+
+```bash
+export SLATE_TOKEN=$(php artisan bfc:credential:mint installation localhost \
     --kind=bearer --purpose=consumption --name="local walkthrough" --local \
     | grep -oE 'slate_[0-9a-f]+')
 
@@ -425,10 +435,8 @@ that offers only the keys in your `.env` that it does not recognise as standard 
 exclusion list already covers `FILESYSTEM_DISK`, `QUEUE_CONNECTION`, `AWS_ACCESS_KEY_ID`,
 `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `AWS_BUCKET` and `AWS_USE_PATH_STYLE_ENDPOINT`, so it
 will not offer those. What it *will* offer from a `.env` built in step 5 is **`AWS_ENDPOINT`**, still
-pointing at your local MinIO container, and **`SLATE_INSTALLATION_SUBJECT_REF`**, still holding the
-`local-only-change-me` placeholder. **Select neither.** `AWS_ENDPOINT` would redirect the deployed
-application's object storage at an address that does not exist in production, and the real
-installation reference is set properly in step 6.
+pointing at your local MinIO container. **Select nothing.** `AWS_ENDPOINT` would redirect the
+deployed application's object storage at an address that does not exist in production.
 
 `ship` creates and deploys the application but does not write `.cloud/config.json`, so bind to the
 application it just created — by name or id, never bare — and confirm:
@@ -519,15 +527,15 @@ cloud environment:variables <environment> -n --json --action=set --key=APP_NAME 
 cloud environment:variables <environment> -n --json --action=set --key=APP_ENV     --value=production
 cloud environment:variables <environment> -n --json --action=set --key=APP_DEBUG   --value=false
 cloud environment:variables <environment> -n --json --action=set --key=APP_URL     --value=https://<your app host>
-cloud environment:variables <environment> -n --json --action=set --key=SLATE_INSTALLATION_SUBJECT_REF --value=<your installation reference>
 ```
 
 `APP_NAME` matters because you did not upload the local `.env`: without it, `config/app.php` falls
 back to `Laravel`, and everything that renders the application name — password-reset and invitation
 mail in particular — says Laravel instead of Slate.
 
-Use a real installation reference here — `acme-slate-production`, not the `local-only-change-me`
-placeholder.
+`APP_URL` matters twice: it is also what the installation subject reference defaults to, so the host
+you set here — `slate.acme.com`, not `localhost` — is the reference the deployed application's
+credentials must be minted against.
 
 ## 7. Deploy and migrate
 
@@ -581,8 +589,9 @@ output, and cannot be read back afterwards. **Do not pass `--no-monitor`** — i
 command has run, so the output field is empty and the token is lost with no way to recover it. You
 would have to mint another.
 
-Whichever route you take, the subject reference must match the `SLATE_INSTALLATION_SUBJECT_REF` you
-set in step 6 exactly, or the credential will authenticate nothing.
+Whichever route you take, the subject reference must match this installation's reference exactly, or
+the credential will authenticate nothing. That is the host from the `APP_URL` you set in step 6,
+unless you also set `SLATE_INSTALLATION_SUBJECT_REF`. Step 9 reads the effective value back.
 
 > A token minted through `command:run` sits in the output that Cloud retains in its command history.
 > That is the reason to prefer the console. If you think a token has been seen by anyone who should
@@ -597,7 +606,7 @@ cloud tinker <environment> --code="echo config('app.name');"
 cloud tinker <environment> --code="echo config('database.default');"
 cloud tinker <environment> --code="echo config('queue.default');"
 cloud tinker <environment> --code="echo config('filesystems.default');"
-cloud tinker <environment> --code="echo config('slate.api.installation_subject_ref');"
+cloud tinker <environment> --code="echo App\Slate\Auth\InstallationReference::current();"
 ```
 
 | Check | What a correctly wired environment prints |
@@ -606,7 +615,7 @@ cloud tinker <environment> --code="echo config('slate.api.installation_subject_r
 | `database.default` | The driver of the database `ship` attached, typically `pgsql`. Never `sqlite`. |
 | `queue.default` | `cloud` — Cloud's injected value for a managed queue. If it says `database` or `sync`, the queue is not attached or you set `QUEUE_CONNECTION` yourself. |
 | `filesystems.default` | The disk Cloud wired to the bucket, typically `private`. If it says `local`, the bucket is not attached. |
-| `slate.api.installation_subject_ref` | Exactly the installation reference you set in step 6 — character for character, because the API compares it exactly. Empty means installation credentials cannot authenticate at all. |
+| `InstallationReference::current()` | Exactly the reference your installation credentials are minted against — character for character, because the API compares it exactly. With no `SLATE_INSTALLATION_SUBJECT_REF` set this is the host from `APP_URL`. It is never empty. |
 
 Then prove the pieces actually work:
 
@@ -667,7 +676,7 @@ Every value has a working default. Set only what you need to change.
 
 | Variable | Default | What it controls |
 | --- | --- | --- |
-| `SLATE_INSTALLATION_SUBJECT_REF` | unset (`.env.example` ships `local-only-change-me`) | The installation reference an installation credential must match exactly. Leave it unset and only user-bound credentials work — there is no shared fallback. |
+| `SLATE_INSTALLATION_SUBJECT_REF` | the host in `APP_URL` (`localhost` when that is unparseable) | The installation reference an installation credential must match exactly. Set it only to decouple the reference from the host; the default already works. |
 | `SLATE_FFMPEG_RELEASE_TAG` | `autobuild-2026-08-31-13-27` | Which BtbN release to download. |
 | `SLATE_FFMPEG_ASSET` | `ffmpeg-n9.0.1-11-ge47273f4d9-linuxarm64-lgpl-9.0.tar.xz` | The archive filename inside that release. |
 | `SLATE_FFMPEG_RUNTIME_PATH` | `runtime/` in the project root | Where `ffmpeg` is installed. Keep it inside the project — only the project directory survives a deploy. |
