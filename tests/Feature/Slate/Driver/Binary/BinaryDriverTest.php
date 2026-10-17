@@ -39,6 +39,20 @@ test('executes only a compiled recipe and returns its complete result', function
         ]);
 });
 
+test('requires a timeout of at least one second', function (int $timeoutSeconds, bool $valid): void {
+    $driver = fn (): BinaryDriver => new BinaryDriver($timeoutSeconds);
+
+    if ($valid) {
+        expect($driver())->toBeInstanceOf(BinaryDriver::class);
+    } else {
+        expect($driver)->toThrow(InvalidArgumentException::class, 'at least one second');
+    }
+})->with([
+    'zero timeout' => [0, false],
+    'negative timeout' => [-5, false],
+    'one second is the floor' => [1, true],
+]);
+
 test('binds the driver contract to the binary implementation', function (): void {
     expect(resolve(Driver::class))->toBeInstanceOf(BinaryDriver::class);
 });
