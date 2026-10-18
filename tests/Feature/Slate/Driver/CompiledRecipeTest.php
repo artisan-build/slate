@@ -349,3 +349,16 @@ test('rejects a relative or null-byte working directory', function (string $work
     'relative path' => 'scratch/jobs',
     'null byte' => "/runtime/jobs\0",
 ]);
+
+test('compiles unsigned integers exactly and refuses negatives', function (int $value, ?string $expected): void {
+    if ($expected === null) {
+        expect(fn (): CompiledArgument => CompiledArgument::unsignedInteger($value))
+            ->toThrow(InvalidArgumentException::class);
+    } else {
+        expect(CompiledArgument::unsignedInteger($value)->value())->toBe($expected);
+    }
+})->with([
+    'zero is accepted verbatim' => [0, '0'],
+    'positive value is accepted verbatim' => [24, '24'],
+    'negative value is refused' => [-1, null],
+]);
