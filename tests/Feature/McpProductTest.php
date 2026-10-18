@@ -210,7 +210,7 @@ final class McpPublicHostnameResolver implements HostnameResolver
     public int $calls = 0;
 
     /** @param list<string> $addresses */
-    public function __construct(private array $addresses = ['93.184.216.34']) {}
+    public function __construct(private readonly array $addresses = ['93.184.216.34']) {}
 
     public function resolve(string $hostname): array
     {
