@@ -337,3 +337,15 @@ test('rejects extra output injection through closed H264 and MP3 option types', 
             ))->toThrow(TypeError::class);
     });
 });
+
+test('rejects a relative or null-byte working directory', function (string $workingDirectory): void {
+    expect(fn (): CompiledRecipe => new CompiledRecipe(
+        new FfmpegLocator('Linux', 'arm64', '/runtime'),
+        BinaryExecutable::Ffmpeg,
+        [],
+        $workingDirectory,
+    ))->toThrow(InvalidArgumentException::class);
+})->with([
+    'relative path' => 'scratch/jobs',
+    'null byte' => "/runtime/jobs\0",
+]);
