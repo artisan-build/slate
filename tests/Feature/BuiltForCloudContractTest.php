@@ -3,6 +3,14 @@
 declare(strict_types=1);
 
 use App\Auth\SlateCredentialDeclaration;
+use App\Mcp\Servers\SlateServer;
+use App\Mcp\Tools\CreateRemoteSourceTool;
+use App\Mcp\Tools\CreateRunTool;
+use App\Mcp\Tools\RunResultUrlTool;
+use App\Mcp\Tools\RunStatusTool;
+use App\Mcp\Tools\SourceStatusTool;
+use App\Models\Source;
+use App\Slate\Storage\IngestStorage;
 use ArtisanBuild\BuiltForCloud\AppPurposeRegistry;
 use ArtisanBuild\BuiltForCloud\Auth\CredentialGuard;
 use ArtisanBuild\BuiltForCloud\Commands\ConsoleReKeyCommand;
@@ -24,6 +32,9 @@ use ArtisanBuild\BuiltForCloud\Commands\SigningRootEnsureCommand;
 use ArtisanBuild\BuiltForCloud\Commands\SigningRootProvisionCommand;
 use ArtisanBuild\BuiltForCloud\Commands\SubjectOffboardCommand;
 use ArtisanBuild\BuiltForCloud\Commands\WarnExpiringCredentialsCommand;
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipal;
+use ArtisanBuild\BuiltForCloud\Console\ConsoleRole;
+use ArtisanBuild\BuiltForCloud\Console\DelegatedActor;
 use ArtisanBuild\BuiltForCloud\Contracts\CredentialDeclaration;
 use ArtisanBuild\BuiltForCloud\Credential;
 use ArtisanBuild\BuiltForCloud\CredentialKind;
@@ -36,12 +47,14 @@ use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\BuiltForCloud\Testing\ConsumerConformance;
 use ArtisanBuild\BuiltForCloud\Testing\ContractAssertions;
 use ArtisanBuild\BuiltForCloud\Testing\FleetConformance;
+use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedEnforcement;
 use ArtisanBuild\BuiltForCloud\User;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
+use Laravel\Mcp\Response;
 
 uses(LazilyRefreshDatabase::class);
 uses(ContractAssertions::class);
@@ -58,6 +71,84 @@ test('the application satisfies the Built for Cloud host contract', function ():
 });
 
 test('the application satisfies fleet conformance with only the package issue 123 schedule residue', function (): void {
+    app()->instance(IngestStorage::class, Mockery::mock(IngestStorage::class));
+    $tools = [
+        CreateRemoteSourceTool::class,
+        CreateRunTool::class,
+        RunResultUrlTool::class,
+        RunStatusTool::class,
+        SourceStatusTool::class,
+    ];
+    $arguments = [
+        CreateRemoteSourceTool::class => [
+            'idempotency_key' => 'delegated-enforcement-source',
+            'url' => 'https://127.0.0.1/probe.mp4',
+        ],
+        CreateRunTool::class => [
+            'idempotency_key' => 'delegated-enforcement-run',
+            'run_id' => '00000000-0000-4000-8000-000000000001',
+            'recipe' => [
+                'highlights' => [
+                    'source' => '00000000-0000-4000-8000-000000000002',
+                    'clips' => [
+                        ['start' => 0.0, 'end' => 1.0],
+                        ['start' => 1.0, 'end' => 2.0],
+                    ],
+                    'transitions' => ['type' => 'fade', 'duration' => 1],
+                    'quality_tier' => 'delivery',
+                ],
+            ],
+        ],
+    ];
+    $negativeAuthorization = static function (
+        ActingPrincipal $first,
+        ActingPrincipal $second,
+        Closure $invoke,
+    ): void {
+        $firstIdentifier = $first->identifier();
+        expect($firstIdentifier)->toBeString()
+            ->and($second->identifier())->not->toBe($firstIdentifier);
+        $source = Source::factory()->create([
+            'owner_subject_type' => SubjectType::ExternalConsumer,
+            'owner_subject_ref' => DelegatedActor::class.'#'.$firstIdentifier,
+        ]);
+
+        $foreign = $invoke(SourceStatusTool::class, ['source_id' => $source->id]);
+        $missing = $invoke(SourceStatusTool::class, [
+            'source_id' => '00000000-0000-4000-8000-000000000003',
+        ]);
+
+        expect($foreign)->toBeInstanceOf(Response::class)
+            ->and($missing)->toBeInstanceOf(Response::class)
+            ->and($foreign->isError())->toBeTrue()
+            ->and($missing->isError())->toBeTrue()
+            ->and((string) $foreign->content())->toBe((string) $missing->content())
+            ->and((string) $foreign->content())->toBe('not_found');
+    };
+    $probe = McpDelegatedEnforcement::probe(
+        SlateServer::class,
+        ConsoleRole::Member,
+        $negativeAuthorization,
+        $arguments,
+    );
+
+    expect($probe['tools'])->toBe($tools)
+        ->and($probe['invoked'])->toBe($tools)
+        ->and($probe['refusals'])->toBe([])
+        ->and($probe['principal_mismatches'])->toBe([])
+        ->and($probe['errors'])->toBe([])
+        ->and($probe['unreached'])->toBe([])
+        ->and($probe['negative_authorization'])->toBe('passed')
+        ->and($probe['violations'])->toBe([]);
+
+    McpDelegatedEnforcement::assertHonors(
+        SlateServer::class,
+        $tools,
+        ConsoleRole::Member,
+        $negativeAuthorization,
+        $arguments,
+    );
+
     $packageRoot = base_path('vendor/artisan-build/built-for-cloud');
     $sort = static function (array $members): array {
         sort($members);
@@ -128,7 +219,7 @@ test('the application satisfies fleet conformance with only the package issue 12
             'ArtisanBuild\BuiltForCloud\Mcp\TwoPhaseConfirmationStore|built-for-cloud.manifest.slug|1',
             'ArtisanBuild\BuiltForCloud\UiCredentialPurposes|built-for-cloud.ui.credential_purposes|1',
         ]),
-        'mcp_delegated' => [],
+        'mcp_delegated' => $tools,
     ];
 
     $report = (new FleetConformance($this))->inspect(new ConsumerConformance(
@@ -138,11 +229,11 @@ test('the application satisfies fleet conformance with only the package issue 12
         sourceRoots: [app_path('Http/Middleware')],
         providerFiles: [$packageRoot.'/src/BuiltForCloudServiceProvider.php'],
         runtimeAssertions: ['auth_schema', 'credential_listing', 'meta', 'transport_parity'],
-        capabilities: ['credentials', 'tokens'],
+        capabilities: ['credentials', 'mcp-delegated', 'tokens'],
         purposeMappings: [
             'slate.sources' => CredentialPurpose::Consumption,
         ],
-        mcpServer: null,
+        mcpServer: SlateServer::class,
         expected: $expected,
     ));
 

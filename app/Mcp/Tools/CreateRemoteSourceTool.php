@@ -9,11 +9,13 @@ use App\Slate\Ingest\IngestManager;
 use App\Slate\Mcp\McpAuthenticatedSubject;
 use App\Slate\Mcp\McpWriteRefused;
 use App\Slate\Mcp\McpWriteService;
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
 use ArtisanBuild\BuiltForCloud\Mcp\Effect;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
+use Illuminate\Http\Request as HttpRequest;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use Laravel\Mcp\Request;
@@ -48,11 +50,14 @@ final class CreateRemoteSourceTool extends ClosedInputTool
 
     public function handle(
         Request $request,
+        HttpRequest $httpRequest,
+        ActingPrincipalResolver $principalResolver,
         McpAuthenticatedSubject $authenticatedSubject,
         McpWriteService $writes,
         DestinationGuard $destinationGuard,
         IngestManager $ingestManager,
     ): Response|ResponseFactory {
+        $owner = $authenticatedSubject->resolve($principalResolver->require($httpRequest));
         $idempotencyKey = $request->get('idempotency_key');
         $url = $request->get('url');
 
@@ -67,7 +72,6 @@ final class CreateRemoteSourceTool extends ClosedInputTool
         }
 
         try {
-            $owner = $authenticatedSubject->resolve();
             $sourceId = Str::uuid()->toString();
             $result = $writes->execute(
                 $owner,

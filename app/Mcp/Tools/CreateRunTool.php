@@ -12,12 +12,14 @@ use App\Slate\Recipe\QualityTier;
 use App\Slate\Run\RunManager;
 use App\Slate\Run\RunRecipeAdmission;
 use App\Slate\Run\RunSubmissionException;
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
 use ArtisanBuild\BuiltForCloud\Mcp\Effect;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Http\Request as HttpRequest;
 use Illuminate\JsonSchema\Types\Type;
 use Illuminate\Support\Str;
 use Laravel\Mcp\Request;
@@ -60,11 +62,14 @@ final class CreateRunTool extends ClosedInputTool
 
     public function handle(
         Request $request,
+        HttpRequest $httpRequest,
+        ActingPrincipalResolver $principalResolver,
         McpAuthenticatedSubject $authenticatedSubject,
         McpWriteService $writes,
         RunRecipeAdmission $recipeAdmission,
         RunManager $runManager,
     ): Response|ResponseFactory {
+        $owner = $authenticatedSubject->resolve($principalResolver->require($httpRequest));
         $idempotencyKey = $request->get('idempotency_key');
         $runId = $request->get('run_id');
         $recipePayload = $request->get('recipe');
@@ -82,7 +87,6 @@ final class CreateRunTool extends ClosedInputTool
         }
 
         try {
-            $owner = $authenticatedSubject->resolve();
             /** @var array<string, mixed> $recipePayload */
             $result = $writes->execute(
                 $owner,

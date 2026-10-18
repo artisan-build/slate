@@ -10,11 +10,13 @@ use App\Slate\Mcp\McpAuthenticatedSubject;
 use App\Slate\Storage\FanoutStorageGuard;
 use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\RunObjectKeys;
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
 use ArtisanBuild\BuiltForCloud\Mcp\Effect;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
+use Illuminate\Http\Request as HttpRequest;
 use Illuminate\Support\Str;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
@@ -49,10 +51,13 @@ final class RunResultUrlTool extends ClosedInputTool
 
     public function handle(
         Request $request,
+        HttpRequest $httpRequest,
+        ActingPrincipalResolver $principalResolver,
         McpAuthenticatedSubject $authenticatedSubject,
         FanoutStorageGuard $storageGuard,
         ObjectStorage $objectStorage,
     ): Response|ResponseFactory {
+        $owner = $authenticatedSubject->resolve($principalResolver->require($httpRequest));
         $runId = $request->get('run_id');
 
         if (! $this->hasExactArguments($request, ['run_id'])
@@ -62,7 +67,7 @@ final class RunResultUrlTool extends ClosedInputTool
         }
 
         try {
-            $run = Run::ownedBy($authenticatedSubject->resolve())->find($runId);
+            $run = Run::ownedBy($owner)->find($runId);
 
             if ($run === null) {
                 return Response::error('not_found');

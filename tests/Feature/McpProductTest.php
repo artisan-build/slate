@@ -17,6 +17,8 @@ use App\Slate\Storage\ObjectStorage;
 use App\Slate\Storage\RunObjectKeys;
 use App\Slate\Storage\ScratchPath;
 use App\Slate\Webhook\HostnameResolver;
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipal;
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleKeyring;
 use ArtisanBuild\BuiltForCloud\Console\DelegatedActor;
 use ArtisanBuild\BuiltForCloud\CredentialKind;
@@ -28,8 +30,14 @@ use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\BuiltForCloud\Testing\ContractAssertions;
 use ArtisanBuild\BuiltForCloud\Testing\MintedTestCredential;
 use ArtisanBuild\BuiltForCloud\Testing\WithCredentials;
+use ArtisanBuild\BuiltForCloud\User;
+use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Foundation\Http\Kernel as HttpKernel;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Http\Request as HttpRequest;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -38,6 +46,7 @@ use ParagonIE\Paseto\Builder;
 use ParagonIE\Paseto\Keys\Version4\AsymmetricSecretKey;
 use ParagonIE\Paseto\Protocol\Version4;
 use ParagonIE\Paseto\Purpose;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 uses(LazilyRefreshDatabase::class, ContractAssertions::class, WithCredentials::class);
 
@@ -180,14 +189,52 @@ function slateMcpAssertion(string $subject = 'delegated-mcp-operator'): string
         ->toString();
 }
 
-final readonly class McpPublicHostnameResolver implements HostnameResolver
+/** @param array<string, mixed> $arguments */
+function slateDelegatedMcpTool(
+    string $path,
+    string $subject,
+    string $tool,
+    array $arguments,
+    int|string $id = 1,
+): TestResponse {
+    return test()->withHeader('Authorization', 'Bearer '.slateMcpAssertion($subject))->postJson($path, [
+        'jsonrpc' => '2.0',
+        'id' => $id,
+        'method' => 'tools/call',
+        'params' => ['name' => $tool, 'arguments' => $arguments],
+    ]);
+}
+
+final class McpPublicHostnameResolver implements HostnameResolver
 {
+    public int $calls = 0;
+
     /** @param list<string> $addresses */
     public function __construct(private array $addresses = ['93.184.216.34']) {}
 
     public function resolve(string $hostname): array
     {
+        $this->calls++;
+
         return $this->addresses;
+    }
+}
+
+final class McpPrincipalObserverMiddleware
+{
+    /** @var list<ActingPrincipal> */
+    public static array $observed = [];
+
+    public function handle(HttpRequest $request, Closure $next): HttpResponse
+    {
+        $request->attributes->set(
+            ActingPrincipalResolver::OBSERVER_ATTRIBUTE,
+            static function (ActingPrincipal $principal): void {
+                self::$observed[] = $principal;
+            },
+        );
+
+        return $next($request);
     }
 }
 
@@ -224,6 +271,13 @@ final class McpResultStorage implements ObjectStorage
 
 test('the server advertises exactly the five classified effect-scoped tools through the correct doors', function (): void {
     $credential = slateMcpCredential();
+
+    $this->postJson('/mcp', [
+        'jsonrpc' => '2.0',
+        'id' => 1,
+        'method' => 'tools/list',
+        'params' => [],
+    ])->assertUnauthorized()->assertExactJson(['message' => 'Unauthenticated.']);
 
     $this->assertBuiltForCloudMcpDelegatedTools(SlateServer::class);
     $this->assertBuiltForCloudMcpProductAdmission();
@@ -309,36 +363,206 @@ test('status reads preserve subject type and ref isolation and return only froze
         ->and($foreign->json('result.content.0.text'))->toBe('not_found');
 });
 
-test('a verified delegated assertion retains a type-qualified owner distinct from credentials', function (): void {
+test('delegated subjects cannot read or replay each others sources runs or idempotency claims', function (): void {
     config([
         'built-for-cloud.console.issuer' => 'https://scalpels.test',
         'built-for-cloud.console.audience' => 'https://slate.test',
     ]);
+    Queue::fake([IngestRemoteSource::class]);
+    app()->instance(HostnameResolver::class, new McpPublicHostnameResolver);
+    $firstSubject = 'delegated-mcp-operator-a';
+    $secondSubject = 'delegated-mcp-operator-b';
     $missingId = '88888888-8888-4888-8888-888888888888';
 
-    $this->withHeader('Authorization', 'Bearer '.slateMcpAssertion())->postJson('/mcp', [
-        'jsonrpc' => '2.0',
-        'id' => 1,
-        'method' => 'tools/call',
-        'params' => ['name' => 'source_status', 'arguments' => ['source_id' => $missingId]],
-    ])->assertOk()->assertJsonPath('result.content.0.text', 'not_found');
+    slateDelegatedMcpTool('/mcp', $firstSubject, 'source_status', ['source_id' => $missingId])
+        ->assertOk()->assertJsonPath('result.content.0.text', 'not_found');
+    slateDelegatedMcpTool('/mcp', $secondSubject, 'source_status', ['source_id' => $missingId])
+        ->assertOk()->assertJsonPath('result.content.0.text', 'not_found');
 
-    $actor = DelegatedActor::query()->sole();
+    $firstActor = DelegatedActor::query()->where('subject', $firstSubject)->sole();
+    $secondActor = DelegatedActor::query()->where('subject', $secondSubject)->sole();
+    $firstOwnerRef = DelegatedActor::class.'#'.$firstActor->getAuthIdentifier();
+    $secondOwnerRef = DelegatedActor::class.'#'.$secondActor->getAuthIdentifier();
+    $firstSource = Source::factory()->create([
+        'owner_subject_type' => SubjectType::ExternalConsumer,
+        'owner_subject_ref' => $firstOwnerRef,
+        'status' => SourceStatus::Ready,
+    ]);
+    $secondSource = Source::factory()->create([
+        'owner_subject_type' => SubjectType::ExternalConsumer,
+        'owner_subject_ref' => $secondOwnerRef,
+        'status' => SourceStatus::Ready,
+    ]);
+    $firstRun = Run::factory()->create([
+        'owner_subject_type' => SubjectType::ExternalConsumer,
+        'owner_subject_ref' => $firstOwnerRef,
+        'status' => RunStatus::Queued,
+    ]);
+    $secondRun = Run::factory()->create([
+        'owner_subject_type' => SubjectType::ExternalConsumer,
+        'owner_subject_ref' => $secondOwnerRef,
+        'status' => RunStatus::Queued,
+    ]);
+
+    foreach ([
+        [$secondSubject, 'source_status', 'source_id', $firstSource->id],
+        [$firstSubject, 'source_status', 'source_id', $secondSource->id],
+        [$secondSubject, 'run_status', 'run_id', $firstRun->id],
+        [$firstSubject, 'run_status', 'run_id', $secondRun->id],
+    ] as [$subject, $tool, $key, $foreignId]) {
+        $foreign = slateDelegatedMcpTool('/mcp', $subject, $tool, [$key => $foreignId])->assertOk();
+        $missing = slateDelegatedMcpTool('/mcp', $subject, $tool, [$key => $missingId])->assertOk();
+
+        expect($foreign->getContent())->toBe($missing->getContent())
+            ->and($foreign->json('result.isError'))->toBeTrue()
+            ->and($foreign->json('result.content.0.text'))->toBe('not_found');
+    }
+
+    $arguments = [
+        'idempotency_key' => 'same-delegated-key',
+        'url' => 'https://media.example.test/video.mp4',
+    ];
+    $firstWrite = slateDelegatedMcpTool(
+        '/mcp-write',
+        $firstSubject,
+        'create_remote_source',
+        $arguments,
+    )->assertOk()->assertJsonPath('result.structuredContent.outcome', 'accepted');
+    $secondWrite = slateDelegatedMcpTool(
+        '/mcp-write',
+        $secondSubject,
+        'create_remote_source',
+        $arguments,
+    )->assertOk()->assertJsonPath('result.structuredContent.outcome', 'accepted');
+    $firstCreatedId = $firstWrite->json('result.structuredContent.id');
+    $secondCreatedId = $secondWrite->json('result.structuredContent.id');
+
+    slateDelegatedMcpTool('/mcp-write', $firstSubject, 'create_remote_source', $arguments)
+        ->assertOk()
+        ->assertJsonPath('result.structuredContent', [
+            'outcome' => 'already_accepted',
+            'id' => $firstCreatedId,
+        ]);
+
+    expect($firstOwnerRef)->toStartWith(DelegatedActor::class.'#bfc-console:')
+        ->and($secondOwnerRef)->toStartWith(DelegatedActor::class.'#bfc-console:')
+        ->and($firstOwnerRef)->not->toBe($secondOwnerRef)
+        ->and($firstCreatedId)->not->toBe($secondCreatedId)
+        ->and(McpIdempotencyClaim::query()->where('idempotency_key', 'same-delegated-key')->count())->toBe(2)
+        ->and(McpIdempotencyClaim::query()->where('owner_subject_ref', $firstOwnerRef)->count())->toBe(1)
+        ->and(McpIdempotencyClaim::query()->where('owner_subject_ref', $secondOwnerRef)->count())->toBe(1);
+    Queue::assertPushed(IngestRemoteSource::class, 2);
+});
+
+test('a delegated numeric identifier never aliases the local user with the same id', function (): void {
+    config([
+        'built-for-cloud.console.issuer' => 'https://scalpels.test',
+        'built-for-cloud.console.audience' => 'https://slate.test',
+    ]);
+    $subject = 'numeric-collision-operator';
+    $missingId = '88888888-8888-4888-8888-888888888888';
+
+    slateDelegatedMcpTool('/mcp', $subject, 'source_status', ['source_id' => $missingId])
+        ->assertOk();
+
+    $actor = DelegatedActor::query()->where('subject', $subject)->sole();
+    $user = User::query()->create([
+        'id' => $actor->getKey(),
+        'name' => 'Same Numeric Identifier',
+        'email' => 'same-id@example.test',
+        'password' => bcrypt('password'),
+    ]);
+    $user->forceFill([
+        'role' => 'member',
+        'status' => 'active',
+        'email_verified_at' => now(),
+        'original_contact_email' => 'same-id@example.test',
+    ])->save();
     $ownerRef = DelegatedActor::class.'#'.$actor->getAuthIdentifier();
     $source = Source::factory()->create([
         'owner_subject_type' => SubjectType::ExternalConsumer,
         'owner_subject_ref' => $ownerRef,
         'status' => SourceStatus::Ready,
     ]);
+    $kernel = resolve(HttpKernelContract::class);
+    if (! $kernel instanceof HttpKernel) {
+        throw new RuntimeException('The HTTP kernel cannot install the principal observer.');
+    }
+    $originalMiddleware = $kernel->getGlobalMiddleware();
+    McpPrincipalObserverMiddleware::$observed = [];
+    $kernel->prependMiddleware(McpPrincipalObserverMiddleware::class);
 
-    $this->withHeader('Authorization', 'Bearer '.slateMcpAssertion())->postJson('/mcp', [
-        'jsonrpc' => '2.0',
-        'id' => 2,
-        'method' => 'tools/call',
-        'params' => ['name' => 'source_status', 'arguments' => ['source_id' => $source->id]],
-    ])->assertOk()->assertJsonPath('result.structuredContent.id', $source->id);
+    try {
+        slateDelegatedMcpTool('/mcp', $subject, 'source_status', ['source_id' => $source->id])
+            ->assertOk()
+            ->assertJsonPath('result.structuredContent.id', $source->id);
+    } finally {
+        $kernel->setGlobalMiddleware($originalMiddleware);
+    }
 
-    expect($ownerRef)->toStartWith(DelegatedActor::class.'#bfc-console:');
+    expect(McpPrincipalObserverMiddleware::$observed)->not->toBe([]);
+    foreach (McpPrincipalObserverMiddleware::$observed as $principal) {
+        expect($principal->identifier())->toBe($actor->getAuthIdentifier())
+            ->and($principal->identifier())->toBe('bfc-console:'.$user->getKey())
+            ->and($principal->principal)->toBeInstanceOf(DelegatedActor::class)
+            ->and($principal->principal)->not->toBeInstanceOf(User::class);
+    }
+    expect($source->owner_subject_type)->toBe(SubjectType::ExternalConsumer)
+        ->and($source->owner_subject_ref)->toBe($ownerRef)
+        ->and($source->owner_subject_ref)->not->toBe((string) $user->getKey());
+});
+
+test('an inactive delegated subject is refused before Slate work begins', function (): void {
+    config([
+        'built-for-cloud.console.issuer' => 'https://scalpels.test',
+        'built-for-cloud.console.audience' => 'https://slate.test',
+    ]);
+    Queue::fake([IngestRemoteSource::class]);
+    Bus::fake();
+    $hostnameResolver = new McpPublicHostnameResolver;
+    app()->instance(HostnameResolver::class, $hostnameResolver);
+    $storage = new McpResultStorage;
+    app()->instance(ObjectStorage::class, $storage);
+    $subject = 'inactive-delegated-operator';
+    $missingId = '88888888-8888-4888-8888-888888888888';
+
+    slateDelegatedMcpTool('/mcp', $subject, 'source_status', ['source_id' => $missingId])
+        ->assertOk();
+    $actor = DelegatedActor::query()->where('subject', $subject)->sole();
+    expect($actor->deactivate())->toBeTrue();
+    $before = [
+        'sources' => Source::query()->count(),
+        'runs' => Run::query()->count(),
+        'claims' => McpIdempotencyClaim::query()->count(),
+    ];
+    $queries = [];
+    DB::listen(static function (QueryExecuted $query) use (&$queries): void {
+        $queries[] = $query->sql;
+    });
+
+    slateDelegatedMcpTool('/mcp', $subject, 'source_status', ['source_id' => $missingId])
+        ->assertUnauthorized()
+        ->assertExactJson(['message' => 'Unauthenticated.']);
+    slateDelegatedMcpTool('/mcp', $subject, 'run_result_url', ['run_id' => $missingId])
+        ->assertUnauthorized()
+        ->assertExactJson(['message' => 'Unauthenticated.']);
+    slateDelegatedMcpTool('/mcp-write', $subject, 'create_remote_source', [
+        'idempotency_key' => 'inactive-subject-key',
+        'url' => 'https://media.example.test/video.mp4',
+    ])->assertUnauthorized()->assertExactJson(['message' => 'Unauthenticated.']);
+
+    $slateQueries = array_values(array_filter(
+        $queries,
+        static fn (string $query): bool => preg_match('/(?:sources|runs|mcp_idempotency_claims)/i', $query) === 1,
+    ));
+    expect($slateQueries)->toBe([])
+        ->and($hostnameResolver->calls)->toBe(0)
+        ->and($storage->temporaryUrlKeys)->toBe([])
+        ->and(Source::query()->count())->toBe($before['sources'])
+        ->and(Run::query()->count())->toBe($before['runs'])
+        ->and(McpIdempotencyClaim::query()->count())->toBe($before['claims']);
+    Queue::assertNothingPushed();
+    Bus::assertNothingBatched();
 });
 
 test('result URL signs only the final object for an owned succeeded run with the configured TTL', function (): void {
