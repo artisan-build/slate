@@ -4,30 +4,27 @@ declare(strict_types=1);
 
 namespace App\Slate\Mcp;
 
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipal;
 use ArtisanBuild\BuiltForCloud\Console\DelegatedActor;
-use ArtisanBuild\BuiltForCloud\Console\RequestAssertion;
 use ArtisanBuild\BuiltForCloud\Credential;
 use ArtisanBuild\BuiltForCloud\Subject;
 use ArtisanBuild\BuiltForCloud\SubjectType;
 use Illuminate\Auth\AuthenticationException;
-use Illuminate\Http\Request;
 
 final readonly class McpAuthenticatedSubject
 {
-    public function __construct(private Request $request) {}
-
-    public function resolve(): Subject
+    public function resolve(ActingPrincipal $actingPrincipal): Subject
     {
-        $delegated = RequestAssertion::principal($this->request)?->delegatedActor;
+        $delegated = $actingPrincipal->delegatedActor;
 
-        if ($delegated instanceof DelegatedActor) {
+        if ($actingPrincipal->delegated && $delegated instanceof DelegatedActor) {
             return new Subject(
                 SubjectType::ExternalConsumer,
                 DelegatedActor::class.'#'.$delegated->getAuthIdentifier(),
             );
         }
 
-        $credential = $this->request->user();
+        $credential = $actingPrincipal->principal;
 
         if (! $credential instanceof Credential) {
             throw new AuthenticationException;

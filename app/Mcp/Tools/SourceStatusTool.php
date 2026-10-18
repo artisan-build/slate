@@ -6,11 +6,13 @@ namespace App\Mcp\Tools;
 
 use App\Models\Source;
 use App\Slate\Mcp\McpAuthenticatedSubject;
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
 use ArtisanBuild\BuiltForCloud\Mcp\Effect;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
+use Illuminate\Http\Request as HttpRequest;
 use Illuminate\Support\Str;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
@@ -41,8 +43,13 @@ final class SourceStatusTool extends ClosedInputTool
         ];
     }
 
-    public function handle(Request $request, McpAuthenticatedSubject $authenticatedSubject): Response|ResponseFactory
-    {
+    public function handle(
+        Request $request,
+        HttpRequest $httpRequest,
+        ActingPrincipalResolver $principalResolver,
+        McpAuthenticatedSubject $authenticatedSubject,
+    ): Response|ResponseFactory {
+        $owner = $authenticatedSubject->resolve($principalResolver->require($httpRequest));
         $sourceId = $request->get('source_id');
 
         if (! $this->hasExactArguments($request, ['source_id'])
@@ -52,7 +59,7 @@ final class SourceStatusTool extends ClosedInputTool
         }
 
         try {
-            $source = Source::ownedBy($authenticatedSubject->resolve())->find($sourceId);
+            $source = Source::ownedBy($owner)->find($sourceId);
 
             if ($source === null) {
                 return Response::error('not_found');
