@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "cf88e5ca43762938e57c38a6407534bd",
+    "content-hash": "d71c96e3efaef809f97ee4a0eae5aefb",
     "packages": [
         {
             "name": "artisan-build/bfc-client",
@@ -193,25 +193,31 @@
         },
         {
             "name": "artisan-build/hone-client",
-            "version": "v1.6.1",
+            "version": "v1.8.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/hone-client.git",
-                "reference": "f28dbd79ad53dcb92dc7a04973921cdf60b07b53"
+                "reference": "fbde4a125ebefdac2c4a862520a4e61d6105d391"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/hone-client/zipball/f28dbd79ad53dcb92dc7a04973921cdf60b07b53",
-                "reference": "f28dbd79ad53dcb92dc7a04973921cdf60b07b53",
+                "url": "https://api.github.com/repos/artisan-build/hone-client/zipball/fbde4a125ebefdac2c4a862520a4e61d6105d391",
+                "reference": "fbde4a125ebefdac2c4a862520a4e61d6105d391",
                 "shasum": ""
             },
             "require": {
                 "artisan-build/bfc-client": "^0.1 || ^0.2",
                 "artisan-build/hone-contracts": "^1.6",
-                "illuminate/contracts": "^13.0",
-                "illuminate/support": "^13.0",
+                "illuminate/console": "^11.36 || ^12.0 || ^13.0",
+                "illuminate/contracts": "^11.36 || ^12.0 || ^13.0",
+                "illuminate/filesystem": "^11.36 || ^12.0 || ^13.0",
+                "illuminate/http": "^11.36 || ^12.0 || ^13.0",
+                "illuminate/log": "^11.36 || ^12.0 || ^13.0",
+                "illuminate/support": "^11.36 || ^12.0 || ^13.0",
+                "laravel/framework": "^11.36 || ^12.0 || ^13.0",
                 "laravel/nightwatch": "^1.28",
-                "php": "^8.3"
+                "php": "^8.3",
+                "symfony/http-foundation": "^7.0.3 || ^8.0"
             },
             "require-dev": {
                 "laravel/pint": "^1.27",
@@ -244,22 +250,22 @@
                 "telemetry"
             ],
             "support": {
-                "source": "https://github.com/artisan-build/hone-client/tree/v1.6.1"
+                "source": "https://github.com/artisan-build/hone-client/tree/v1.8.1"
             },
-            "time": "2026-10-10T18:51:08+00:00"
+            "time": "2026-10-20T09:51:06+00:00"
         },
         {
             "name": "artisan-build/hone-contracts",
-            "version": "v1.6.1",
+            "version": "v1.8.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/hone-contracts.git",
-                "reference": "dd3f0cca937df9adb85b6636be782aa0815f5931"
+                "reference": "6de5564eb60b19d0a4803a9b05a71e9b6a3cb010"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/hone-contracts/zipball/dd3f0cca937df9adb85b6636be782aa0815f5931",
-                "reference": "dd3f0cca937df9adb85b6636be782aa0815f5931",
+                "url": "https://api.github.com/repos/artisan-build/hone-contracts/zipball/6de5564eb60b19d0a4803a9b05a71e9b6a3cb010",
+                "reference": "6de5564eb60b19d0a4803a9b05a71e9b6a3cb010",
                 "shasum": ""
             },
             "require": {
@@ -288,9 +294,9 @@
                 "telemetry"
             ],
             "support": {
-                "source": "https://github.com/artisan-build/hone-contracts/tree/v1.6.1"
+                "source": "https://github.com/artisan-build/hone-contracts/tree/v1.8.1"
             },
-            "time": "2026-10-10T18:51:12+00:00"
+            "time": "2026-10-20T09:51:13+00:00"
         },
         {
             "name": "aws/aws-crt-php",
@@ -5386,16 +5392,16 @@
         },
         {
             "name": "symfony/http-foundation",
-            "version": "v8.1.7",
+            "version": "v8.1.9",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/http-foundation.git",
-                "reference": "d8fdc670ed510a69e3a9eb4f5eac89f5ed627e17"
+                "reference": "7850897fb8659f98491b03be79ac48600bdaf9ab"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/http-foundation/zipball/d8fdc670ed510a69e3a9eb4f5eac89f5ed627e17",
-                "reference": "d8fdc670ed510a69e3a9eb4f5eac89f5ed627e17",
+                "url": "https://api.github.com/repos/symfony/http-foundation/zipball/7850897fb8659f98491b03be79ac48600bdaf9ab",
+                "reference": "7850897fb8659f98491b03be79ac48600bdaf9ab",
                 "shasum": ""
             },
             "require": {
@@ -5443,7 +5449,7 @@
             "description": "Defines an object-oriented layer for the HTTP specification",
             "homepage": "https://symfony.com",
             "support": {
-                "source": "https://github.com/symfony/http-foundation/tree/v8.1.7"
+                "source": "https://github.com/symfony/http-foundation/tree/v8.1.9"
             },
             "funding": [
                 {
@@ -5463,7 +5469,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-09-14T17:47:24+00:00"
+            "time": "2026-10-08T16:57:43+00:00"
         },
         {
             "name": "symfony/http-kernel",
