@@ -16,6 +16,15 @@ test('issues only plain filenames inside the current job scratch directory', fun
     'null byte' => "input\0.mp4",
 ]);
 
+test('refuses a stage-in destination that already exists as a directory', function (): void {
+    resolve(JobScratch::class)->run(function (ScratchDirectory $scratch): void {
+        $payload = $scratch->file('payload');
+        mkdir($payload->writablePath(), 0777, true);
+
+        expect(fn () => $payload->writablePath())->toThrow(RuntimeException::class);
+    });
+});
+
 test('rejects symlinks that escape scratch for reads and writes', function (bool $targetExists): void {
     resolve(JobScratch::class)->run(function (ScratchDirectory $scratch) use ($targetExists): void {
         $outsidePath = storage_path('framework/testing/slate-outside-'.($targetExists ? 'existing' : 'missing').'.txt');
