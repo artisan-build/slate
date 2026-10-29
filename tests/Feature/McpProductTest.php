@@ -466,13 +466,12 @@ test('a delegated numeric identifier never aliases the local user with the same 
         ->assertOk();
 
     $actor = DelegatedActor::query()->where('subject', $subject)->sole();
-    $user = User::query()->create([
+    $user = new User;
+    $user->forceFill([
         'id' => $actor->getKey(),
         'name' => 'Same Numeric Identifier',
         'email' => 'same-id@example.test',
         'password' => bcrypt('password'),
-    ]);
-    $user->forceFill([
         'role' => 'member',
         'status' => 'active',
         'email_verified_at' => now(),
