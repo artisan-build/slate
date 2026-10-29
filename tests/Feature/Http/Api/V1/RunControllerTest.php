@@ -22,7 +22,7 @@ use App\Slate\Webhook\HostnameResolver;
 use ArtisanBuild\BuiltForCloud\Subject;
 use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\BuiltForCloud\User;
-use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Queue\DatabaseQueue;
 use Illuminate\Queue\Worker;
 use Illuminate\Queue\WorkerOptions;
@@ -99,7 +99,7 @@ final readonly class ApiHostnameResolver implements HostnameResolver
 
 final class RunControllerTest extends TestCase
 {
-    use LazilyRefreshDatabase;
+    use DatabaseMigrations;
     use WithSlateSourcesCredentials;
 
     public function test_valid_payload_creates_run_calls_executor_and_returns_202(): void
