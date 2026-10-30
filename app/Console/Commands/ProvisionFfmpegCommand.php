@@ -31,8 +31,12 @@ final class ProvisionFfmpegCommand extends Command
         }
 
         try {
-            $this->assertXzAvailable();
-            $this->provision($locator);
+            if ($locator->hasPinnedBuild()) {
+                $this->assertXzAvailable();
+                $this->provision($locator);
+            } else {
+                $this->linkInstalledBinaries($locator);
+            }
         } catch (Throwable $exception) {
             $this->components->error($exception->getMessage());
 
@@ -44,6 +48,50 @@ final class ProvisionFfmpegCommand extends Command
         $this->line('ffprobe: '.$locator->ffprobePath());
 
         return self::SUCCESS;
+    }
+
+    /** Link the ffmpeg and ffprobe already installed on this machine into the runtime path, for platforms without a pinned build. */
+    private function linkInstalledBinaries(FfmpegLocator $locator): void
+    {
+        $binaries = $this->installedBinaries();
+        $binPath = $locator->installationPath().'/bin';
+
+        $this->removeDirectory($locator->installationPath());
+        $this->ensureDirectory($binPath);
+
+        foreach ($binaries as $name => $path) {
+            if (! symlink($path, "{$binPath}/{$name}")) {
+                throw new RuntimeException("Unable to link {$name} into {$binPath}.");
+            }
+        }
+
+        $this->line('Using the ffmpeg installed on this machine; no pinned build exists for this platform.');
+    }
+
+    /**
+     * The installed ffmpeg and ffprobe, from PATH or Homebrew's usual locations.
+     *
+     * @return array{ffmpeg: string, ffprobe: string}
+     */
+    private function installedBinaries(): array
+    {
+        $directories = [...explode(PATH_SEPARATOR, (string) getenv('PATH')), '/opt/homebrew/bin', '/usr/local/bin'];
+        $binaries = [];
+
+        foreach (['ffmpeg', 'ffprobe'] as $name) {
+            $path = collect($directories)
+                ->filter()
+                ->map(fn (string $directory): string => rtrim($directory, '/').'/'.$name)
+                ->first(fn (string $candidate): bool => is_file($candidate) && is_executable($candidate));
+
+            if (! is_string($path)) {
+                throw new RuntimeException("No pinned ffmpeg build exists for this platform and {$name} is not installed. Install ffmpeg (on macOS, `brew install ffmpeg`) and run this command again.");
+            }
+
+            $binaries[$name] = $path;
+        }
+
+        return $binaries;
     }
 
     private function assertXzAvailable(): void

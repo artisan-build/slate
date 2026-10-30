@@ -32,6 +32,12 @@ final readonly class FfmpegLocator
         };
     }
 
+    /** Whether a pinned upstream build exists for this platform; elsewhere, such as a developer's Mac, Slate uses the ffmpeg already installed. */
+    public function hasPinnedBuild(): bool
+    {
+        return [$this->osFamily, $this->normalizedMachine()] === ['Linux', 'arm64'];
+    }
+
     public function runtimePath(): string
     {
         return $this->runtimePathOverride ?? (string) config('slate.ffmpeg.runtime_path');

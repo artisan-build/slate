@@ -45,3 +45,12 @@ test('rejects a relative runtime override', function (): void {
     expect(fn (): FfmpegLocator => new FfmpegLocator('Linux', 'arm64', 'relative/runtime'))
         ->toThrow(InvalidArgumentException::class);
 });
+
+test('has a pinned build only for Linux arm64', function (string $osFamily, string $machine, bool $pinned): void {
+    expect((new FfmpegLocator($osFamily, $machine))->hasPinnedBuild())->toBe($pinned);
+})->with([
+    ['Linux', 'aarch64', true],
+    ['Linux', 'arm64', true],
+    ['Darwin', 'arm64', false],
+    ['Linux', 'x86_64', false],
+]);
