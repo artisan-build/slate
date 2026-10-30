@@ -1,5 +1,6 @@
 <?php
 
+use App\Slate\Driver\Binary\FfmpegLocator;
 use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
@@ -43,4 +44,4 @@ test('fails clearly before downloading when xz is unavailable', function (): voi
     $this->artisan('slate:provision-ffmpeg')
         ->expectsOutputToContain('Missing required `xz` executable')
         ->assertFailed();
-});
+})->skip(fn (): bool => ! FfmpegLocator::fromSystem()->hasPinnedBuild(), 'Only pinned builds require xz to extract the downloaded archive.');
