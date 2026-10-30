@@ -48,6 +48,7 @@ function resolvingScalpelsImageUrls(): array
  * scalpels.app URLs verified to answer HTTP 200 with an HTML page.
  *
  * 2026-09-26: `/products/slate` -> 200 text/html.
+ * 2026-10-30: `/docs/slate` -> 200 text/html, no redirect.
  *
  * @return array<int, string>
  */
@@ -56,6 +57,7 @@ function resolvingScalpelsPageUrls(): array
     return [
         'https://scalpels.app/dashboard',
         'https://scalpels.app/docs',
+        'https://scalpels.app/docs/slate',
         'https://scalpels.app/products/slate',
     ];
 }
